@@ -45,6 +45,7 @@ const CATALOG_QUERIES: &[&str] = &[
     "language-value",
     "property-handlers-for-type",
     "read-document",
+    "read-json-records",
     "read-record",
     "read-record-fields",
     "records-by-definition-id",
@@ -132,7 +133,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(29, 0)
+        parser_wasm::AbiVersion::new(30, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -149,7 +150,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.47.0")
+        Some("0.48.0")
     );
 
     let world = package
@@ -611,4 +612,21 @@ fn immutable_tree_queries_are_an_explicit_bounded_import_contract() {
     let (package, _) = resolve.push_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit")).unwrap();
     let actual = surface_names(&resolve, package, "tree-data", None);
     compare_names(&actual, &["children", "details", "diagnostics", "info", "node", "roots", "span"]).unwrap();
+}
+
+#[test]
+fn source_preparation_export_and_page_types_are_present() {
+    let mut resolve=wit_parser::Resolve::default();
+    let (package,_)=resolve.push_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit")).unwrap();
+    let addon=&resolve.interfaces[resolve.packages[package].interfaces["addon"]];
+    compare_names(&addon.functions.keys().map(String::as_str).collect(),
+        &["initialize","manifest","prepare-source-step"]).unwrap();
+    let types=&resolve.interfaces[resolve.packages[package].interfaces["types"]];
+    assert!(types.types.contains_key("source-preparation-context"));
+    assert!(types.types.contains_key("source-preparation-status"));
+    let catalog=imported_interface(&resolve,package,"catalog-data");
+    let page=&resolve.types[catalog.types["catalog-json-page"]];
+    let wit_parser::TypeDefKind::Record(record)=&page.kind else {panic!("page record")};
+    assert_eq!(record.fields.iter().map(|f|f.name.as_str()).collect::<Vec<_>>(),
+        ["total-records","items","next-offset"]);
 }

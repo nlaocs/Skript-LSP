@@ -304,8 +304,8 @@ impl ParserHost {
                 .iter()
                 .map(|entry| {
                     format!(
-                        "{:?}|{:?}|{}",
-                        entry.manifest, entry.registered_handler_bindings, entry.load_order
+                        "{:?}|{:?}|{}|{}",
+                        entry.manifest, entry.registered_handler_bindings, entry.load_order, entry.preparation_generation
                     )
                 })
                 .collect::<Vec<_>>();
@@ -761,6 +761,23 @@ mod tests {
         host.finish_incremental_document(DOCUMENT, 2, false);
         assert_eq!(host.incremental.documents[DOCUMENT].revision, 1);
     }
+    #[test]
+    fn source_preparation_generation_invalidates_previous_invocation_world() {
+        let mut host=host();let source="on join:\n    send 1\n";
+        let parse=begin(&mut host,source,1);
+        let old=record(&mut host,&parse,source,1);
+        parse.commit().unwrap();assert_eq!(host.finish_incremental_document(DOCUMENT,1,true).stored,1);
+        host.components[0].preparation_generation+=1;
+        let parse=begin(&mut host,source,2);let mut current=invocation(source,2);
+        let new=host.incremental_key(0,&mut current).unwrap().unwrap();
+        // Local input keys stay stable; the independent document world is the fence.
+        assert_eq!(old,new);assert!(host.incremental.documents[DOCUMENT].entries.contains_key(&old));
+        assert_ne!(Some(&host.incremental.documents[DOCUMENT].world),host.incremental.active.as_ref().unwrap().world.as_ref());
+        let mut state=parse.begin_invocation(host.components[0].manifest.component_id.clone()).unwrap();
+        state.observe_reads();assert!(host.incremental_lookup(&new,&mut state,&current.payload).unwrap().is_none());
+        state.rollback();parse.cancel().unwrap();host.finish_incremental_document(DOCUMENT,2,false);
+    }
+
     #[test]
     fn authenticated_local_input_views_keep_shape_context_and_current_echo() {
         let mut host = host();

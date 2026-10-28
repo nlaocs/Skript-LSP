@@ -1,9 +1,9 @@
 # Sealed value inputs and selected semantic facts
 
-The opt-in host capability `parser.semantic-value-facts` v1 uses WIT 0.47 /
-ABI29 metadata transport. A producer requires this capability before emitting
+The opt-in host capability `parser.semantic-value-facts` v1 uses WIT 0.48 /
+ABI30 metadata transport (unchanged from ABI29). A producer requires this capability before emitting
 value-domain drafts. Core advertises optional participation: without native
-input seals it keeps the older conservative result. An older ABI29 host rejects
+input seals it keeps the older conservative result. A host lacking this capability rejects
 a producer that requires the capability. This does not change the WIT layout.
 
 ## Value-domain draft

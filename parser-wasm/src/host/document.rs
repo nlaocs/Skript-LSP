@@ -63,6 +63,11 @@ impl DocumentCancellationToken {
         self.cancelled.load(Ordering::Acquire)
     }
 
+    #[cfg(test)]
+    pub(super) fn after_native_probes(budget: usize) -> Self {
+        Self { native_probe_budget: Some(Arc::new(AtomicUsize::new(budget))), ..Self::new() }
+    }
+
     pub(super) fn native_cancelled(&self) -> bool {
         #[cfg(test)]
         if let Some(budget) = &self.native_probe_budget

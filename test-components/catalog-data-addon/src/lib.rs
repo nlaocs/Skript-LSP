@@ -7,7 +7,7 @@
 //! so the test proves that values crossed the actual Component ABI.
 #![allow(missing_docs)] // `wit_bindgen` generates the exported guest API.
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
@@ -26,7 +26,7 @@ use nlaocs::skript_parser_addon::{
         TextMacroInput, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput,
     },
 };
-use parser_wasm::{ABI_VERSION, CAPABILITY_CATALOG_DATA, CAPABILITY_HOOKS};
+use parser_wasm::{ABI_VERSION, CAPABILITY_CATALOG_DATA, CAPABILITY_HOOKS, CAPABILITY_SOURCE_PREPARATION};
 
 const COMPONENT_ID: &str = "test.catalog-data-addon";
 const SUBSCRIPTION_ID: &str = "catalog-data.integration";
@@ -46,6 +46,8 @@ const EXPECTED_EFFECTS: &[u8] = br#"[
 ]"#;
 const EXPECTED_FIRST_RECORD: &[u8] = br#"{"definitionId":"duplicate-definition","futureField":{"enabled":true},"label":"first","registrationId":"duplicate-registration"}"#;
 
+static PREPARATION_CASE: AtomicU8 = AtomicU8::new(0);
+
 static CATALOG_CAPABILITY_ADVERTISED: AtomicBool = AtomicBool::new(false);
 
 struct CatalogDataAddon;
@@ -64,6 +66,32 @@ fn empty_selector() -> HookSelector {
 }
 
 impl addon::Guest for CatalogDataAddon {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, AddonError> {
+        use crate::nlaocs::skript_parser_addon::{state_store,types::{SourcePreparationStatus as Status,StateScope,StateNamespaceVisibility}};
+        match PREPARATION_CASE.load(Ordering::Relaxed) {
+            1 => Ok(Status::Pending("fixture-pending".into())),
+            2 => { loop { core::hint::spin_loop(); } },
+            3 => {
+                // Deliberately ignore the error: the host must still reject the job.
+                let _=state_store::get(StateScope::Parse,StateNamespaceVisibility::Private,"forbidden","x");
+                Ok(Status::Ready("forbidden-import-ignored".into()))
+            },
+            4 => Ok(Status::Unavailable("fixture-missing-proof".into())),
+            5 => {
+                let bytes=vec![42u8;20*1024*1024];
+                core::hint::black_box(&bytes);
+                Ok(Status::Ready("oversized-memory".into()))
+            },
+            6 => {
+                for _ in 0..129 {let _=catalog_data::source();}
+                Ok(Status::Ready("query-quota-ignored".into()))
+            },
+            _ if context.step==0 => Ok(Status::Pending("fixture-in-progress".into())),
+            _ => Ok(Status::Ready(format!("fixture-generation-{}",context.generation))),
+        }
+    }
+
     fn manifest() -> ComponentManifest {
         ComponentManifest {
             incremental_body_handler_subscriptions: Vec::new(),
@@ -79,6 +107,7 @@ impl addon::Guest for CatalogDataAddon {
                 minor: ABI_VERSION.minor,
             },
             capabilities: vec![
+                CapabilityRequirement { id: CAPABILITY_SOURCE_PREPARATION.to_owned(), minimum_version: 1, required: false },
                 CapabilityRequirement {
                     id: CAPABILITY_HOOKS.to_owned(),
                     minimum_version: 1,
@@ -108,6 +137,15 @@ impl addon::Guest for CatalogDataAddon {
     fn initialize(
         profile: HostProfile,
     ) -> Result<(), nlaocs::skript_parser_addon::types::CompatibilityError> {
+        PREPARATION_CASE.store(match profile.runtime.language.as_deref() {
+            Some("source-preparation:pending")=>1,
+            Some("source-preparation:fuel")=>2,
+            Some("source-preparation:forbidden")=>3,
+            Some("source-preparation:unavailable")=>4,
+            Some("source-preparation:memory")=>5,
+            Some("source-preparation:queries")=>6,
+            _=>0,
+        },Ordering::Relaxed);
         CATALOG_CAPABILITY_ADVERTISED.store(
             profile
                 .capabilities

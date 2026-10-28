@@ -12,6 +12,11 @@ pub(crate) struct SemanticStateAddon;
 fn effects()->HookEffects {HookEffects {diagnostics:vec![],context_updates:vec![],parse_requests:vec![],parse_results:vec![]}}
 fn error(message:impl Into<String>)->AddonError {AddonError {kind:AddonErrorKind::InvalidPayload,message:message.into(),diagnostics:vec![]}}
 impl addon::Guest for SemanticStateAddon {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
+        let _ = context; Ok(crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus::Ready("unused".into()))
+    }
+
     fn manifest()->ComponentManifest {
         ComponentManifest {component_id:ID.into(),component_version:env!("CARGO_PKG_VERSION").into(),
             abi:AbiVersion {major:ABI_VERSION.major,minor:ABI_VERSION.minor},

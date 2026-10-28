@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.47.0;
+package nlaocs:skript-parser-addon@0.48.0;
 
 /// Read-only, bounded access to the active Tree macro snapshot.
 interface tree-data {

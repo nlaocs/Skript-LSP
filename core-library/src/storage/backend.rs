@@ -260,6 +260,19 @@ pub(crate) fn event_reference(payload: &RegisteredExpressionPayload, values: &[E
 #[cfg(target_arch="wasm32")]
 static MODELS: LazyLock<RwLock<HashMap<String, Arc<PreparedSource>>>> = LazyLock::new(||RwLock::new(HashMap::new()));
 
+/// Publish only completed structural projection. This cannot authorize legacy
+/// storage, producer origin, ResultType or a document receipt.
+#[cfg(target_arch="wasm32")]
+pub(super) fn publish_prepared_projection(source:SourceIdentity,projection:super::evidence::observation::preparation::PreparedProjection)->Result<(),super::evidence::Failure> {
+    let bound=projection.into_bound();
+    if current_source().ok().as_ref()!=Some(&source)||!bound.matches_source(&source) {return Err(super::evidence::Failure::Source);}
+    let key=format!("{}:{}",source.source_digest,source.snapshot_id);
+    let prepared=Arc::new(PreparedSource {source,legacy:None,legacy_profile_matches:false,observation:ObservationInput::Projected(bound)});
+    let mut cache=MODELS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if cache.len()>=16 {cache.clear();}cache.insert(key,prepared);Ok(())
+}
+
+
 /// Consumers never perform a cold registry transfer inside a body hook. A
 /// cancelled Store restart or standalone parse without structure preparation
 /// therefore retains Unknown, rather than exhausting a hook's fuel budget.

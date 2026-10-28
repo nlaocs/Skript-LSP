@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.47.0;
+package nlaocs:skript-parser-addon@0.48.0;
 
 /// Read-only access to the complete retained SSG source and host type relations.
 interface catalog-data {
@@ -374,4 +374,27 @@ interface catalog-data {
         property-name: string,
         source-class: string,
     ) -> result<list<property-handler-contract>, catalog-error>;
+
+    record catalog-json-page {
+        total-records: u64,
+        items: list<catalog-field-record>,
+        next-offset: option<u64>,
+    }
+    /// Catalog-data v5. Literal object-key path (at most8 segments of128 bytes)
+    /// to an array; empty path selects a root array. Empty fields returns exact
+    /// raw rows; explicit fields use exact RawValues, keeping missing/null apart.
+    /// Source is immutable and both identities must match. Up to256 rows and
+    ///64KiB payload per response; a too-large first row fails, never means EOF.
+    /// Ambiguous keys, malformed structure and unavailable paths remain distinct.
+    read-json-records: func(
+        source-digest: string,
+        snapshot-id: string,
+        document: string,
+        path: list<string>,
+        fields: list<string>,
+        offset: u64,
+        limit: u32,
+        max-bytes: u32,
+    ) -> result<option<catalog-json-page>, catalog-error>;
+
 }

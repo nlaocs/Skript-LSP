@@ -107,22 +107,32 @@ fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 use crate::bindings::nlaocs::skript_parser_addon::addon_data as wit;
 impl wit::Host for super::StoreData {
     fn info(&mut self, id: String) -> Result<Option<wit::SourceInfo>, wit::Error> {
+        self.source_query(None).map_err(|e|wit::Error {kind:wit::ErrorKind::InvalidInput,message:e.message})?;
         let owner = self.addon_data_owner.as_ref().ok_or_else(denied)?;
-        Ok(self.addon_data_sources.iter().find(|s| s.pin.id == id && s.authorized(owner)).map(|source| wit::SourceInfo {
+        let info=self.addon_data_sources.iter().find(|s| s.pin.id == id && s.authorized(owner)).map(|source| wit::SourceInfo {
             id: source.pin.id.clone(), schema_id: source.pin.schema_id.clone(), schema_version: source.pin.schema_version,
             envelope_sha256:source.pin.sha256.clone(),content_sha256: source.content_sha256.clone(), bindings: source.pin.bindings.iter()
                 .map(|(key,value)| wit::Binding { key:key.clone(), value:value.clone() }).collect(),
             byte_length: source.bytes.len() as u64,
-        }))
+        });
+        let bytes=info.as_ref().map_or(0,|s|s.id.len()+s.schema_id.len()+s.envelope_sha256.len()+s.content_sha256.len()+12+s.bindings.iter().map(|b|b.key.len()+b.value.len()).sum::<usize>());
+        self.source_output(bytes).map_err(|e|wit::Error {kind:wit::ErrorKind::InvalidInput,message:e.message})?;
+        Ok(info)
     }
     fn read(&mut self, id: String, offset: u64, max_bytes: u32) -> Result<Option<wit::Chunk>, wit::Error> {
+        self.source_query(None).map_err(|e|wit::Error {kind:wit::ErrorKind::InvalidInput,message:e.message})?;
         let owner = self.addon_data_owner.as_ref().ok_or_else(denied)?;
         if max_bytes == 0 || max_bytes > MAX_CHUNK_BYTES { return Err(invalid()); }
         let Some(source) = self.addon_data_sources.iter().find(|s| s.pin.id == id && s.authorized(owner)) else { return Ok(None); };
         let start = usize::try_from(offset).map_err(|_| invalid())?;
         if start > source.bytes.len() { return Err(invalid()); }
         let end = start.saturating_add(max_bytes as usize).min(source.bytes.len());
-        Ok(Some(wit::Chunk { offset, total_length: source.bytes.len() as u64, bytes: source.bytes[start..end].to_vec() }))
+        let total_length=source.bytes.len() as u64;
+        let bytes=source.bytes[start..end].to_vec();
+        let key=format!("addon-data:{}:{}",id,source.content_sha256);
+        self.source_query(Some((&key,total_length as usize))).map_err(|e|wit::Error {kind:wit::ErrorKind::InvalidInput,message:e.message})?;
+        self.source_output(bytes.len()).map_err(|e|wit::Error {kind:wit::ErrorKind::InvalidInput,message:e.message})?;
+        Ok(Some(wit::Chunk {offset,total_length,bytes}))
     }
 }
 fn denied() -> wit::Error { wit::Error { kind: wit::ErrorKind::AccessDenied, message: "addon data requires a validated component identity".into() } }

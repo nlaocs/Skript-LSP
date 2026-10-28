@@ -1,6 +1,10 @@
 # Parser WASM ABI
 
-ABI 29 / WIT 0.47 adds component-bound immutable addon inputs through
+ABI **30 / WIT 0.48** adds bounded owner-private source preparation and generic
+nested JSON paging (`catalog-data` v5). Host, Core and every addon must be rebuilt
+together; older versions are rejected. See [the lifecycle and limits](../docs/source-preparation.md).
+
+ABI 29 / WIT 0.47 added component-bound immutable addon inputs through
 `addon-data`; see [the input and editing-proposal guide](../docs/addon-inputs.md).
 Host, CoreLibrary and all addons must be rebuilt together.
 
@@ -74,7 +78,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.47.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.48.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -133,7 +137,7 @@ multiple targets for each registered semantic handler, including dynamic
   experiment catalog access changed it to 0.27.0; public schema-versioned
   Expression data and editable semantic envelopes changed it to 0.28.0;
   provider-controlled Expression leaf timing, complete active-Type metadata,
-  and parser-class targets changed it to 0.29.0; structured unresolved Type
+  and parser-class targets changed it to 0.30.0; structured unresolved Type
   parser results changed it to 0.30.0; runtime Type parser registration
   metadata changed it to 0.31.0; host-indexed runtime Type pattern matching
   changed it to 0.32.0; the read-only structured Section scope stack changed it
@@ -146,7 +150,7 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
-changed it to 0.43.0. The manifest's current `abi` value is 29.0 and
+changed it to 0.43.0. The manifest's current `abi` value is 30.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -168,7 +172,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 29.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 30.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts
@@ -1206,7 +1210,7 @@ Local State reach is not a purity, type or incremental-reuse certificate. Actual
 node transformations and ancestor/subtree writers, unattached retained receipts,
 the unique semantic issuer check and native source/revision validation all remain
 in force. Editing proposal ownership cannot grant semantic type authority. This
-host-side distinction uses the existing WIT 0.47 / ABI 29 StateStore contract;
+host-side distinction uses the WIT 0.48 / ABI 30 StateStore contract (unchanged from 0.47 / 29);
 addons require no new declaration or opt-in.
 
 Successful Structure Exit returns validated metadata to the final candidate. The
@@ -1219,6 +1223,6 @@ keeps accepted Exit receipts attached without relaxing truly unattached writers.
 `parser.semantic-value-facts` v1 composes selected parent facts from current
 native-sealed expression inputs. It preserves the advertised expression type,
 separates value/absence/storage guarantees from evaluation effects, and leaves
-whole-node issuer checks unchanged. It uses the existing ABI 29 metadata layout;
+whole-node issuer checks unchanged. It uses the ABI 30 metadata layout (unchanged from ABI 29);
 a producer requiring it is rejected by an older host. See the
 [value-fact contract](../docs/wasm-value-facts.md) for schemas, bounds and limits.

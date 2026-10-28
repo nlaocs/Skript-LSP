@@ -75,6 +75,11 @@ fn empty_hook_selector() -> HookSelector {
 struct CoreLibrary;
 
 impl addon::Guest for CoreLibrary {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
+        storage::preparation::step(context)
+    }
+
     fn manifest() -> ComponentManifest {
         ComponentManifest {
             // Audited local families: all semantic inputs are payload/context or
@@ -157,9 +162,10 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: CAPABILITY_CATALOG_DATA.to_owned(),
-                    minimum_version: 4,
+                    minimum_version: 5,
                     required: false,
                 },
+                CapabilityRequirement { id: parser_wasm::CAPABILITY_SOURCE_PREPARATION.into(), minimum_version: 1, required: false },
                 CapabilityRequirement {
                     id: parser_wasm::CAPABILITY_DEFAULT_EXPRESSION.to_owned(),
                     minimum_version: 1,
@@ -336,7 +342,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_TREE_MACRO, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
             ParserCapabilityRequirement::optional(CAPABILITY_DYNAMIC_SYNTAX, 1),
-            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 4),
+            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 5),
         ];
         let capabilities = profile
             .capabilities
@@ -976,7 +982,7 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 20);
+        assert_eq!(manifest.capabilities.len(), 21);
         assert!(manifest.capabilities.iter().any(|c|c.id=="parser.semantic-value-facts" && c.minimum_version==1 && !c.required));
         assert!(manifest.capabilities.iter().any(|c| c.id
             == parser_wasm::CAPABILITY_STATIC_NAME_RENAME_STABILITY
@@ -1061,16 +1067,19 @@ mod tests {
         assert_eq!(manifest.capabilities[8].id, CAPABILITY_DYNAMIC_SYNTAX);
         assert!(!manifest.capabilities[8].required);
         assert_eq!(manifest.capabilities[9].id, CAPABILITY_CATALOG_DATA);
-        assert_eq!(manifest.capabilities[9].minimum_version, 4);
+        assert_eq!(manifest.capabilities[9].minimum_version, 5);
         assert!(!manifest.capabilities[9].required);
         assert_eq!(manifest.state_namespaces.len(), 3);
         assert_eq!(manifest.state_namespaces[1].name, "commands");
         assert_eq!(manifest.state_namespaces[2].name, "aliases");
         assert_eq!(
-            manifest.capabilities[10].id,
+            manifest.capabilities[11].id,
             parser_wasm::CAPABILITY_DEFAULT_EXPRESSION
         );
-        assert!(manifest.capabilities[10].required);
+        assert!(manifest.capabilities[11].required);
+        assert_eq!(manifest.capabilities[10].id,parser_wasm::CAPABILITY_SOURCE_PREPARATION);
+        assert_eq!(manifest.capabilities[10].minimum_version,1);
+        assert!(!manifest.capabilities[10].required);
         assert_eq!(
             manifest.subscriptions[9].id,
             default_expression::PROVIDER_ID

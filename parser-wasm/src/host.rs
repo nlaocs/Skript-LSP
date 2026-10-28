@@ -6,6 +6,8 @@
 
 mod ast_macro;
 mod addon_data;
+mod source_preparation;
+pub use source_preparation::{SourcePreparationReport,SourcePreparationStep};
 mod editor_completion;
 pub use editor_completion::{Batch as EditorCompletionBatch, Output as EditorCompletionOutput, Proposal as EditorCompletionProposal};
 pub use editor_completion::typed::{Input as EditorCompletionInput, TypeFact as EditorCompletionTypeFact};
@@ -1013,6 +1015,8 @@ struct GuestResourceLimit {
 }
 
 struct HostResourceLimiter {
+    requested_memory_high_water: usize,
+    preparation_memory_bytes: Option<usize>,
     memory_bytes: usize,
     table_elements: usize,
     instances: usize,
@@ -1027,15 +1031,18 @@ impl ResourceLimiter for HostResourceLimiter {
         desired: usize,
         maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        if desired > self.memory_bytes {
+        let memory_limit=self.preparation_memory_bytes.unwrap_or(self.memory_bytes).min(self.memory_bytes);
+        if desired > memory_limit {
             return Err(GuestResourceLimit {
                 resource: "linear memory",
                 requested: desired,
-                limit: self.memory_bytes,
+                limit: memory_limit,
             }
             .into());
         }
-        Ok(maximum.is_none_or(|maximum| desired <= maximum))
+        let allowed=maximum.is_none_or(|maximum| desired <= maximum);
+        if allowed {self.requested_memory_high_water=self.requested_memory_high_water.max(desired);}
+        Ok(allowed)
     }
 
     fn table_growing(
@@ -1069,6 +1076,10 @@ impl ResourceLimiter for HostResourceLimiter {
 }
 
 struct StoreData {
+    source_preparing: bool,
+    source_violation: std::cell::Cell<bool>,
+    source_budget: Option<source_preparation::Budget>,
+    source_pages: source_preparation::Pages,
     addon_data_sources: Vec<AddonDataSource>,
     addon_data_owner: Option<(String, String)>,
     tree_view: Option<tree_view::Lease>,
@@ -1250,51 +1261,36 @@ impl wit_catalog_data::Host for StoreData {
             }))
     }
 
-    fn source(
-        &mut self,
-    ) -> Result<Option<wit_catalog_data::CatalogSource>, wit_catalog_data::CatalogError> {
-        #[cfg(test)]
-        let _measurement = self
-            .catalog_measurement
-            .as_ref()
-            .map(|probe| probe.start(catalog_measurement::Operation::Source));
-        let catalog = self.catalog()?;
-        Ok(catalog
-            .source()
-            .map(|source| wit_catalog_data::CatalogSource {
-                format: source.format.clone(),
-                schema_version: source.schema_version,
-                snapshot_id: source.snapshot_id.clone(),
-                source_digest: source.source_digest.clone(),
-            }))
+    fn source(&mut self) -> Result<Option<wit_catalog_data::CatalogSource>,wit_catalog_data::CatalogError> {
+        self.source_query(None)?;
+        let catalog=self.raw_catalog()?;
+        let info=catalog.source().map(|s|wit_catalog_data::CatalogSource {format:s.format.clone(),schema_version:s.schema_version,snapshot_id:s.snapshot_id.clone(),source_digest:s.source_digest.clone()});
+        self.source_output(info.as_ref().map_or(0,|s|s.format.len()+s.snapshot_id.len()+s.source_digest.len()+4))?;
+        Ok(info)
     }
-
-    fn documents(
-        &mut self,
-        offset: u64,
-        limit: u32,
-    ) -> Result<wit_catalog_data::CatalogDocumentPage, wit_catalog_data::CatalogError> {
-        let catalog = self.catalog()?;
-        let documents = catalog.source().map_or_else(Vec::new, |source| {
-            source
-                .document_names()
-                .map(|name| (name, source.document(name).map_or(0, <[u8]>::len)))
-                .collect()
-        });
-        catalog_document_page(&documents, offset, limit, self.max_catalog_response_bytes)
+    fn documents(&mut self,offset:u64,limit:u32) -> Result<wit_catalog_data::CatalogDocumentPage,wit_catalog_data::CatalogError> {
+        self.source_query(None)?;let catalog=self.raw_catalog()?;
+        let docs=catalog.source().map_or_else(Vec::new,|s|s.document_names().map(|n|(n,s.document(n).map_or(0,<[u8]>::len))).collect());
+        let page=catalog_document_page(&docs,offset,limit,if self.source_preparing {65536}else{self.max_catalog_response_bytes})?;
+        self.source_output(page.items.iter().map(|i|i.name.len()+i.media_type.len()+8).sum())?;
+        Ok(page)
     }
-
-    fn read_document(
-        &mut self,
-        name: String,
-        offset: u64,
-        max_bytes: u32,
-    ) -> Result<Option<wit_catalog_data::CatalogChunk>, wit_catalog_data::CatalogError> {
-        let catalog = self.catalog()?;
-        let Some(bytes) = catalog.source().and_then(|source| source.document(&name)) else {
-            return Ok(None);
-        };
-        catalog_chunk(bytes, offset, max_bytes, self.max_catalog_response_bytes).map(Some)
+    fn read_document(&mut self,name:String,offset:u64,max_bytes:u32) -> Result<Option<wit_catalog_data::CatalogChunk>,wit_catalog_data::CatalogError> {
+        let started=std::time::Instant::now();
+        let result=(||{
+            if self.source_preparing && (max_bytes==0||max_bytes>65536) {return Err(invalid_catalog_input("preparation reads are bounded to64KiB"));}
+            let catalog=self.raw_catalog()?;
+            let Some(bytes)=catalog.source().and_then(|s|s.document(&name)) else {self.source_query(None)?;return Ok(None);};
+            self.source_query(Some((&name,bytes.len())))?;
+            let chunk=catalog_chunk(bytes,offset,max_bytes,self.max_catalog_response_bytes)?;
+            self.source_output(chunk.bytes.len())?;Ok(Some(chunk))
+        })();
+        if let Some(b)=self.source_budget.as_mut(){b.callback_ns+=started.elapsed().as_nanos();}
+        result
+    }
+    fn read_json_records(&mut self,digest:String,snapshot:String,document:String,path:Vec<String>,fields:Vec<String>,offset:u64,limit:u32,max_bytes:u32)
+        -> Result<Option<wit_catalog_data::CatalogJsonPage>,wit_catalog_data::CatalogError> {
+        self.json_records(digest,snapshot,document,path,fields,offset,limit,max_bytes)
     }
 
     fn records_by_registration_id(
@@ -2333,12 +2329,14 @@ fn wit_dynamic_registry_error(error: DynamicRegistryError) -> WitDynamicRegistry
 
 impl StoreData {
     fn note_initialization_host_call(&mut self) {
+        if self.source_preparing {self.source_violation.set(true);}
         if self.initializing {
             self.initialization_host_call_attempted = true;
         }
     }
 
     fn catalog(&self) -> Result<&Catalog, wit_catalog_data::CatalogError> {
+        if self.source_preparing {self.source_violation.set(true);return Err(invalid_catalog_input("source preparation permits only immutable source reads"));}
         self.catalog
             .as_deref()
             .ok_or_else(|| wit_catalog_data::CatalogError {
@@ -2900,6 +2898,7 @@ fn catalog_page_bounds(
 }
 
 struct ComponentEntry {
+    preparation_generation: u64,
     component_sha256: String,
     component: Component,
     manifest: ComponentManifest,
@@ -9426,6 +9425,9 @@ pub struct ParserHost {
     #[cfg(test)]
     legacy_type_expected: bool,
     completion_types: CompletionTypeCertificate,
+    source_preparation_reports: Vec<SourcePreparationReport>,
+    source_preparation_clock: source_preparation::Clock,
+    source_preparation_reports_dropped: u64,
     runtime: Arc<SharedHostRuntime>,
     config: HostConfig,
     native_cancellation: Option<DocumentCancellationToken>,
@@ -9803,6 +9805,12 @@ impl ParserHost {
         bound_handler.then_some(bound.classes)
     }
 
+    /// Bounded source-job measurements. These records confer no semantic authority.
+    pub fn source_preparation_reports(&self) -> &[SourcePreparationReport] {&self.source_preparation_reports}
+    /// Number of old job reports removed by the bounded telemetry ring.
+    pub fn source_preparation_reports_dropped(&self)->u64 {self.source_preparation_reports_dropped}
+
+
     /// Default lexical options from the effective runtime, after explicit host
     /// settings and enabled snapshot plugins have been reconciled.
     pub fn raw_tree_options(&self) -> skript_parser::RawTreeOptions {
@@ -9853,6 +9861,9 @@ impl ParserHost {
             #[cfg(test)]
             legacy_type_expected: false,
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
+            source_preparation_reports: Vec::new(),
+            source_preparation_clock: source_preparation::Clock::default(),
+            source_preparation_reports_dropped: 0,
             runtime,
             config,
             native_cancellation: None,
@@ -13344,6 +13355,12 @@ impl ParserHost {
             return Err(skript_parser::ParseCancelled.into());
         }
         entry.store.data_mut().initializing = false;
+        let prepared=source_preparation::run(&self.config,&component_id,&entry.component_sha256,&entry.manifest,&mut entry.store,&bindings,self.native_cancellation.clone(),&mut self.source_preparation_clock)?;
+        entry.preparation_generation=prepared.generation;
+        source_preparation::record_report(&mut self.source_preparation_reports,&mut self.source_preparation_reports_dropped,prepared);
+        // Source preparation mutates owner-private state. No old body/invocation
+        // response may cross this generation, even if raw source bytes agree.
+        self.incremental=incremental::IncrementalCache::default();
         entry.store.data_mut().interrupt_safe = true;
         entry.bindings = bindings;
         entry.restart_pending = false;
@@ -13466,6 +13483,9 @@ impl ParserHost {
                 });
             }
         }
+        let prepared=source_preparation::run(&self.config,&manifest.component_id,&component_sha256,&manifest,&mut store,&bindings,self.native_cancellation.clone(),&mut self.source_preparation_clock)?;
+        let preparation_generation=prepared.generation;
+        source_preparation::record_report(&mut self.source_preparation_reports,&mut self.source_preparation_reports_dropped,prepared);
         let namespaces = namespace_declarations(&manifest);
         self.state_store
             .register_component(&manifest.component_id, &namespaces)
@@ -13489,6 +13509,7 @@ impl ParserHost {
         self.registry
             .register(component_index, load_order, &manifest.subscriptions);
         self.components.push(ComponentEntry {
+            preparation_generation,
             component_sha256,
             component,
             manifest,
@@ -13653,6 +13674,7 @@ fn component_promises(
 pub fn host_capabilities() -> Vec<Capability> {
     [
         crate::CAPABILITY_ADDON_DATA,
+        crate::CAPABILITY_SOURCE_PREPARATION,
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
@@ -13698,7 +13720,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 4));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 5));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
@@ -14785,10 +14807,16 @@ fn create_store(
     let mut store = Store::new(
         engine,
         StoreData {
+            source_preparing: false,
+            source_violation: std::cell::Cell::new(false),
+            source_budget: None,
+            source_pages: source_preparation::Pages::default(),
             addon_data_sources: config.addon_data_sources.clone(),
             addon_data_owner: None,
             tree_view: None,
             limits: HostResourceLimiter {
+                requested_memory_high_water: 0,
+                preparation_memory_bytes: None,
                 memory_bytes: config.max_memory_bytes,
                 table_elements: config.max_table_elements,
                 instances: config.max_instances_per_component,
@@ -19011,6 +19039,7 @@ mod tests {
             ids,
             [
                 crate::CAPABILITY_ADDON_DATA,
+                crate::CAPABILITY_SOURCE_PREPARATION,
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,

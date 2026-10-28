@@ -52,6 +52,11 @@ fn empty_selector() -> HookSelector {
 }
 
 impl addon::Guest for AstMacroAddon {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
+        let _ = context; Ok(crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus::Ready("unused".into()))
+    }
+
     fn manifest() -> ComponentManifest {
         ComponentManifest {
             incremental_body_handler_subscriptions: Vec::new(),

@@ -64,7 +64,7 @@ The executable is `target/release/skript-lsp` (`skript-lsp.exe` on Windows), or
 under the configured `CARGO_TARGET_DIR`. CoreLibrary is mandatory and embedded
 at compile time: rebuild the executable after updating that component. External
 parser addons must match the host contract, currently WIT
-`nlaocs:skript-parser-addon@0.47.0`, ABI `29.0`.
+`nlaocs:skript-parser-addon@0.48.0`, ABI `30.0`.
 
 Obtain a complete SSG export directory from the target server's Skript/addon
 environment. This repository reads those exports; the generator is a separate

@@ -1247,3 +1247,22 @@ fn real_core_function_default_continuations_are_not_header_cached() {
         "AdditionalParse-bearing header must execute with current resources: {metrics:?}"
     );
 }
+
+#[test]
+fn prepared_source_generation_fences_actual_core_body_reuse() {
+    let source="function first():\n    stop\nfunction second():\n    stop\n";
+    let mut host=actual_host();
+    host.components[0].manifest.incremental_local_subscriptions.clear();
+    host.components[0].manifest.incremental_header_handlers.clear();
+    run(&mut host,source,1);run(&mut host,source,2);
+    assert!(host.incremental_metrics().body_hits>0);
+    // Isolate the host-issued lifetime fence; no guest can set this field.
+    host.components[0].preparation_generation+=1;
+    let changed=run(&mut host,source,3);
+    assert_eq!(host.incremental_metrics().body_hits,0);
+    let mut cold=actual_host();
+    cold.components[0].manifest.incremental_body_subscriptions.clear();
+    cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+    let expected=run(&mut cold,source,3);assert_equivalent(&changed,&expected);
+    run(&mut host,source,4);assert!(host.incremental_metrics().body_hits>0);
+}

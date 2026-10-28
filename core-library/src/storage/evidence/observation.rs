@@ -1,5 +1,6 @@
 //! SSG observation v1 is deliberately NOT CaptureRegistry v1: equal boundary
 //! observations do not establish a mutation epoch or authorize storage facts.
+pub(in crate::storage) mod preparation;
 use super::{Failure, SourceIdentity, bounded, digest};
 use serde::Deserialize;
 use serde_json::Value;

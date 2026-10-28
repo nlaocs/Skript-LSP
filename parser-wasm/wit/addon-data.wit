@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.47.0;
+package nlaocs:skript-parser-addon@0.48.0;
 
 /// Immutable, explicitly configured inputs owned by one validated component.
 /// No path or caller-supplied owner is exposed. Bindings are opaque identities;

@@ -228,6 +228,11 @@ fn parser_requirements() -> Vec<ParserCapabilityRequirement> {
 }
 
 impl addon::Guest for ExpressionDataAddon {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
+        let _ = context; Ok(crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus::Ready("unused".into()))
+    }
+
     fn manifest() -> ComponentManifest {
         let mut manifest = ComponentManifest {
             incremental_body_handler_subscriptions: Vec::new(),

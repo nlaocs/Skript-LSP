@@ -2,7 +2,7 @@
 use super::{Failure,SourceIdentity,bounded,digest};
 use super::observation::StorageGap;
 use crate::storage::document::BoundDocument;
-use serde::Deserialize;
+use serde::{Deserialize,Serialize};
 use serde_json::Value;
 
 #[derive(Deserialize)]
@@ -18,19 +18,22 @@ enum Field { #[default] Absent, Present(Header) }
 impl<'de> Deserialize<'de> for Field {
     fn deserialize<D:serde::Deserializer<'de>>(d:D)->Result<Self,D::Error> {Header::deserialize(d).map(Self::Present)}
 }
-#[derive(Deserialize)]
+#[derive(Deserialize,Serialize)]
 #[serde(rename_all="camelCase")]
 struct Header {
     version:u32,capture_id:String,identity_scope:String,generation_evidence:String,getter_scope:String,
     before:Boundary,after:Boundary,consistent:bool,complete:bool,failures:Vec<String>,
     // Detail fields are intentionally not deserialized or called valid here.
 }
-#[derive(Deserialize)]
+#[derive(Deserialize,Serialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Boundary {complete:bool,registrations_closed:Option<bool>,fingerprint:Option<String>}
 
-pub(in crate::storage) struct DeferredObservation {source:SourceIdentity,declared_complete:bool}
+pub(in crate::storage) struct DeferredObservation {source:SourceIdentity,declared_complete:bool,header:Header}
 impl DeferredObservation {
+    pub(in crate::storage) fn source_identity(&self)->&SourceIdentity {&self.source}
+    pub(in crate::storage) fn header_value(&self)->Result<Value,Failure> {serde_json::to_value(&self.header).map_err(|_|Failure::Version)}
+
     pub(in crate::storage) fn matches_source(&self,source:&SourceIdentity)->bool {&self.source==source}
     pub(in crate::storage) fn declared_complete(&self)->bool {self.declared_complete}
     pub(in crate::storage) fn gaps(&self)->[StorageGap;2] {
@@ -57,7 +60,7 @@ pub(in crate::storage) fn prepare(document:&BoundDocument,after:&SourceIdentity)
             && h.before.fingerprint.is_some()&&h.before.fingerprint==h.after.fingerprint;
         if h.consistent!=consistent||h.complete&&(!consistent||!h.failures.is_empty())
             || [&h.before,&h.after].iter().any(|b|b.fingerprint.as_ref().is_some_and(|s|!digest(s))) {return Err(Failure::Generation);}
-        Ok(Some(DeferredObservation {source:before.clone(),declared_complete:h.complete}))
+        Ok(Some(DeferredObservation {source:before.clone(),declared_complete:h.complete,header:h}))
     })();
     Ok((metadata,result))
 }

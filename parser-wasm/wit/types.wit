@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.47.0;
+package nlaocs:skript-parser-addon@0.48.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -1912,4 +1912,20 @@ interface types {
         message: string,
         diagnostics: list<diagnostic>,
     }
+
+    /// Source preparation is owner-private immutable work, not semantic authority.
+    /// The host issues generation/step and fences every read to these identities.
+    record source-preparation-context {
+        generation: u64,
+        step: u32,
+        snapshot-id: option<string>,
+        source-digest: option<string>,
+    }
+    /// Diagnostic labels are bounded and never used as a proof or progress lease.
+    variant source-preparation-status {
+        pending(string),
+        ready(string),
+        unavailable(string),
+    }
+
 }

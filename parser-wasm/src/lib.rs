@@ -34,7 +34,10 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(29, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(30, 0);
+
+/// Bounded owner-private source preparation, independent of document revision.
+pub const CAPABILITY_SOURCE_PREPARATION: &str = "parser.source-preparation";
 
 /// Read-only, component-binary-bound immutable dataset inputs.
 pub const CAPABILITY_ADDON_DATA: &str = "parser.addon-data";

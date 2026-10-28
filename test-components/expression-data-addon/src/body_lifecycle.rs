@@ -16,6 +16,11 @@ fn error(message:impl Into<String>)->AddonError {AddonError {kind:AddonErrorKind
 fn selector()->HookSelector {HookSelector {pattern_index:None,pattern_source:None,mark:None,tags:vec![],captures:vec![],return_type:None,multiplicity:None,metadata:vec![]}}
 
 impl addon::Guest for BodyLifecycleAddon {
+    fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
+        -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
+        let _ = context; Ok(crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus::Ready("unused".into()))
+    }
+
     fn manifest()->ComponentManifest {
         ComponentManifest {
             component_id:ID.into(),component_version:env!("CARGO_PKG_VERSION").into(),

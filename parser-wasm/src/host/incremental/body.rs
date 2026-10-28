@@ -226,7 +226,7 @@ impl WasmExpressionEnvironment<'_> {
                 value.document_revision=0;value.registry_revision=0;format!("{value:?}")
             });
             let components=self.hooks.host.components.iter().map(|entry|
-                format!("{:?}|{:?}|{}",entry.manifest,entry.registered_handler_bindings,entry.load_order)).collect::<Vec<_>>();
+                format!("{:?}|{:?}|{}|{}",entry.manifest,entry.registered_handler_bindings,entry.load_order,entry.preparation_generation)).collect::<Vec<_>>();
             active.world=Some(format!("{dynamic:?}|{components:?}"));
         }
         let availability=self.hooks.host.components.iter().map(|e|(e.disabled,e.unloaded)).collect::<Vec<_>>();

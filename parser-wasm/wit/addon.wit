@@ -1,10 +1,13 @@
-package nlaocs:skript-parser-addon@0.47.0;
+package nlaocs:skript-parser-addon@0.48.0;
 
 interface addon {
     use types.{
         component-manifest,
         compatibility-error,
         host-profile,
+        addon-error,
+        source-preparation-context,
+        source-preparation-status,
     };
 
     /// Returns static declarations before any hook is invoked.
@@ -14,4 +17,11 @@ interface addon {
     initialize: func(
         profile: host-profile,
     ) -> result<_, compatibility-error>;
+
+    /// parser.source-preparation v1. No StateStore/dynamic/parse/publication calls.
+    /// Each call has its own ordinary fuel bound, plus finite job-wide quotas.
+    /// Ready means this owner finished preparation, not host-certified semantics.
+    prepare-source-step: func(context: source-preparation-context)
+        -> result<source-preparation-status, addon-error>;
+
 }

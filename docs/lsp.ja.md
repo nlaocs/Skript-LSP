@@ -107,7 +107,7 @@ clientがdynamic watcher登録に対応する場合、`**/*.sk`のcreate/change/
 
 ## Incremental処理とAddon契約
 
-公開WITは`nlaocs:skript-parser-addon@0.47.0`、ABIは`29.0`である。旧ABIのcomponentは再buildする。
+公開WITは`nlaocs:skript-parser-addon@0.48.0`、ABIは`30.0`である。旧ABIのcomponentは再buildする。
 `parser.incremental-local-syntax` v1とmanifestの`incremental-local-subscriptions`へ
 明示したhookだけが再利用候補になる。現在payload/context、物理source行、不変Catalog/runtime/binding、
 観測したStateのget/scan値が返却値を完全に決め、guest履歴や未観測の入力へ依存しないという契約である。
@@ -544,3 +544,13 @@ option置換の前後で変更されていない断片は、hoverや書き込み
 証明できず、親全体の範囲をReplacedとして保持することがあります。その子のhoverやsemantic tokensは
 利用できません。たとえばoptionを含む文字列内の補間では、物理的に残っている関数もこの制限を受けます。
 これは型がUnknownであることとは別の位置情報の制限です。生成部分や曖昧な子の位置を推測して補いません。
+
+
+### Source単位の有界な準備処理
+
+WIT 0.48 / ABI 30 では、Coreとaddonが不変の収集データを小分けに検証する
+`parser.source-preparation` v1と、`catalog-data` v5の入れ子JSON pagingを追加しています。
+全componentを同時に再ビルドし、旧版混在は拒否します。準備世代はbody／呼出しcacheの
+有効性へ結合されます。編集時のscope・revision・型の証明を代替するものではありません。
+構造検証のReadyだけではgetterの実装や値の生成元、保存後型を保証しません。
+[処理順序・独立した上限・計測の読み方](source-preparation.md)を参照してください。
