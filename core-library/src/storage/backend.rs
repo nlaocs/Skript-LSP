@@ -19,6 +19,7 @@ const SERVER_SHA: &str = "3a73f0cc4020a5eb45629a67629b14263331c68de45552f8505df8
 const MODEL: &str = "skript-2.15.4-paper-c5eb079-native-reference-v1";
 
 struct Model {
+    target: Option<super::evidence::observation::interval::NativeTarget>,
     records: Vec<Value>,
     graph: Graph,
     snapshot: String,
@@ -32,7 +33,7 @@ struct Model {
 /// meanings. Observation success must not authorize context receipts or values.
 struct PreparedSource {
     source: SourceIdentity,
-    legacy: Option<Arc<Model>>,
+    model: Option<Arc<Model>>,
     legacy_profile_matches: bool,
     observation: ObservationInput,
 }
@@ -47,7 +48,7 @@ impl PreparedSource {
         match &self.observation {
             ObservationInput::Invalid(_)|ObservationInput::Deferred(_)=>None,
             ObservationInput::Projected(o) if !o.matches_source(current)=>None,
-            _=>self.legacy.clone(),
+            _=>self.model.clone(),
         }
     }
 
@@ -58,7 +59,7 @@ impl PreparedSource {
         if self.authorized_model(current).is_some() { return Vec::new(); }
         let mut reasons=Vec::new();
         if !self.legacy_profile_matches {reasons.push(StorageUnavailable::LegacyProfile);}
-        else if self.legacy.is_none() && matches!(self.observation,ObservationInput::Absent|ObservationInput::Projected(_)) {reasons.push(StorageUnavailable::LegacyRegistry);}
+        else if self.model.is_none() && matches!(self.observation,ObservationInput::Absent|ObservationInput::Projected(_)) {reasons.push(StorageUnavailable::LegacyRegistry);}
         match &self.observation {
             ObservationInput::Deferred(header)=>{
                 if !header.matches_source(current) {return vec![StorageUnavailable::Source];}
@@ -89,10 +90,10 @@ fn prepare_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,even
         if !legacy_profile_matches || records.is_empty()
             || records.iter().any(|r|r["addon"]["name"]!="Skript"||r["addon"]["version"]!="2.15.4") { return None; }
         let graph=graph_from_records(&records)?;
-        Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),
+        Some(Arc::new(Model {target:None,records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),
             proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
     })();
-    PreparedSource {source:source.clone(),legacy,legacy_profile_matches,observation}
+    PreparedSource {source:source.clone(),model:legacy,legacy_profile_matches,observation}
 }
 
 fn prepare_header_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,
@@ -100,7 +101,7 @@ fn prepare_header_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Valu
 {
     let observation=match header {Ok(None)=>ObservationInput::Absent,Err(f)=>ObservationInput::Invalid(f),Ok(Some(h))=>ObservationInput::Deferred(h)};
     let mut prepared=prepare_inputs(source,manifest,records,&[],Ok(None),runtime,operations);
-    if !matches!(observation,ObservationInput::Absent) {prepared.legacy=None;}
+    if !matches!(observation,ObservationInput::Absent) {prepared.model=None;}
     prepared.observation=observation;
     prepared
 }
@@ -124,6 +125,20 @@ fn profile(manifest: &Value) -> bool {
 }
 
 /// Declaration lineages avoid transferring unrelated ClassHierarchy nodes.
+const COLLECTOR_V2_SHA:&str="0dd2ae968f2f646283dbfdda30dcb1cc78e8ae86182fc9fe5134c4bed006ebc2";
+const STANDARD_MODEL:&str="skript-2.15.4-paper-c5eb079-standard-native-event-v2";
+const JOIN_REGISTRATION:&str="event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c:2c4b51d0419a4556e4310ce1cc4114fd7c6c61ad84b42f52a9d461b35cfbfe51:0";
+const JOIN_DEFINITION:&str="event:skript:4ce68f1f1dc4c06607a7ae99ffc3959ec471edfd956de3b93e0818784de0d30c";
+const JOIN_CLASS:&str="org.bukkit.event.player.PlayerJoinEvent";
+
+fn make_standard_native_model(source:&SourceIdentity,bound:&BoundObservation,manifest:&Value,records:Vec<Value>)->Option<Arc<Model>> {
+    if !bound.matches_source(source){return None;}
+    let target=bound.standard_native_target(manifest,COLLECTOR_V2_SHA)?;
+    let graph=graph_from_records(&records)?;
+    Some(Arc::new(Model{target:Some(target),records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),
+        proofs:RwLock::new(HashMap::new()),operations:None,add_rules:RwLock::new(None)}))
+}
+
 fn graph_from_records(records: &[Value]) -> Option<Graph> {
     let mut classes=Vec::new();
     for record in records {
@@ -147,7 +162,19 @@ fn profile_for_runtime(manifest: &Value, runtime: Option<&str>) -> bool {
     runtime==Some("2.15.4") && profile(manifest)
 }
 
+#[derive(Clone,Copy,Debug)]
+pub(super) struct AnalysisBasis {pub model:&'static str,pub basis:&'static str,pub premise:Option<&'static str>,pub event_registration:Option<&'static str>}
+impl AnalysisBasis {
+    pub(super) fn matches(self,model:&str,basis:&str,premise:Option<&str>,event_registration:Option<&str>)->bool {
+        self.model==model&&self.basis==basis&&self.premise==premise&&self.event_registration==event_registration
+    }
+}
 impl Model {
+    fn analysis_basis(&self)->AnalysisBasis {
+        AnalysisBasis{model:if self.target.is_some(){STANDARD_MODEL}else{MODEL},basis:self.basis(),
+            premise:self.target.as_ref().map(|_|"initialized-quiescent-registry"),event_registration:self.target.as_ref().map(|_|JOIN_REGISTRATION)}
+    }
+    fn basis(&self)->&'static str {if self.target.is_some(){super::evidence::observation::interval::BASIS}else{MODEL}}
     fn stored(&self, public: &str, implementation: &str) -> bool {
         let proof_key=(public.to_owned(),implementation.to_owned());
         if public.len()>1024 { return false; }
@@ -160,10 +187,11 @@ impl Model {
     }
 
     fn result(&self, public: &str, producer: &str) -> Vec<MetadataEntry> {
+        let basis=self.analysis_basis();
         vec![ResultType { version:1, scope:"local-scalar".into(), types:vec![public.into()],
             complete:true, multiple:false, maybe_unset:true, preserves_local_bindings:true }.metadata(),
             MetadataEntry { key:"skript.semantic.storage-provenance".into(), owner_component_id:None,
-                value:serde_json::json!({"version":1,"model":MODEL,"sourceDigest":self.digest,
+                value:serde_json::json!({"version":1,"model":basis.model,"basis":basis.basis,"premise":basis.premise,"eventRegistration":basis.event_registration,"sourceDigest":self.digest,
                     "snapshotId":self.snapshot,"producer":producer,"implementationUpperBound":IMPLEMENTATION,
                     "publicBound":public,"domainComplete":true}).to_string() }]
     }
@@ -202,6 +230,7 @@ pub(crate) fn command_argument(payload: &RegisteredExpressionPayload, public: &s
         return Vec::new();
     }
     let Some(model) = model() else { return Vec::new(); };
+    if model.target.is_some(){return Vec::new();} // This source rule certifies native events, not command parser producers.
     let matches = model.records.iter().filter(|r| r["originalClass"].as_str() == Some(public)).collect::<Vec<_>>();
     if matches.len() != 1 { return Vec::new(); }
     let record = matches[0];
@@ -225,10 +254,33 @@ fn audited_event_route(value: &EventValueOption) -> Option<&'static str> {
     (value.registration_id==registration).then_some(registration)
 }
 
+pub(super) fn current_basis()->Option<AnalysisBasis>{model().map(|m|m.analysis_basis())}
+
+#[cfg(target_arch="wasm32")]
+pub(super) fn context_basis(payload:&crate::nlaocs::skript_parser_addon::types::StructurePayload,events:&[String])->Option<AnalysisBasis> {
+    use crate::nlaocs::skript_parser_addon::types::ParseResultStatus;
+    let model=model()?;
+    if model.target.is_none(){return legacy_context_has_producer(events).then_some(model.analysis_basis());}
+    if events!=[JOIN_CLASS]{return None;}
+    let captures=payload.candidate.parsed_captures.iter().filter(|c|c.capture_index==0&&c.parser_id=="host.event"&&c.status==ParseResultStatus::Success).collect::<Vec<_>>();
+    if captures.len()!=1{return None;}
+    let summary=captures[0].summary.as_ref()?;
+    if summary.kind!="event"||summary.registration_id.as_deref()!=Some(JOIN_REGISTRATION)||summary.definition_id.as_deref()!=Some(JOIN_DEFINITION)
+        ||summary.element_class.as_deref()!=Some("ch.njol.skript.lang.util.SimpleEvent")||summary.pattern_index!=Some(0){return None;}
+    let rows=crate::catalog::registration_records(JOIN_REGISTRATION).ok()?;
+    let rows=rows.iter().filter(|r|r.document=="Events.json").collect::<Vec<_>>();
+    if rows.len()!=1{return None;}
+    let row:Value=serde_json::from_slice(&rows[0].bytes).ok()?;
+    if row["definitionId"]!=JOIN_DEFINITION||row["registrationId"]!=JOIN_REGISTRATION||row["kind"]!="event"
+        ||row["addon"]["name"]!="Skript"||row["addon"]["version"]!="2.15.4"||row["elementClass"]!="ch.njol.skript.lang.util.SimpleEvent"
+        ||row["referenceEvents"]!=serde_json::json!([JOIN_CLASS])||row["patterns"]!=serde_json::json!(["[player] (login|logging in|join[ing])"]){return None;}
+    Some(model.analysis_basis())
+}
+
 /// No state write for contexts without an audited producer. In particular,
 /// unrelated reusable declarations keep their existing header certificates.
 #[cfg(target_arch="wasm32")]
-pub(super) fn context_has_producer(events: &[String]) -> bool {
+fn legacy_context_has_producer(events: &[String]) -> bool {
     !events.is_empty() && events.len()<=64 && events.iter().all(|event| {
         crate::catalog::event_values_for(event).ok().is_some_and(|values|values.iter().any(|v|audited_event_route(v).is_some()))
     })
@@ -242,7 +294,9 @@ pub(crate) fn event_reference(payload: &RegisteredExpressionPayload, values: &[E
     for value in values {
         if value.time != 0 || value.context_dependent != Some(false)
             || value.has_custom_input_validator != Some(false) || value.has_custom_event_validator != Some(false) { return Vec::new(); }
-        let Some(audited)=audited_event_route(value) else { return Vec::new(); };
+        let audited=if let Some(target)=&model.target {
+            if value.registration_id!=target.getter{return Vec::new();}target.getter.as_str()
+        }else{let Some(audited)=audited_event_route(value)else{return Vec::new();};audited};
         // Identity/downcast only; no opaque converter may enter the domain.
         if model.graph.assignable(public, &value.value_class) != Some(true)
             && model.graph.assignable(&value.value_class, public) != Some(true) { return Vec::new(); }
@@ -263,13 +317,15 @@ static MODELS: LazyLock<RwLock<HashMap<String, Arc<PreparedSource>>>> = LazyLock
 /// Publish only completed structural projection. This cannot authorize legacy
 /// storage, producer origin, ResultType or a document receipt.
 #[cfg(target_arch="wasm32")]
-pub(super) fn publish_prepared_projection(source:SourceIdentity,projection:super::evidence::observation::preparation::PreparedProjection)->Result<(),super::evidence::Failure> {
-    let bound=projection.into_bound();
+pub(super) fn publish_prepared_projection(source:SourceIdentity,projection:super::evidence::observation::preparation::PreparedProjection,manifest:Value)->Result<bool,super::evidence::Failure> {
+    let (bound,records)=projection.into_parts();
     if current_source().ok().as_ref()!=Some(&source)||!bound.matches_source(&source) {return Err(super::evidence::Failure::Source);}
     let key=format!("{}:{}",source.source_digest,source.snapshot_id);
-    let prepared=Arc::new(PreparedSource {source,legacy:None,legacy_profile_matches:false,observation:ObservationInput::Projected(bound)});
+    let native=make_standard_native_model(&source,&bound,&manifest,records);
+    let authorized=native.is_some();
+    let prepared=Arc::new(PreparedSource {source,model:native,legacy_profile_matches:false,observation:ObservationInput::Projected(bound)});
     let mut cache=MODELS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
-    if cache.len()>=16 {cache.clear();}cache.insert(key,prepared);Ok(())
+    if cache.len()>=16 {cache.clear();}cache.insert(key,prepared);Ok(authorized)
 }
 
 
@@ -366,7 +422,7 @@ mod tests {
         assert!(profile(&manifest));
         let records:Vec<Value>=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
         let graph=graph_from_records(&records).unwrap();
-        let model=Model {records,graph,snapshot:manifest["snapshotId"].as_str().unwrap().into(),digest:"fixture.raw-source-digest".into(),proofs:RwLock::new(HashMap::new()),operations:None,add_rules:RwLock::new(None)};
+        let model=Model {target:None,records,graph,snapshot:manifest["snapshotId"].as_str().unwrap().into(),digest:"fixture.raw-source-digest".into(),proofs:RwLock::new(HashMap::new()),operations:None,add_rules:RwLock::new(None)};
         for public in ["org.bukkit.entity.Player","org.bukkit.entity.Entity"] {
             assert!(model.stored(public,IMPLEMENTATION), "genuine bounded storage: {public}");
             assert!(model.stored(public,IMPLEMENTATION), "cached proof: {public}");
@@ -459,7 +515,7 @@ mod mutation_tests {
     fn fixture() -> Model {
         let records:Vec<Value>=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
         let graph=graph_from_records(&records).unwrap();
-        Model {records,graph,snapshot:"fixture.snapshot".into(),digest:"fixture.source".into(),proofs:RwLock::new(HashMap::new()),
+        Model {target:None,records,graph,snapshot:"fixture.snapshot".into(),digest:"fixture.source".into(),proofs:RwLock::new(HashMap::new()),
             operations:Some(serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Operations.json")).unwrap()),add_rules:RwLock::new(None)}
     }
     #[test]
@@ -574,3 +630,6 @@ mod observed_input_tests {
     }
 
 }
+
+#[cfg(test)]
+mod native_target_tests;

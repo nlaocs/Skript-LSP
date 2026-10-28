@@ -5,17 +5,17 @@ use serde::{Serialize, Deserialize};
 use std::collections::BTreeMap;
 
 pub(crate) const NAMESPACE: &str = "storage-context";
-pub(crate) const SCHEMA: &str = "nlaocs.core-library.storage-context.v1";
+pub(crate) const SCHEMA: &str = "nlaocs.core-library.storage-context.v2";
 const KEY: &str = "core.storage.context-receipt";
 
 #[derive(Serialize,Deserialize)]
 struct Receipt {
-    document: String, revision: u64, syntax_context: u64,
+    model:String,basis:String,premise:Option<String>, document: String, revision: u64, syntax_context: u64,
     snapshot: String, digest: String, expansion: Option<u64>,
     start: u64, end: u64, event_classes: Vec<String>, values: BTreeMap<String,String>,
 }
 
-fn relevant(key: &str) -> bool { key.starts_with("core.command.") }
+fn relevant(key: &str) -> bool { key.starts_with("core.command.") || key=="core.storage.event-registration" }
 
 /// Called only after a Core Structure handler has accepted this exact source.
 /// Private state participates in host transaction rollback and Parse lifetime.
@@ -44,9 +44,12 @@ pub(crate) fn publish(context: &InvocationContext, output: &mut HookOutput) {
     // Warm only immutable, source-bound proof inputs here. The body hook then
     // need not deserialize the registry in addition to its effect payload.
     // This performs no state write and never grants a context receipt itself.
-    if !super::backend::prepare() || !super::backend::context_has_producer(&event_classes) { return; }
+    if !super::backend::prepare(){return;}
+    let Some(basis)=super::backend::context_basis(payload,&event_classes)else{return;};
+    let event_registration=basis.event_registration;
+    if let Some(registration)=event_registration{values.insert("core.storage.event-registration".into(),registration.into());}
     let Some(source)=crate::nlaocs::skript_parser_addon::catalog_data::source().ok().flatten() else { return; };
-    let receipt=Receipt {expansion:context.expansion,snapshot:source.snapshot_id,digest:source.source_digest,document:context.document_id.clone(),revision:context.document_revision,
+    let receipt=Receipt {model:basis.model.into(),basis:basis.basis.into(),premise:basis.premise.map(str::to_owned),expansion:context.expansion,snapshot:source.snapshot_id,digest:source.source_digest,document:context.document_id.clone(),revision:context.document_revision,
         syntax_context:context.syntax_context,start:body.virtual_range.start,end:body.virtual_range.end,event_classes,values};
     let Ok(bytes)=serde_json::to_vec(&receipt) else { return; };
     if bytes.len()>64*1024 { return; }
@@ -54,6 +57,7 @@ pub(crate) fn publish(context: &InvocationContext, output: &mut HookOutput) {
     if key.len()>4096 { return; }
     if state_store::put(StateScope::Parse,StateNamespaceVisibility::Private,NAMESPACE,&key,
         &StateValue {schema_id:SCHEMA.into(),encoding:StateEncoding::Json,bytes}).is_err() { return; }
+    if let Some(registration)=event_registration {output.effects.context_updates.push(ContextUpdate {syntax_context:context.syntax_context,key:"core.storage.event-registration".into(),value:Some(registration.as_bytes().to_vec())});}
     output.effects.context_updates.push(ContextUpdate {syntax_context:context.syntax_context,key:KEY.into(),value:Some(key.into_bytes())});
 }
 
@@ -86,7 +90,7 @@ fn valid(context: Option<&InvocationContext>, payload: &RegisteredExpressionPayl
     let Ok(Some(value))=state_store::get(StateScope::Parse,StateNamespaceVisibility::Private,NAMESPACE,&keys[0].value) else { return false; };
     if value.schema_id!=SCHEMA || !matches!(value.encoding,StateEncoding::Json) || value.bytes.len()>64*1024 { return false; }
     let Some(source)=crate::nlaocs::skript_parser_addon::catalog_data::source().ok().flatten() else { return false; };
-    serde_json::from_slice::<Receipt>(&value.bytes).ok().is_some_and(|r|r.snapshot==source.snapshot_id && r.digest==source.source_digest && matches(&r,context,payload))
+    serde_json::from_slice::<Receipt>(&value.bytes).ok().is_some_and(|r|r.snapshot==source.snapshot_id && r.digest==source.source_digest && super::backend::current_basis().is_some_and(|b|b.matches(&r.model,&r.basis,r.premise.as_deref(),r.values.get("core.storage.event-registration").map(String::as_str))) && matches(&r,context,payload))
 }
 
 #[cfg(not(target_arch="wasm32"))]
@@ -107,7 +111,7 @@ mod tests {
         let context=InvocationContext {invocation_id:1,subscription_id:"fixture".into(),document_id:"file:///public.sk".into(),document_revision:2,expansion:None,syntax_context:0};
         let events=vec!["fixture.Event".into()];
         let values=BTreeMap::from([("core.command.argument.0.class".into(),"fixture.Native".into())]);
-        let receipt=Receipt {document:context.document_id.clone(),revision:2,syntax_context:0,snapshot:"fixture.snapshot".into(),digest:"fixture.source".into(),expansion:None,start:20,end:100,event_classes:events.clone(),values:values.clone()};
+        let receipt=Receipt {model:"fixture.model".into(),basis:"fixture.basis".into(),premise:None,document:context.document_id.clone(),revision:2,syntax_context:0,snapshot:"fixture.snapshot".into(),digest:"fixture.source".into(),expansion:None,start:20,end:100,event_classes:events.clone(),values:values.clone()};
         assert!(check(&receipt,&context,0,30,40,&events,&values));
         assert!(!check(&receipt,&context,0,0,10,&events,&values));
         assert!(!check(&receipt,&context,0,40,101,&events,&values));

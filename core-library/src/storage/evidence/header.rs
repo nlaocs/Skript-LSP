@@ -23,6 +23,7 @@ impl<'de> Deserialize<'de> for Field {
 struct Header {
     version:u32,capture_id:String,identity_scope:String,generation_evidence:String,getter_scope:String,
     before:Boundary,after:Boundary,consistent:bool,complete:bool,failures:Vec<String>,
+    #[serde(default,skip_serializing_if="Option::is_none")] interval:Option<super::observation::interval::Interval>,
     // Detail fields are intentionally not deserialized or called valid here.
 }
 #[derive(Deserialize,Serialize)]
@@ -32,6 +33,7 @@ struct Boundary {complete:bool,registrations_closed:Option<bool>,fingerprint:Opt
 pub(in crate::storage) struct DeferredObservation {source:SourceIdentity,declared_complete:bool,header:Header}
 impl DeferredObservation {
     pub(in crate::storage) fn source_identity(&self)->&SourceIdentity {&self.source}
+    pub(in crate::storage) fn version(&self)->u32 {self.header.version}
     pub(in crate::storage) fn header_value(&self)->Result<Value,Failure> {serde_json::to_value(&self.header).map_err(|_|Failure::Version)}
 
     pub(in crate::storage) fn matches_source(&self,source:&SourceIdentity)->bool {&self.source==source}
@@ -54,7 +56,9 @@ pub(in crate::storage) fn prepare(document:&BoundDocument,after:&SourceIdentity)
     let metadata=serde_json::json!({"schemaVersion":envelope.schema_version,"snapshotId":envelope.snapshot_id,"server":envelope.server,"plugins":envelope.plugins});
     let Field::Present(h)=envelope.registry_capture else {return Ok((metadata,Ok(None)));};
     let result=(||{
-        if h.version!=1||h.identity_scope!="capture-local"||h.generation_evidence!="boundary-observed-no-mutation-epoch"||h.getter_scope!="retained-event-value-rows" {return Err(Failure::Version);}
+        if !matches!(h.version,1|2)||h.identity_scope!="capture-local"
+            ||h.generation_evidence!=if h.version==1 {"boundary-observed-no-mutation-epoch"}else{"supported-api-interval-with-quiescent-premise-v1"}
+            ||h.getter_scope!="retained-event-value-rows"||h.version==1&&h.interval.is_some(){return Err(Failure::Version);}
         if !bounded(&h.capture_id)||h.failures.len()>32||h.failures.iter().any(|s|!bounded(s)) {return Err(Failure::Limit);}
         let consistent=h.before.complete&&h.after.complete&&h.before.registrations_closed==Some(true)&&h.after.registrations_closed==Some(true)
             && h.before.fingerprint.is_some()&&h.before.fingerprint==h.after.fingerprint;

@@ -1,6 +1,7 @@
 //! SSG observation v1 is deliberately NOT CaptureRegistry v1: equal boundary
 //! observations do not establish a mutation epoch or authorize storage facts.
 pub(in crate::storage) mod preparation;
+pub(in crate::storage) mod interval;
 use super::{Failure, SourceIdentity, bounded, digest};
 use serde::Deserialize;
 use serde_json::Value;
@@ -13,6 +14,10 @@ pub(super) struct Observation {
     version:u32, capture_id:String, identity_scope:String, generation_evidence:String, getter_scope:String,
     before:Boundary, after:Boundary, consistent:bool, complete:bool, entries:Vec<Entry>,
     exact_bindings:Vec<Exact>, classes:Vec<JavaClass>, loaders:Vec<Loader>, getters:Vec<Getter>, failures:Vec<String>,
+    #[serde(default)] interval:Option<interval::Interval>,
+    #[serde(default)] factory_sources:Vec<interval::FactorySource>,
+    #[serde(default)] factory_methods:Vec<interval::FactoryMethod>,
+    #[serde(default)] factory_sites:Vec<interval::FactorySite>,
 }
 /// Only the metadata actually consumed by the storage source model. Unknown
 /// fields remain available through the immutable host Catalog; skipping them
@@ -55,7 +60,8 @@ struct Loader { id:String,class_id:Option<String>,parent_id:Option<String>,paren
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Getter { registration_id:String,resolution_order:usize,event_class_id:String,value_class_id:String,instance_id:Option<String>,class_id:Option<String>,
-    state:String,methods:Vec<Method>,unknown_reason:Option<String> }
+    state:String,methods:Vec<Method>,unknown_reason:Option<String>,
+    #[serde(default)] event_value_instance_id:Option<String>,#[serde(default)] factory_site_id:Option<String> }
 #[derive(Debug, Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Method { declaring_class_id:String,name:String,parameter_class_ids:Vec<String>,return_class_id:String,bridge:bool }
@@ -195,7 +201,8 @@ pub(in crate::storage) enum StorageGap {
 
 impl Observation {
     fn check(&self)->Result<(),Failure> {
-        if self.version!=1 || self.identity_scope!="capture-local" || self.generation_evidence!="boundary-observed-no-mutation-epoch"
+        if !matches!(self.version,1|2) || self.identity_scope!="capture-local"
+            || self.generation_evidence!=if self.version==1 {"boundary-observed-no-mutation-epoch"}else{"supported-api-interval-with-quiescent-premise-v1"}
             || self.getter_scope!="retained-event-value-rows" {return Err(Failure::Version);}
         if !bounded(&self.capture_id) || self.entries.len()>1024 || self.exact_bindings.len()>1024
             || self.classes.len()>8192 || self.loaders.len()>513 || self.getters.len()>4096 || self.failures.len()>32
@@ -250,6 +257,7 @@ impl Observation {
                 let _=method.bridge;
             }
         }
+        interval::check(self)?;
         Ok(())
     }
 }

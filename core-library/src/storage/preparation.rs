@@ -1,10 +1,10 @@
-//! Source-lifetime structural preparation, separate from storage authorization.
+//! Source-lifetime structural preparation followed by separate source-model qualification.
 use super::evidence::{SourceIdentity,Failure,observation::preparation::Builder};
 use crate::nlaocs::skript_parser_addon::types::{SourcePreparationContext,SourcePreparationStatus,AddonError};
 use serde_json::Value;
 
-const ARRAYS:[(&str,usize);7]=[("entries",1024),("exactBindings",1024),("classes",8192),("loaders",513),("getters",4096),("Types.json",1024),("EventValues.json",4096)];
-struct Job {generation:u64,next_step:u32,source:SourceIdentity,builder:Builder,phase:usize,offset:u64,total:Option<u64>,types:Vec<Value>,events:Vec<Value>}
+const ARRAYS:[(&str,usize);10]=[("entries",1024),("exactBindings",1024),("classes",8192),("loaders",513),("getters",4096),("Types.json",1024),("EventValues.json",4096),("factorySources",64),("factoryMethods",256),("factorySites",512)];
+struct Job {generation:u64,next_step:u32,source:SourceIdentity,manifest:Value,is_v2:bool,builder:Builder,phase:usize,offset:u64,total:Option<u64>,types:Vec<Value>,events:Vec<Value>}
 impl Job {
     fn accept(&mut self,total:u64,items:Vec<(u64,Vec<u8>)>,next:Option<u64>)->Result<(),Failure> {
         let (name,limit)=ARRAYS[self.phase];
@@ -14,11 +14,11 @@ impl Job {
         if end>total || next!=if end<total {Some(end)} else {None} || end<total&&items.is_empty()
             || items.iter().enumerate().any(|(i,(index,bytes))|*index!=self.offset+i as u64||bytes.len()>32768) {return Err(Failure::Routing);}
         let rows=items.into_iter().map(|(_,b)|b).collect::<Vec<_>>();
-        if self.phase<5 {self.builder.append(name,rows)?;}else{
+        if self.phase<5||self.phase>=7 {self.builder.append(name,rows)?;}else{
             let target=if self.phase==5 {&mut self.types}else{&mut self.events};
             for bytes in rows {target.push(serde_json::from_slice(&bytes).map_err(|_|Failure::Version)?);}
         }
-        if let Some(offset)=next {self.offset=offset;}else{self.phase+=1;self.offset=0;self.total=None;}
+        if let Some(offset)=next {self.offset=offset;}else{self.phase+=1;if self.phase==7&&!self.is_v2 {self.phase=10;}self.offset=0;self.total=None;}
         Ok(())
     }
 }
@@ -42,10 +42,10 @@ pub(crate) fn step(context:SourcePreparationContext)->Result<SourcePreparationSt
         if context.generation==0 {return Err(Failure::Subject);}
         if context.step==0 {
             let document=super::document::read_manifest(&source).map_err(|_|Failure::Source)?.ok_or(Failure::Source)?;
-            let (_,header)=super::evidence::header::prepare(&document,&super::document::current_source().map_err(|_|Failure::Source)?)?;
+            let (manifest,header)=super::evidence::header::prepare(&document,&super::document::current_source().map_err(|_|Failure::Source)?)?;
             let Some(header)=header? else {return Ok(SourcePreparationStatus::Ready("no-registry-observation".into()));};
             if !header.declared_complete() {return Ok(SourcePreparationStatus::Unavailable("observation-declared-incomplete".into()));}
-            *slot=Some(Job{generation:context.generation,next_step:1,source,builder:Builder::new(header)?,phase:0,offset:0,total:None,types:Vec::new(),events:Vec::new()});
+            *slot=Some(Job{generation:context.generation,next_step:1,source,manifest,is_v2:header.version()==2,builder:Builder::new(header)?,phase:0,offset:0,total:None,types:Vec::new(),events:Vec::new()});
             return Ok(SourcePreparationStatus::Pending("manifest-header".into()));
         }
         let job=slot.as_mut().ok_or(Failure::Subject)?;
@@ -53,7 +53,7 @@ pub(crate) fn step(context:SourcePreparationContext)->Result<SourcePreparationSt
         job.next_step+=1;
         if job.phase<ARRAYS.len() {
             let phase=job.phase;let name=ARRAYS[phase].0;
-            let (document,path,fields)=if phase<5 {("Manifest.json",vec!["registryCapture".into(),name.into()],Vec::new())}
+            let (document,path,fields)=if phase<5||phase>=7 {("Manifest.json",vec!["registryCapture".into(),name.into()],Vec::new())}
                 else if phase==5 {("Types.json",Vec::new(),["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"].map(str::to_owned).to_vec())}
                 else {("EventValues.json",Vec::new(),["registrationId","resolutionOrder","eventClass","valueClass","time","registrationOrder","contextDependent","hasCustomInputValidator","hasCustomEventValidator"].map(str::to_owned).to_vec())};
             let page=catalog_data::read_json_records(&source.source_digest,&source.snapshot_id,document,&path,&fields,job.offset,64,32768).map_err(|_|Failure::Source)?.ok_or(Failure::Incomplete)?;
@@ -61,13 +61,13 @@ pub(crate) fn step(context:SourcePreparationContext)->Result<SourcePreparationSt
             if current(&context).as_ref()!=Some(&source) {return Err(Failure::Source);}
             return Ok(SourcePreparationStatus::Pending(format!("page:{name}")));
         }
-        if job.phase==7 {job.builder.check_details()?;job.phase=8;return Ok(SourcePreparationStatus::Pending("detail-identity-check".into()));}
-        if job.phase==8 {job.builder.check_projection(&job.types,&job.events)?;job.phase=9;return Ok(SourcePreparationStatus::Pending("projection-check".into()));}
+        if job.phase==10 {job.builder.check_details()?;job.phase=11;return Ok(SourcePreparationStatus::Pending("detail-identity-check".into()));}
+        if job.phase==11 {job.builder.check_projection(std::mem::take(&mut job.types),&job.events)?;job.phase=12;return Ok(SourcePreparationStatus::Pending("projection-check".into()));}
         let job=slot.take().ok_or(Failure::Subject)?;
         let projection=job.builder.finish()?;
         if current(&context).as_ref()!=Some(&source) {return Err(Failure::Source);}
-        super::backend::publish_prepared_projection(source,projection)?;
-        Ok(SourcePreparationStatus::Ready("registry-projection-ready;generation-and-producer-unproved".into()))
+        let authorized=super::backend::publish_prepared_projection(source,projection,job.manifest)?;
+        Ok(SourcePreparationStatus::Ready(if authorized {"registry-projection-ready;standard-native-target-authorized"}else{"registry-projection-ready;native-target-unavailable"}.into()))
     })();
     match outcome {Ok(value)=>Ok(value),Err(failure)=>{*slot=None;Ok(SourcePreparationStatus::Unavailable(format!("registry-preparation:{failure:?}")))}}
 }
@@ -85,7 +85,7 @@ mod tests {
         let source=SourceIdentity {snapshot_id:value["snapshotId"].as_str().unwrap().into(),source_digest:"a".repeat(64)};
         let doc=document::mock_document(&source,"Manifest.json",||Ok(source.clone()),|offset,max|{let start=offset as usize;Ok(Some(document::Chunk {offset,total_length:raw.len() as u64,bytes:raw[start..raw.len().min(start+max as usize)].to_vec()}))}).unwrap().unwrap();
         let header=header::prepare(&doc,&source).unwrap().1.unwrap().unwrap();
-        Job {generation:1,next_step:1,source,builder:Builder::new(header).unwrap(),phase:1,offset:0,total:None,types:Vec::new(),events:Vec::new()}
+        Job {generation:1,next_step:1,source,manifest:Value::Null,is_v2:false,builder:Builder::new(header).unwrap(),phase:1,offset:0,total:None,types:Vec::new(),events:Vec::new()}
     }
     fn row(index:u64)->(u64,Vec<u8>){(index,br#"{"classId":"c0","classInfoInstance":"i0"}"#.to_vec())}
     #[test]

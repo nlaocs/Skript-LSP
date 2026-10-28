@@ -19,7 +19,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.46.0`とABI `28.0`
+- WIT package `nlaocs:skript-parser-addon@0.48.0`とABI `30.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -259,3 +259,8 @@ cargo test -p skript-lsp --locked
 advertisement、integration testを同期させてください。
 
 options の証明可能な1回目の置換には EditCode を使い、未変更の代入先・参照のソース同一性を保持する。展開されたoptionトークン自体は生成扱いのままとする。字句変換で対応が一対一でない入力、bounded detailの容量不足、合成が必要なpreloadの2回目の置換は従来の生成ノード置換へ保守的に戻すため、詳細なソース表示は利用できない場合がある。保存処理・副作用の保証は変更しない。
+
+
+SSG v2 の登録実体・factory/getter・有限な収集区間を用いる標準 native-event の保存型モデルは、
+[証拠契約と検証境界](../docs/standard-native-storage.md)を参照してください。合成テストと実収集の成立は区別し、
+未取得の証拠を補った扱いにはしません。
