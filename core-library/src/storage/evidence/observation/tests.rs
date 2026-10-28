@@ -70,3 +70,26 @@ fn source_rows_exact_bindings_and_unknown_getters_stay_distinct() {
     let mut extra=f.clone();let binding=extra["registryCapture"]["exactBindings"][0].clone();extra["registryCapture"]["exactBindings"].as_array_mut().unwrap().push(binding);
     assert_eq!(read(&extra).unwrap().check_projection(&types,&events),Err(Failure::Routing));
 }
+
+
+#[test]
+fn compact_ssg_manifest_keeps_projection_and_budget_is_not_authority() {
+    let f:Value=serde_json::from_str(include_str!("data/ssg-compact-fixture-v1.json")).unwrap();
+    let bytes=f["rawManifest"].as_str().unwrap().as_bytes();
+    let types=f["types"].as_array().unwrap();let events=f["eventValues"].as_array().unwrap();
+    let bound=BoundObservation::parse(&source(),bytes,&source()).unwrap().unwrap();
+    assert_eq!(bound.check_projection(types,events),Ok(()));
+    assert!(bound.matches_current(&source(),bytes));
+    let mut changed:Value=serde_json::from_slice(bytes).unwrap();
+    changed["registryCaptureBudget"]["originalCounts"]["entries"]=json!(999);
+    changed["registryCaptureBudget"]["truncated"]=json!(false);
+    let changed_bytes=serde_json::to_vec(&changed).unwrap();
+    assert!(!bound.matches_current(&source(),&changed_bytes),"budget changes still invalidate the exact raw-Manifest fence");
+    let diagnostic_only=BoundObservation::parse(&source(),&changed_bytes,&source()).unwrap().unwrap();
+    assert_eq!(diagnostic_only.check_projection(types,events),Ok(()),"diagnostic dimensions are not registry facts");
+    changed["registryCapture"]["complete"]=json!(false);
+    changed["registryCapture"]["failures"]=json!(["capture-output-size-limit"]);
+    changed["registryCaptureBudget"]["claimedComplete"]=json!(true);
+    let incomplete=BoundObservation::parse(&source(),&serde_json::to_vec(&changed).unwrap(),&source()).unwrap().unwrap();
+    assert_eq!(incomplete.check_projection(types,events),Err(Failure::Incomplete),"budget metadata cannot repair or certify discarded evidence");
+}
