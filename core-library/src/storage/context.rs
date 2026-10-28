@@ -68,10 +68,11 @@ fn matches(receipt: &Receipt, context: &InvocationContext, payload: &RegisteredE
 }
 
 fn check(receipt: &Receipt, context: &InvocationContext, syntax_context: u64, start: u64, end: u64, events: &[String], values: &BTreeMap<String,String>) -> bool {
-    receipt.document==context.document_id && receipt.revision==context.document_revision && receipt.expansion==context.expansion
-        && receipt.syntax_context==context.syntax_context && context.syntax_context==syntax_context
-        && receipt.start<=start && end<=receipt.end
-        && start<end
+    let captured = super::evidence::ScopeRef { document:&receipt.document, revision:receipt.revision,
+        syntax_context:receipt.syntax_context, expansion:receipt.expansion, start:receipt.start, end:receipt.end };
+    let current = super::evidence::ScopeRef { document:&context.document_id, revision:context.document_revision,
+        syntax_context, expansion:context.expansion, start, end };
+    captured.covers(current) && context.syntax_context==syntax_context
         && receipt.event_classes==events
         && receipt.values==*values
 }

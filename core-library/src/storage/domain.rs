@@ -106,6 +106,32 @@ fn storage_identity(record: &Value, public: &str, implementation: &str, graph: &
     }
 }
 
+/// Geometry of a retained registry projection, not authentication of its
+/// completeness, collection generation, Java identity or producer domain.
+/// Legacy callers retain their separately audited source/profile assumptions.
+pub(super) struct RegistryGeometry<'a> {
+    records: &'a [Value],
+    graph: &'a Graph,
+}
+
+impl<'a> RegistryGeometry<'a> {
+    pub(super) fn check(records: &'a [Value], graph: &'a Graph) -> Option<Self> {
+        if records.is_empty() || records.len() > 1024 { return None; }
+        let mut classes = BTreeSet::new();
+        for (index, record) in records.iter().enumerate() {
+            let class = record["originalClass"].as_str()?;
+            if !represented_class(record) || class.is_empty()
+                || record["typeParseOrder"].as_u64() != Some(index as u64)
+                || !classes.insert(class) || graph.concrete(class).is_none() { return None; }
+        }
+        Some(Self { records, graph })
+    }
+
+    pub(super) fn preserves(&self, public: &str, implementation: &str, slot: &str) -> bool {
+        preserves_checked(public, implementation, self.records, self.graph, slot)
+    }
+}
+
 /// Every non-null value is in public ∩ implementation. Completeness and
 /// provenance of that producer domain must be established by the caller.
 /// Exact runtime-class registrations beat ordered getSuperClassInfo scanning,
@@ -113,15 +139,16 @@ fn storage_identity(record: &Value, public: &str, implementation: &str, graph: &
 pub(super) fn preserves(
     public: &str, implementation: &str, records: &[Value], graph: &Graph, slot: &str,
 ) -> bool {
-    if records.is_empty() || records.len() > 1024
-        || graph.concrete(implementation) != Some(true)
+    RegistryGeometry::check(records, graph)
+        .is_some_and(|registry| registry.preserves(public, implementation, slot))
+}
+
+fn preserves_checked(public: &str, implementation: &str, records: &[Value], graph: &Graph, slot: &str) -> bool {
+    if graph.concrete(implementation) != Some(true)
         || graph.overlap(implementation, public) != Some(true)
         || graph.overlap(implementation, slot) != Some(false) { return false; }
-    let mut classes = BTreeSet::new();
-    for (index, record) in records.iter().enumerate() {
-        let Some(class) = record["originalClass"].as_str() else { return false; };
-        if !represented_class(record) || class.is_empty() || record["typeParseOrder"].as_u64() != Some(index as u64)
-            || !classes.insert(class) || graph.concrete(class).is_none() { return false; }
+    for record in records {
+        let class = record["originalClass"].as_str().expect("checked registry geometry");
         // Exact-class dispatch does not apply to interface class tokens.
         if graph.concrete(class) == Some(true)
             && graph.assignable(class, implementation) != Some(false)

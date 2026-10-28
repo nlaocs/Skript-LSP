@@ -36,6 +36,59 @@ Native facts are bound privately to both the accepted AST and its source map bef
 
 An option expansion no longer makes every unaffected sibling statement opaque. The expanded line itself is still generated: the current TreeEdit contract replaces the whole line and assigns a new syntax context, without a certificate for preserved source slices or caller context. Such a target receives no source inlay, and its write cannot preserve unproved reaching facts. Matching text alone does not restore original binding identity. A generic source/context preservation contract is needed before this limitation can be removed.
 
+## Mixed-registry evidence contract checkpoint
+
+`core-library/src/storage/evidence.rs` implements a version-1 **structural and
+conditional** contract. It is not a supported addon-data input or a new WIT
+capability. Neither a checked capture nor a conditional storage result can issue
+storage metadata, `ResultType`, a native seal, or a native-event origin token.
+The existing audited standard profile remains the only backend model enabled by
+this work. Current mixed captures with missing evidence still produce Unknown.
+
+The contract separates:
+
+- The retained Catalog source/snapshot identity and an independently supplied
+  collection generation. A capture must declare a complete ordered registry,
+  with equal start/end generations and one entry for every retained Type record.
+- Registration identity, stable base-getC geometry, exact-map/ClassInfo instance
+  correspondence, and explicit Java Class/loader/code-origin identities. The
+  current name-based Catalog cannot represent same-name classes from different
+  loaders; those captures are rejected. Complete ancestry is checked against the
+  retained type-runtime-v3 projection, without inventing missing relations.
+- A producer claim's public bound P and concrete implementation upper bound U.
+  Its source-model/artifact/route reference and current owner, source, generation,
+  document, revision, analysis lifetime, syntax context, expansion and exact byte range remain
+  separate. Missing origin, opaque beforeChange, incomplete/multiple domains and
+  stale subjects cannot produce even a conditional success. Nullable state is
+  retained rather than inferred from type names.
+- The conditional `P intersection subtypes(U)` storage calculation. It checks
+  every potentially applicable exact registration, including later entries, and
+  ordered candidates through a guaranteed match. Unrelated concrete cloners may
+  be excluded; overlapping interfaces, custom applicable cloners and real
+  serializeAs conversions require additional evidence and remain unsupported.
+
+The shared `RegistryGeometry` checks are also used by the legacy source-audited
+path. The shared borrowed scope helper is used by current private context
+receipts without adding string allocations or changing their lifetime. Neither
+reuse turns a legacy snapshot ID into a collection generation, establishes
+ClassInfo instance/loader observations, or authenticates an event's origin.
+
+These checks assume honest, independently authenticated inputs. A `complete`
+flag, a digest-shaped string, matching opaque IDs, private state ownership or a
+component pin is not proof of Java behavior. In particular, the normal Paper
+join source route's CraftPlayer bound does not prove that every same-class event
+in a mixed environment came from that route. Synthetic positive tests exercise
+the conditional checker only; they do not certify a real mixed server.
+
+The collector integration is deliberately pending: current SSG does not export
+the needed generation/exact-instance/loader/getter-source closure, and the
+current context has no native-origin attestation. No SSG change, server/JAR run,
+data recollection or normal/demo deployment is included in this checkpoint.
+Before a future integration can publish results, it must authenticate both the
+capture and producer origin, preserve source/revision invalidation and rollback,
+and validate the user's actual mixed environment. The current strict gate must
+not be replaced by structural success alone.
+
 ## Source references
 
 - [Legacy SimplePropertyExpression](https://github.com/SkriptLang/Skript/blob/2.15.4/src/main/java/ch/njol/skript/expressions/base/SimplePropertyExpression.java)
