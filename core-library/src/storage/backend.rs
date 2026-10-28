@@ -36,16 +36,16 @@ struct PreparedSource {
     legacy_profile_matches: bool,
     observation: ObservationInput,
 }
-enum ObservationInput { Absent, Invalid(Failure), Projected(BoundObservation) }
+enum ObservationInput { Absent, Invalid(Failure), Projected(BoundObservation), Deferred(super::evidence::header::DeferredObservation) }
 #[derive(Clone,Copy,Debug,PartialEq,Eq)]
 enum StorageUnavailable {
-    Source, LegacyProfile, LegacyRegistry, ObservationAbsent, ObservationInvalid(Failure), Gap(StorageGap),
+    Source, LegacyProfile, LegacyRegistry, ObservationAbsent, ObservationInvalid(Failure), DeclaredIncomplete, DetailsDeferred, Gap(StorageGap),
 }
 impl PreparedSource {
     fn authorized_model(&self,current:&SourceIdentity) -> Option<Arc<Model>> {
         if &self.source!=current { return None; }
         match &self.observation {
-            ObservationInput::Invalid(_)=>None,
+            ObservationInput::Invalid(_)|ObservationInput::Deferred(_)=>None,
             ObservationInput::Projected(o) if !o.matches_source(current)=>None,
             _=>self.legacy.clone(),
         }
@@ -58,8 +58,14 @@ impl PreparedSource {
         if self.authorized_model(current).is_some() { return Vec::new(); }
         let mut reasons=Vec::new();
         if !self.legacy_profile_matches {reasons.push(StorageUnavailable::LegacyProfile);}
-        else if self.legacy.is_none() {reasons.push(StorageUnavailable::LegacyRegistry);}
+        else if self.legacy.is_none() && matches!(self.observation,ObservationInput::Absent|ObservationInput::Projected(_)) {reasons.push(StorageUnavailable::LegacyRegistry);}
         match &self.observation {
+            ObservationInput::Deferred(header)=>{
+                if !header.matches_source(current) {return vec![StorageUnavailable::Source];}
+                if !header.declared_complete() {reasons.push(StorageUnavailable::DeclaredIncomplete);}
+                reasons.extend(header.gaps().into_iter().map(StorageUnavailable::Gap));
+                reasons.push(StorageUnavailable::DetailsDeferred);
+            }
             ObservationInput::Absent=>reasons.push(StorageUnavailable::ObservationAbsent),
             ObservationInput::Invalid(f)=>reasons.push(StorageUnavailable::ObservationInvalid(*f)),
             ObservationInput::Projected(o)=>reasons.extend(o.storage_gaps(producer).into_iter().map(StorageUnavailable::Gap)),
@@ -87,6 +93,16 @@ fn prepare_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,even
             proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
     })();
     PreparedSource {source:source.clone(),legacy,legacy_profile_matches,observation}
+}
+
+fn prepare_header_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,
+    header:Result<Option<super::evidence::header::DeferredObservation>,Failure>,runtime:Option<&str>,operations:Option<Value>) -> PreparedSource
+{
+    let observation=match header {Ok(None)=>ObservationInput::Absent,Err(f)=>ObservationInput::Invalid(f),Ok(Some(h))=>ObservationInput::Deferred(h)};
+    let mut prepared=prepare_inputs(source,manifest,records,&[],Ok(None),runtime,operations);
+    if !matches!(observation,ObservationInput::Absent) {prepared.legacy=None;}
+    prepared.observation=observation;
+    prepared
 }
 
 fn profile(manifest: &Value) -> bool {
@@ -267,19 +283,20 @@ fn load_source() -> Option<Arc<PreparedSource>> {
     if let Some(value) = MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned() { return Some(value); }
     let identity=SourceIdentity {snapshot_id:source.snapshot_id.clone(),source_digest:source.source_digest.clone()};
     let document=super::document::read_manifest(&identity).ok()??;
-    let (manifest,observation)=BoundObservation::split_bound_manifest(&document,&current_source().ok()?).ok()?;
-    let records=read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
-    let events=if matches!(&observation,Ok(Some(o)) if o.is_complete()) {
-        read_fields(&source,"EventValues.json", &["registrationId","resolutionOrder","eventClass","valueClass"],4096)?
-    } else {Vec::new()};
-    // Keep the existing operations bound; a large optional operations document
-    // cannot silently turn this change into an unbounded transfer.
-    let operations=match read_document(&identity,"Operations.json",64*1024) {
-        Ok(Some(bytes))=>serde_json::from_slice(&bytes).ok(),
-        Ok(None)|Err(super::document::ReadFailure::Limit)=>None,
-        Err(_)=>return None,
-    };
-    let result=Arc::new(prepare_inputs(&identity,&manifest,records,&events,observation,
+    // Eligibility precedes detail validation. Observation v1 supplies neither
+    // the required independent generation nor an authenticated producer input.
+    let (manifest,header)=super::evidence::header::prepare(&document,&current_source().ok()?).ok()?;
+    let eligible_legacy=matches!(&header,Ok(None)) && profile_for_runtime(&manifest,crate::runtime::current().as_ref().and_then(|p|p.skript_version.as_deref()));
+    let (records,operations)=if eligible_legacy {
+        let records=read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
+        let operations=match read_document(&identity,"Operations.json",64*1024) {
+            Ok(Some(bytes))=>serde_json::from_slice(&bytes).ok(),
+            Ok(None)|Err(super::document::ReadFailure::Limit)=>None,
+            Err(_)=>return None,
+        };
+        (records,operations)
+    } else {(Vec::new(),None)};
+    let result=Arc::new(prepare_header_inputs(&identity,&manifest,records,header,
         crate::runtime::current().as_ref().and_then(|p|p.skript_version.as_deref()),operations));
     let after = catalog_data::source().ok()??;
     if after.source_digest!=source.source_digest || after.snapshot_id!=source.snapshot_id { return None; }
@@ -521,6 +538,26 @@ mod observed_input_tests {
         prepared.observation=ObservationInput::Invalid(Failure::Routing);
         assert!(prepared.authorized_model(&source).is_none(),"explicit contradictory observation cannot be ignored even by a legacy profile");
         assert!(prepared.blockers(&source,None).contains(&StorageUnavailable::ObservationInvalid(Failure::Routing)));
+    }
+
+    #[test]
+    fn production_v1_prerequisites_defer_details_without_authorizing_values_or_receipts() {
+        use crate::storage::document::{self,Chunk};
+        for name in ["core","reflect"] {
+            let (bytes,_,_)=real(name);let source=identity(bytes);
+            let document=document::mock_document(&source,"Manifest.json",||Ok(source.clone()),|offset,max|{
+                let start=offset as usize;Ok(Some(Chunk {offset,total_length:bytes.len() as u64,bytes:bytes[start..bytes.len().min(start+max as usize)].to_vec()}))
+            }).unwrap().unwrap();
+            let (metadata,header)=crate::storage::evidence::header::prepare(&document,&source).unwrap();
+            let prepared=prepare_header_inputs(&source,&metadata,Vec::new(),header,Some("2.15.4"),None);
+            assert!(matches!(prepared.observation,ObservationInput::Deferred(_)));
+            assert!(prepared.authorized_model(&source).is_none());
+            let reasons=prepared.blockers(&source,Some(PLAYER_GETTER));
+            assert!(reasons.contains(&StorageUnavailable::DetailsDeferred));
+            assert!(reasons.contains(&StorageUnavailable::Gap(StorageGap::GenerationUnproven)));
+            assert!(reasons.contains(&StorageUnavailable::Gap(StorageGap::ProducerOriginUnproven)));
+            assert!(!reasons.contains(&StorageUnavailable::Gap(StorageGap::GetterImplementationUnproven)),"runtime must not repeat an offline getter claim as its own validation");
+        }
     }
 
 }
