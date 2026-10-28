@@ -93,3 +93,24 @@ fn compact_ssg_manifest_keeps_projection_and_budget_is_not_authority() {
     let incomplete=BoundObservation::parse(&source(),&serde_json::to_vec(&changed).unwrap(),&source()).unwrap().unwrap();
     assert_eq!(incomplete.check_projection(types,events),Err(Failure::Incomplete),"budget metadata cannot repair or certify discarded evidence");
 }
+
+#[test]
+fn actual_complete_captures_project_in_rust_but_do_not_certify_hidden_or_observed_producers() {
+    for (m,t,e) in [
+        (include_bytes!("data/real-capture/core-manifest.json").as_slice(),include_str!("data/real-capture/core-types.json"),include_str!("data/real-capture/core-event-values.json")),
+        (include_bytes!("data/real-capture/reflect-manifest.json").as_slice(),include_str!("data/real-capture/reflect-types.json"),include_str!("data/real-capture/reflect-event-values.json")),
+    ] {
+        let manifest:Value=serde_json::from_slice(m).unwrap();
+        let source=SourceIdentity {snapshot_id:manifest["snapshotId"].as_str().unwrap().into(),source_digest:"a".repeat(64)};
+        let bound=BoundObservation::parse(&source,m,&source).unwrap().unwrap();
+        let types:Vec<Value>=serde_json::from_str(t).unwrap();let events:Vec<Value>=serde_json::from_str(e).unwrap();
+        assert_eq!(bound.check_projection(&types,&events),Ok(()));assert!(bound.matches_current(&source,m));
+        let player=bound.observation.getters.iter().find(|g|g.registration_id=="event-value:skript:4c5774c564483d1b20dc61834fa94fb8d42a6c9d00fd50729f35c31d441c513d").unwrap();
+        assert_eq!(player.unknown_reason.as_deref(),Some("hidden-callable-implementation"));
+        assert!(bound.storage_gaps(Some(&player.registration_id)).contains(&StorageGap::GetterImplementationUnproven));
+        let observed=bound.observation.getters.iter().find(|g|g.state=="observed").unwrap();
+        assert_eq!(bound.storage_gaps(Some(&observed.registration_id)),[StorageGap::GenerationUnproven,StorageGap::ProducerOriginUnproven]);
+        assert!(serde_json::from_value::<super::super::CaptureRegistry>(manifest["registryCapture"].clone()).is_err(),
+            "capture-local boundary observations cannot be cast to independent generation/origin evidence");
+    }
+}

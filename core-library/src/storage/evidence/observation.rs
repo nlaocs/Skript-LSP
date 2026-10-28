@@ -38,7 +38,7 @@ struct Getter { registration_id:String,resolution_order:usize,event_class_id:Str
 struct Method { declaring_class_id:String,name:String,parameter_class_ids:Vec<String>,return_class_id:String,bridge:bool }
 
 #[derive(Debug)]
-pub(super) struct BoundObservation {
+pub(in crate::storage) struct BoundObservation {
     source:SourceIdentity,
     manifest_sha256:[u8;32],
     observation:Observation,
@@ -48,14 +48,26 @@ impl BoundObservation {
     /// The caller must read the exact retained Manifest through its source-bound
     /// Catalog API. A supplied SourceIdentity is an integrity key, not authority.
     pub(super) fn parse(before:&SourceIdentity, bytes:&[u8], after:&SourceIdentity) -> Result<Option<Self>,Failure> {
+        Self::split_manifest(before,bytes,after).and_then(|(_,observation)|observation)
+    }
+
+    /// Parse the retained Manifest once. Move its optional observation out of
+    /// the JSON tree so source-profile checks need neither a second parse nor a
+    /// deep clone. The raw-byte fence still covers the unmodified input bytes.
+    pub(in crate::storage) fn split_manifest(before:&SourceIdentity, bytes:&[u8], after:&SourceIdentity)
+        -> Result<(Value,Result<Option<Self>,Failure>),Failure>
+    {
         if bytes.len()>2*1024*1024 {return Err(Failure::Limit);}
         if before!=after || !digest(&before.snapshot_id) || !digest(&before.source_digest) {return Err(Failure::Source);}
-        let root:Value=serde_json::from_slice(bytes).map_err(|_|Failure::Version)?;
+        let mut root:Value=serde_json::from_slice(bytes).map_err(|_|Failure::Version)?;
         if root["schemaVersion"]!=7 || root["snapshotId"].as_str()!=Some(before.snapshot_id.as_str()) {return Err(Failure::Source);}
-        let Some(raw)=root.get("registryCapture") else {return Ok(None);};
-        let observation:Observation=serde_json::from_value(raw.clone()).map_err(|_|Failure::Version)?;
-        observation.check()?;
-        Ok(Some(Self {source:before.clone(),manifest_sha256:Sha256::digest(bytes).into(),observation}))
+        let Some(raw)=root.as_object_mut().and_then(|o|o.remove("registryCapture")) else {return Ok((root,Ok(None)));};
+        let observation=(||{
+            let observation:Observation=serde_json::from_value(raw).map_err(|_|Failure::Version)?;
+            observation.check()?;
+            Ok(Some(Self {source:before.clone(),manifest_sha256:Sha256::digest(bytes).into(),observation}))
+        })();
+        Ok((root,observation))
     }
 
     pub(super) fn matches_current(&self,source:&SourceIdentity,manifest:&[u8]) -> bool {
@@ -64,7 +76,7 @@ impl BoundObservation {
 
     /// Only correspondence to retained rows. No conversion into expected
     /// generation, producer origin, ResultType, metadata or a seal exists.
-    pub(super) fn check_projection(&self,types:&[Value],events:&[Value]) -> Result<(),Failure> {
+    pub(in crate::storage) fn check_projection(&self,types:&[Value],events:&[Value]) -> Result<(),Failure> {
         let o=&self.observation;
         if !o.complete {return Err(Failure::Incomplete);}
         if o.entries.len()!=types.len() || o.getters.len()!=events.len() {return Err(Failure::Incomplete);}
@@ -104,6 +116,29 @@ impl BoundObservation {
         }
         Ok(())
     }
+
+    /// Explicit blockers for promotion into the stronger CaptureRegistry and
+    /// ProducerClaim contracts. These observations never provide an independent
+    /// mutation epoch or authenticate a native producer, even for an observed
+    /// (non-hidden) getter. No storage certificate can be issued from this API.
+    pub(in crate::storage) fn storage_gaps(&self,registration:Option<&str>) -> Vec<StorageGap> {
+        let mut gaps=vec![StorageGap::GenerationUnproven,StorageGap::ProducerOriginUnproven];
+        if let Some(registration)=registration {
+            let mut getters=self.observation.getters.iter().filter(|g|g.registration_id==registration);
+            match (getters.next(),getters.next()) {
+                (None,_)=>gaps.push(StorageGap::GetterAbsent),
+                (Some(_),Some(_))=>gaps.push(StorageGap::GetterAmbiguous),
+                (Some(g),None) if g.state!="observed"=>gaps.push(StorageGap::GetterImplementationUnproven),
+                _=>{}
+            }
+        }
+        gaps
+    }
+}
+
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+pub(in crate::storage) enum StorageGap {
+    GenerationUnproven,ProducerOriginUnproven,GetterAbsent,GetterAmbiguous,GetterImplementationUnproven,
 }
 
 impl Observation {

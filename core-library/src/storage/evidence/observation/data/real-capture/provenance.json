@@ -1,0 +1,94 @@
+{
+  "schema": 1,
+  "source": "Two isolated skgen captures;no clients or gameplay",
+  "ssgCommit": "0cced08f9002d285b8b7d4a897796a4076f4a4c3",
+  "ssgJarSha256": "406f0c4bd7b2f5c011f5dbff05de4b451ba2d170f02022fb5c8de6d076e2ec28",
+  "files": [
+    {
+      "file": "core-manifest.json",
+      "bytes": 439940,
+      "sha256": "44653d104f0217c0a7e1027f6d7d1b11632206ec0d2c1615958e59950023f487",
+      "sourceFile": "Manifest.json",
+      "originalSha256": "44653d104f0217c0a7e1027f6d7d1b11632206ec0d2c1615958e59950023f487",
+      "projectionFields": null
+    },
+    {
+      "file": "core-types.json",
+      "bytes": 130696,
+      "sha256": "251cac317f1eebd1eaefe1282025cc5f4ba4a62970bcef56abc75fe4483de39a",
+      "sourceFile": "Types.json",
+      "originalSha256": "06a52f898876537435af3d97c4eed3f036db8aedf5563faee48aa316b4321d61",
+      "projectionFields": [
+        "originalClass",
+        "typeParseOrder",
+        "addon",
+        "typeRuntime",
+        "serializeAs",
+        "hasParser",
+        "parserClass",
+        "registrationId"
+      ]
+    },
+    {
+      "file": "core-event-values.json",
+      "bytes": 110157,
+      "sha256": "5d2ea5c9fcac15077eb4e606449e8f9a4008bbf3aafd198c1ba5cf13255acc38",
+      "sourceFile": "EventValues.json",
+      "originalSha256": "bd93998960d1c2fc2abe7da01dc4e805640ee813c3afc2d21e61b41697927064",
+      "projectionFields": [
+        "registrationId",
+        "resolutionOrder",
+        "eventClass",
+        "valueClass",
+        "addon",
+        "time",
+        "contextDependent",
+        "hasCustomInputValidator",
+        "hasCustomEventValidator"
+      ]
+    },
+    {
+      "file": "reflect-manifest.json",
+      "bytes": 443856,
+      "sha256": "834a6dd8ecf29fb58d1ab99433ff8533ccafd86ba99dcd6ce5fe1f0222132222",
+      "sourceFile": "Manifest.json",
+      "originalSha256": "834a6dd8ecf29fb58d1ab99433ff8533ccafd86ba99dcd6ce5fe1f0222132222",
+      "projectionFields": null
+    },
+    {
+      "file": "reflect-types.json",
+      "bytes": 134993,
+      "sha256": "84ba02dea3d2c1baea308548caa95ff0d266e7b93be630ba234b47916aeeb4ef",
+      "sourceFile": "Types.json",
+      "originalSha256": "3559023cfed114cea5a514e634bb3780dd7db5164d035036d6439122a8f7b1f1",
+      "projectionFields": [
+        "originalClass",
+        "typeParseOrder",
+        "addon",
+        "typeRuntime",
+        "serializeAs",
+        "hasParser",
+        "parserClass",
+        "registrationId"
+      ]
+    },
+    {
+      "file": "reflect-event-values.json",
+      "bytes": 110157,
+      "sha256": "5d2ea5c9fcac15077eb4e606449e8f9a4008bbf3aafd198c1ba5cf13255acc38",
+      "sourceFile": "EventValues.json",
+      "originalSha256": "bd93998960d1c2fc2abe7da01dc4e805640ee813c3afc2d21e61b41697927064",
+      "projectionFields": [
+        "registrationId",
+        "resolutionOrder",
+        "eventClass",
+        "valueClass",
+        "addon",
+        "time",
+        "contextDependent",
+        "hasCustomInputValidator",
+        "hasCustomEventValidator"
+      ]
+    }
+  ]
+}

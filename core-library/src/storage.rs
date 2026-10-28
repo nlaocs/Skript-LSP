@@ -1,4 +1,5 @@
 mod domain;
+mod document;
 mod evidence;
 pub(crate) mod native_inputs;
 mod backend;

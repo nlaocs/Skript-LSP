@@ -5,6 +5,7 @@ use crate::nlaocs::skript_parser_addon::types::{MetadataEntry, RegisteredExpress
 use crate::catalog::EventValueOption;
 use serde_json::Value;
 use std::{collections::HashMap, sync::{Arc, RwLock}};
+use super::evidence::{Failure,SourceIdentity,observation::{BoundObservation,StorageGap}};
 
 #[cfg(target_arch="wasm32")]
 use std::sync::LazyLock;
@@ -25,6 +26,56 @@ struct Model {
     proofs: RwLock<HashMap<(String,String), bool>>,
     operations: Option<Value>,
     add_rules: RwLock<Option<Vec<Value>>>,
+}
+
+/// Checked retained inputs and legacy authorization have separate lifetimes and
+/// meanings. Observation success must not authorize context receipts or values.
+struct PreparedSource {
+    legacy: Option<Arc<Model>>,
+    legacy_profile_matches: bool,
+    observation: ObservationInput,
+}
+enum ObservationInput { Absent, Invalid(Failure), Projected(BoundObservation) }
+#[derive(Clone,Copy,Debug,PartialEq,Eq)]
+enum StorageUnavailable {
+    LegacyProfile, LegacyRegistry, ObservationAbsent, ObservationInvalid(Failure), Gap(StorageGap),
+}
+impl PreparedSource {
+    fn authorized_model(&self) -> Option<Arc<Model>> { self.legacy.clone() }
+
+    /// Internal reasons, not a public metadata schema or a weaker proof token.
+    /// Called for assessment, not allocated repeatedly by body hooks.
+    fn blockers(&self,producer:Option<&str>) -> Vec<StorageUnavailable> {
+        if self.legacy.is_some() { return Vec::new(); }
+        let mut reasons=vec![if self.legacy_profile_matches {StorageUnavailable::LegacyRegistry} else {StorageUnavailable::LegacyProfile}];
+        match &self.observation {
+            ObservationInput::Absent=>reasons.push(StorageUnavailable::ObservationAbsent),
+            ObservationInput::Invalid(f)=>reasons.push(StorageUnavailable::ObservationInvalid(*f)),
+            ObservationInput::Projected(o)=>reasons.extend(o.storage_gaps(producer).into_iter().map(StorageUnavailable::Gap)),
+        }
+        reasons
+    }
+}
+
+fn prepare_inputs(source:&SourceIdentity,manifest:&Value,records:Vec<Value>,events:&[Value],
+    observation:Result<Option<BoundObservation>,Failure>,runtime:Option<&str>,operations:Option<Value>) -> PreparedSource
+{
+    let observation=match observation {
+        Ok(None)=>ObservationInput::Absent,
+        Err(f)=>ObservationInput::Invalid(f),
+        Ok(Some(o))=>match o.check_projection(&records,events) {
+            Ok(())=>ObservationInput::Projected(o),Err(f)=>ObservationInput::Invalid(f),
+        },
+    };
+    let legacy_profile_matches=profile_for_runtime(manifest,runtime);
+    let legacy=(||{
+        if !legacy_profile_matches || records.is_empty()
+            || records.iter().any(|r|r["addon"]["name"]!="Skript"||r["addon"]["version"]!="2.15.4") { return None; }
+        let graph=graph_from_records(&records)?;
+        Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),
+            proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
+    })();
+    PreparedSource {legacy,legacy_profile_matches,observation}
 }
 
 fn profile(manifest: &Value) -> bool {
@@ -96,7 +147,8 @@ impl Model {
 /// lookup rechecks the active runtime version. No parse-state effect is emitted.
 #[cfg(target_arch="wasm32")]
 pub(super) fn prepare() -> bool {
-    load_model().is_some()
+    // A projected observation alone cannot grant the private scope receipt.
+    load_source().and_then(|source|source.authorized_model()).is_some()
 }
 
 /// A declared concrete Java class is itself an honest implementation upper
@@ -179,7 +231,7 @@ pub(crate) fn event_reference(payload: &RegisteredExpressionPayload, values: &[E
 }
 
 #[cfg(target_arch="wasm32")]
-static MODELS: LazyLock<RwLock<HashMap<String, Option<Arc<Model>>>>> = LazyLock::new(||RwLock::new(HashMap::new()));
+static MODELS: LazyLock<RwLock<HashMap<String, Arc<PreparedSource>>>> = LazyLock::new(||RwLock::new(HashMap::new()));
 
 /// Consumers never perform a cold registry transfer inside a body hook. A
 /// cancelled Store restart or standalone parse without structure preparation
@@ -191,36 +243,55 @@ fn model() -> Option<Arc<Model>> {
     let source=catalog_data::source().ok()??;
     if source.format!="ssg" || source.schema_version!=7 { return None; }
     let key=format!("{}:{}",source.source_digest,source.snapshot_id);
-    MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned().flatten()
+    MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).and_then(|source|source.authorized_model())
 }
 
 #[cfg(target_arch="wasm32")]
-fn load_model() -> Option<Arc<Model>> {
+fn load_source() -> Option<Arc<PreparedSource>> {
     use crate::nlaocs::skript_parser_addon::catalog_data;
     if !crate::runtime::skript_version_is("2.15.4") { return None; }
     let source = catalog_data::source().ok()??;
     if source.format!="ssg" || source.schema_version!=7 { return None; }
     let key = format!("{}:{}",source.source_digest,source.snapshot_id);
-    if let Some(value) = MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned() { return value; }
-    let result = (|| {
-        let chunk = catalog_data::read_document("Manifest.json",0,64*1024).ok()??;
-        if chunk.offset!=0 || chunk.bytes.len() as u64!=chunk.total_length { return None; }
-        let manifest: Value = serde_json::from_slice(&chunk.bytes).ok()?;
-        if !profile_for_runtime(&manifest,crate::runtime::current().as_ref().and_then(|p|p.skript_version.as_deref())) || manifest["snapshotId"]!=source.snapshot_id { return None; }
-        let records = read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
-        if records.is_empty() || records.iter().any(|r|r["addon"]["name"]!="Skript" || r["addon"]["version"]!="2.15.4") { return None; }
-        let graph = graph_from_records(&records)?;
-        let operations=catalog_data::read_document("Operations.json",0,64*1024).ok().flatten()
-            .filter(|chunk|chunk.offset==0 && chunk.bytes.len() as u64==chunk.total_length)
-            .and_then(|chunk|serde_json::from_slice(&chunk.bytes).ok());
-        Some(Arc::new(Model {records,graph,snapshot:source.snapshot_id.clone(),digest:source.source_digest.clone(),proofs:RwLock::new(HashMap::new()),operations,add_rules:RwLock::new(None)}))
-    })();
+    if let Some(value) = MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key).cloned() { return Some(value); }
+    let identity=SourceIdentity {snapshot_id:source.snapshot_id.clone(),source_digest:source.source_digest.clone()};
+    let bytes=read_document(&identity,"Manifest.json",super::document::MANIFEST_LIMIT).ok()??;
+    let (manifest,observation)=BoundObservation::split_manifest(&identity,&bytes,&current_source().ok()?).ok()?;
+    let records=read_fields(&source,"Types.json", &["originalClass","typeParseOrder","addon","typeRuntime","serializeAs","hasParser","parserClass","registrationId"],1024)?;
+    let events=if matches!(&observation,Ok(Some(_))) {
+        read_fields(&source,"EventValues.json", &["registrationId","resolutionOrder","eventClass","valueClass"],4096)?
+    } else {Vec::new()};
+    // Keep the existing operations bound; a large optional operations document
+    // cannot silently turn this change into an unbounded transfer.
+    let operations=match read_document(&identity,"Operations.json",64*1024) {
+        Ok(Some(bytes))=>serde_json::from_slice(&bytes).ok(),
+        Ok(None)|Err(super::document::ReadFailure::Limit)=>None,
+        Err(_)=>return None,
+    };
+    let result=Arc::new(prepare_inputs(&identity,&manifest,records,&events,observation,
+        crate::runtime::current().as_ref().and_then(|p|p.skript_version.as_deref()),operations));
     let after = catalog_data::source().ok()??;
     if after.source_digest!=source.source_digest || after.snapshot_id!=source.snapshot_id { return None; }
     let mut cache = MODELS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
     if cache.len()>=16 { cache.clear(); }
     cache.insert(key,result.clone());
-    result
+    Some(result)
+}
+
+#[cfg(target_arch="wasm32")]
+fn current_source() -> Result<SourceIdentity,super::document::ReadFailure> {
+    let source=crate::nlaocs::skript_parser_addon::catalog_data::source().ok().flatten().ok_or(super::document::ReadFailure::Unavailable)?;
+    if source.format!="ssg" || source.schema_version!=7 { return Err(super::document::ReadFailure::Source); }
+    Ok(SourceIdentity {snapshot_id:source.snapshot_id,source_digest:source.source_digest})
+}
+
+#[cfg(target_arch="wasm32")]
+fn read_document(source:&SourceIdentity,name:&str,limit:usize) -> Result<Option<Vec<u8>>,super::document::ReadFailure> {
+    use super::document::{self,ReadFailure};
+    document::read_bound(source,limit,current_source,|offset,max|{
+        crate::nlaocs::skript_parser_addon::catalog_data::read_document(name,offset,max)
+            .map_err(|_|ReadFailure::Unavailable).map(|chunk|chunk.map(|c|document::Chunk {offset:c.offset,total_length:c.total_length,bytes:c.bytes}))
+    })
 }
 
 #[cfg(target_arch="wasm32")]
@@ -368,5 +439,64 @@ mod mutation_tests {
         assert!(numerical_add_rules(&model,&immutable).is_empty());
         model.operations=None;assert!(numerical_add_rules(&model,&immutable).is_empty());
         assert!(local_add_rules().is_empty(),"native/cold execution has no prepared source profile");
+    }
+}
+
+#[cfg(test)]
+mod observed_input_tests {
+    use super::*;
+    const PLAYER_GETTER:&str="event-value:skript:4c5774c564483d1b20dc61834fa94fb8d42a6c9d00fd50729f35c31d441c513d";
+    fn real(name:&str)->(&'static [u8],Vec<Value>,Vec<Value>) {
+        let (m,t,e)=match name {
+            "core"=>(include_bytes!("evidence/observation/data/real-capture/core-manifest.json").as_slice(),
+                include_str!("evidence/observation/data/real-capture/core-types.json"),include_str!("evidence/observation/data/real-capture/core-event-values.json")),
+            _=>(include_bytes!("evidence/observation/data/real-capture/reflect-manifest.json").as_slice(),
+                include_str!("evidence/observation/data/real-capture/reflect-types.json"),include_str!("evidence/observation/data/real-capture/reflect-event-values.json")),
+        };
+        (m,serde_json::from_str(t).unwrap(),serde_json::from_str(e).unwrap())
+    }
+    fn identity(bytes:&[u8])->SourceIdentity {
+        let m:Value=serde_json::from_slice(bytes).unwrap();
+        // A test integrity key, not an asserted host digest for these projections.
+        SourceIdentity {snapshot_id:m["snapshotId"].as_str().unwrap().into(),source_digest:"b".repeat(64)}
+    }
+    #[test]
+    fn complete_real_observation_is_prepared_without_issuing_legacy_authorization() {
+        for (name,count,plugins) in [("core",131,2),("reflect",136,3)] {
+            let (bytes,types,events)=real(name);let source=identity(bytes);
+            assert!(bytes.len()>64*1024);assert_eq!(types.len(),count);
+            let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
+            assert_eq!(manifest["plugins"].as_array().unwrap().len(),plugins);
+            assert_ne!(manifest["plugins"][0]["jarSha256"],GENERATOR_SHA);
+            assert!(!profile(&manifest),"full input does not remove the separate source/profile guard");
+            let prepared=prepare_inputs(&source,&manifest,types,&events,observation,Some("2.15.4"),None);
+            assert!(matches!(prepared.observation,ObservationInput::Projected(_)));
+            assert!(prepared.authorized_model().is_none(),"prepare must not grant context receipts from projection alone");
+            let blockers=prepared.blockers(Some(PLAYER_GETTER));
+            assert!(blockers.contains(&StorageUnavailable::LegacyProfile));
+            assert!(blockers.contains(&StorageUnavailable::Gap(StorageGap::GenerationUnproven)));
+            assert!(blockers.contains(&StorageUnavailable::Gap(StorageGap::GetterImplementationUnproven)));
+            assert!(blockers.contains(&StorageUnavailable::Gap(StorageGap::ProducerOriginUnproven)));
+        }
+    }
+    #[test]
+    fn rejected_projection_is_distinct_from_missing_origin_and_legacy_profile() {
+        let (bytes,mut types,events)=real("reflect");let source=identity(bytes);
+        let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
+        types[0]["registrationId"]="not-this-registration".into();
+        let prepared=prepare_inputs(&source,&manifest,types,&events,observation,Some("2.15.4"),None);
+        assert!(prepared.blockers(Some(PLAYER_GETTER)).contains(&StorageUnavailable::ObservationInvalid(Failure::Routing)));
+        assert!(prepared.authorized_model().is_none());
+    }
+    #[test]
+    fn legacy_captured_positive_path_is_preserved_without_an_observation() {
+        let bytes=include_bytes!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Manifest.json");
+        let source=identity(bytes);let (manifest,observation)=BoundObservation::split_manifest(&source,bytes,&source).unwrap();
+        let types=serde_json::from_str(include_str!("../../../parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain/Types.json")).unwrap();
+        let prepared=prepare_inputs(&source,&manifest,types,&[],observation,Some("2.15.4"),None);
+        assert!(prepared.blockers(Some(PLAYER_GETTER)).is_empty());
+        let model=prepared.authorized_model().unwrap();
+        assert!(model.stored("org.bukkit.entity.Player",IMPLEMENTATION));
+        assert!(matches!(prepared.observation,ObservationInput::Absent));
     }
 }
