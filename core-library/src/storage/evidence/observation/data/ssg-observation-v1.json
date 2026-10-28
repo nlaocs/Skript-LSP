@@ -1,0 +1,280 @@
+{
+  "registryCapture" : {
+    "version" : 1,
+    "captureId" : "fixture-capture",
+    "identityScope" : "capture-local",
+    "generationEvidence" : "boundary-observed-no-mutation-epoch",
+    "getterScope" : "retained-event-value-rows",
+    "before" : {
+      "complete" : true,
+      "registrationsClosed" : true,
+      "fingerprint" : "b34d1fd744a55ebe8bae0461858d9c7cdd360f8ae1e633317b232172d9c0488f"
+    },
+    "after" : {
+      "complete" : true,
+      "registrationsClosed" : true,
+      "fingerprint" : "b34d1fd744a55ebe8bae0461858d9c7cdd360f8ae1e633317b232172d9c0488f"
+    },
+    "consistent" : true,
+    "complete" : true,
+    "entries" : [ {
+      "registrationId" : "type:fixture:0",
+      "order" : 0,
+      "classInfoInstance" : "i0",
+      "classId" : "c0",
+      "classInfoClassId" : "c7",
+      "runtimeClassIds" : {
+        "classGetterDeclaringClass" : "c7",
+        "classValue" : "c0",
+        "classInfoClass" : "c7",
+        "cloneMethodDeclaringClass" : "c7",
+        "clonerGetterDeclaringClass" : "c7",
+        "serializeAsGetterDeclaringClass" : "c7"
+      }
+    } ],
+    "exactBindings" : [ {
+      "classId" : "c0",
+      "classInfoInstance" : "i0"
+    } ],
+    "classes" : [ {
+      "id" : "c2",
+      "name" : "java.lang.Object",
+      "catalogName" : "java.lang.Object",
+      "kind" : "Class",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ ]
+    }, {
+      "id" : "c1",
+      "name" : "java.io.Serializable",
+      "catalogName" : "java.io.Serializable",
+      "kind" : "Interface",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c3",
+      "name" : "java.lang.CharSequence",
+      "catalogName" : "java.lang.CharSequence",
+      "kind" : "Interface",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c4",
+      "name" : "java.lang.Comparable",
+      "catalogName" : "java.lang.Comparable",
+      "kind" : "Interface",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c5",
+      "name" : "java.lang.constant.Constable",
+      "catalogName" : "java.lang.constant.Constable",
+      "kind" : "Interface",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c6",
+      "name" : "java.lang.constant.ConstantDesc",
+      "catalogName" : "java.lang.constant.ConstantDesc",
+      "kind" : "Interface",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c0",
+      "name" : "java.lang.String",
+      "catalogName" : "java.lang.String",
+      "kind" : "Class",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c1", "c3", "c4", "c2", "c5", "c6" ]
+    }, {
+      "id" : "c9",
+      "name" : "java.lang.ClassLoader",
+      "catalogName" : "java.lang.ClassLoader",
+      "kind" : "Class",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c10",
+      "name" : "java.security.SecureClassLoader",
+      "catalogName" : "java.security.SecureClassLoader",
+      "kind" : "Class",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c9", "c2" ]
+    }, {
+      "id" : "c11",
+      "name" : "jdk.internal.loader.BuiltinClassLoader",
+      "catalogName" : "jdk.internal.loader.BuiltinClassLoader",
+      "kind" : "Class",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c9", "c2", "c10" ]
+    }, {
+      "id" : "c8",
+      "name" : "jdk.internal.loader.ClassLoaders$AppClassLoader",
+      "catalogName" : "jdk.internal.loader.ClassLoaders$AppClassLoader",
+      "kind" : "MemberClass",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c9", "c2", "c10", "c11" ]
+    }, {
+      "id" : "c12",
+      "name" : "jdk.internal.loader.ClassLoaders$PlatformClassLoader",
+      "catalogName" : "jdk.internal.loader.ClassLoaders$PlatformClassLoader",
+      "kind" : "MemberClass",
+      "loaderId" : "l0",
+      "moduleName" : "java.base",
+      "moduleVersion" : "21.0.3",
+      "originState" : "runtime-module-no-image-digest",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c9", "c2", "c10", "c11" ]
+    }, {
+      "id" : "c7",
+      "name" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "catalogName" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "kind" : "MemberClass",
+      "loaderId" : "l1",
+      "originState" : "unavailable",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c13",
+      "name" : "org.bukkit.event.Event",
+      "catalogName" : "org.bukkit.event.Event",
+      "kind" : "Class",
+      "loaderId" : "l1",
+      "codeOriginSha256" : "5d0f35511f69d82e3da6e5a24bc55846490f3f7708b49d835e88ba55ff167d15",
+      "originState" : "code-source-file",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    }, {
+      "id" : "c14",
+      "name" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Converter",
+      "catalogName" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Converter",
+      "kind" : "MemberClass",
+      "loaderId" : "l1",
+      "originState" : "unavailable",
+      "hidden" : false,
+      "ancestryComplete" : true,
+      "ancestors" : [ "c2" ]
+    } ],
+    "loaders" : [ {
+      "id" : "l0",
+      "parentKnown" : true
+    }, {
+      "id" : "l1",
+      "classId" : "c8",
+      "parentId" : "l2",
+      "parentKnown" : true
+    }, {
+      "id" : "l2",
+      "classId" : "c12",
+      "parentId" : "l0",
+      "parentKnown" : true
+    } ],
+    "getters" : [ {
+      "registrationId" : "event-value:fixture:ad99a2676df3fcca0acdc32e91c4792710d514b0da6e1dcc777c08e7ac895adf",
+      "resolutionOrder" : 0,
+      "eventClassId" : "c13",
+      "valueClassId" : "c0",
+      "instanceId" : "i1",
+      "classId" : "c14",
+      "state" : "observed",
+      "methods" : [ {
+        "declaringClassId" : "c14",
+        "name" : "convert",
+        "parameterClassIds" : [ "c2" ],
+        "returnClassId" : "c2",
+        "bridge" : false
+      } ]
+    } ],
+    "failures" : [ ]
+  },
+  "types" : [ {
+    "registrationId" : "type:fixture:0",
+    "typeParseOrder" : 0,
+    "originalClass" : "java.lang.String",
+    "typeRuntime" : {
+      "version" : 3,
+      "classKind" : "Class",
+      "ancestryComplete" : true,
+      "ancestors" : [ "java.io.Serializable", "java.lang.CharSequence", "java.lang.Comparable", "java.lang.Object", "java.lang.constant.Constable", "java.lang.constant.ConstantDesc" ],
+      "classGetterDeclaringClass" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "classState" : "present",
+      "classValue" : "java.lang.String",
+      "classInfoClass" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "cloneMethodState" : "known",
+      "cloneMethodDeclaringClass" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "clonerGetterDeclaringClass" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "clonerState" : "absent",
+      "serializeAsGetterDeclaringClass" : "jp.nlaocs.skriptSyntaxGenerator.data.RegistryCaptureDataTest$Info",
+      "serializeAsState" : "absent"
+    }
+  } ],
+  "eventValues" : [ {
+    "eventClass" : "org.bukkit.event.Event",
+    "valueClass" : "java.lang.String",
+    "time" : 0,
+    "resolutionOrder" : 0,
+    "registrationOrder" : 0,
+    "addon" : {
+      "name" : "fixture",
+      "version" : "1"
+    },
+    "registrationId" : "event-value:fixture:ad99a2676df3fcca0acdc32e91c4792710d514b0da6e1dcc777c08e7ac895adf"
+  } ]
+}

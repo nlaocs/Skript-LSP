@@ -80,14 +80,46 @@ join source route's CraftPlayer bound does not prove that every same-class event
 in a mixed environment came from that route. Synthetic positive tests exercise
 the conditional checker only; they do not certify a real mixed server.
 
-The collector integration is deliberately pending: current SSG does not export
-the needed generation/exact-instance/loader/getter-source closure, and the
-current context has no native-origin attestation. No SSG change, server/JAR run,
-data recollection or normal/demo deployment is included in this checkpoint.
+The collector authentication integration is deliberately pending. The SSG
+observation checkpoint below adds actual identity correspondence, but does not
+establish the needed mutation-generation/getter-source closure, and the current
+context has no native-origin attestation. No server/JAR run, data recollection or
+normal/demo deployment is included in these offline checkpoints.
 Before a future integration can publish results, it must authenticate both the
 capture and producer origin, preserve source/revision invalidation and rollback,
 and validate the user's actual mixed environment. The current strict gate must
 not be replaced by structural success alone.
+
+### SSG boundary observations
+
+The modern SSG exporter optionally includes `Manifest.registryCapture`,
+observation schema version 1, while retaining snapshot schema 7 and its 21 files.
+`evidence::observation` accepts that distinct schema from a source-bound raw
+Manifest, validates Class/loader/reference limits and correspondence with the
+retained Types/EventValues rows, and binds any cached result to both the source
+identity and the exact raw Manifest SHA-256. The semantic snapshotId algorithm
+does not include optional Manifest observations, so it is insufficient alone.
+
+The observer retains actual ordered ClassInfo and exact-map instance identities,
+loader parentage, Class-valued runtime fields, code-source-file/module metadata
+and getter implementation Class/method signatures. Identity tokens are local
+to one capture and are not persistent object addresses. Hidden lambdas and
+unavailable origins stay unknown. Code-source hashes are not active transformed
+bytecode attestations. Events and EventValues share one collected row list.
+
+Its generation mode is explicitly `boundary-observed-no-mutation-epoch`. Equal
+start/end observations do not exclude intervening mutations. Getter coverage is
+only `retained-event-value-rows`, not the entire live event registry. This schema
+has no conversion into `CheckedCaptureRegistry`'s stronger expected_generation,
+producer authority, ResultType or native seals. The cross-project test uses
+SSG-generated self-authored fixtures, not an actual Paper capture. No new WIT/API
+capability or automatic mixed-storage publication is enabled by these tests.
+
+Observation payloads are capped at 512 KiB by SSG and raw Manifests at 2 MiB in
+this offline receiver. Consumers with an older 64-KiB Manifest read limit may
+not inspect larger observations; they must not treat a truncated read as a
+complete observation. Existing storage support still requires the matching
+audited exporter/runtime profile and is not automatically widened to a new JAR.
 
 ## Source references
 

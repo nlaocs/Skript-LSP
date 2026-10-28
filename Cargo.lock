@@ -211,6 +211,7 @@ dependencies = [
  "parser-wasm",
  "serde",
  "serde_json",
+ "sha2",
  "wit-bindgen 0.59.0",
 ]
 
