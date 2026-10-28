@@ -8,6 +8,7 @@ mod ast_macro;
 mod addon_data;
 mod editor_completion;
 pub use editor_completion::{Batch as EditorCompletionBatch, Output as EditorCompletionOutput, Proposal as EditorCompletionProposal};
+pub use editor_completion::typed::{Input as EditorCompletionInput, TypeFact as EditorCompletionTypeFact};
 pub use addon_data::{AddonDataPin, AddonDataSource};
 mod ast_tree;
 #[cfg(test)]
@@ -856,6 +857,7 @@ pub struct DispatchResult {
 
 #[derive(Debug, Clone)]
 struct ExecutedParseResult {
+    editor_tree: Option<AstTree>,
     wire: ParseResult,
     expression_roots: BTreeMap<u64, ExpressionNode>,
     // Actual nested host invocations; admitted only by an accepted continuation.
@@ -1077,6 +1079,7 @@ struct StoreData {
     #[cfg(test)]
     catalog_measurement: Option<catalog_measurement::Probe>,
     editor_readonly: bool,
+    editor_input_only: bool,
     editor_mutation_attempted: bool,
     incremental_impure_call: bool,
     epoch_clock: Option<Arc<EpochClock>>,
@@ -2367,6 +2370,7 @@ impl StoreData {
 
     fn invocation(&mut self) -> Result<&mut InvocationTransaction, WitStateError> {
         self.note_initialization_host_call();
+        if self.editor_input_only { self.editor_mutation_attempted=true; return Err(WitStateError {kind:WitStateErrorKind::AccessDenied,message:"input-only editing queries cannot access StateStore".into()}); }
         self.invocation
             .as_mut()
             .ok_or_else(|| wit_state_error(StateError::NoActiveTransaction))
@@ -2374,6 +2378,7 @@ impl StoreData {
 
     fn dynamic_update(&mut self) -> Result<&mut DynamicSyntaxUpdate, WitDynamicRegistryError> {
         self.note_initialization_host_call();
+        if self.editor_input_only { self.editor_mutation_attempted=true; return Err(WitDynamicRegistryError {kind:WitDynamicRegistryErrorKind::NoActiveUpdate,message:"input-only editing queries cannot access dynamic scopes".into()}); }
         self.incremental_impure_call = true;
         if !self.dynamic_syntax_available {
             return Err(WitDynamicRegistryError {
@@ -9430,6 +9435,8 @@ pub struct ParserHost {
     semantic_receipt_sequence: Arc<std::sync::atomic::AtomicU64>,
     editor_session: Option<editor_completion::Session>,
     editor_context: Option<ExpressionParseContext>,
+    editor_capture: Option<editor_completion::typed::Capture>,
+    editor_documents: BTreeMap<(String, String), Arc<editor_completion::typed::Fence>>,
     body_observing: bool,
     body_impure: bool,
     #[cfg(test)]
@@ -9855,6 +9862,8 @@ impl ParserHost {
             semantic_receipt_sequence: Arc::default(),
             editor_session: None,
             editor_context: None,
+            editor_capture: None,
+            editor_documents: BTreeMap::new(),
             body_observing: false,
             body_impure: false,
             #[cfg(test)]
@@ -9914,6 +9923,10 @@ impl ParserHost {
         document_id: &str,
         through_revision: u64,
     ) -> Result<bool, HostError> {
+        let key=(project_uri.to_owned(),document_id.to_owned());
+        if self.editor_documents.get(&key).is_some_and(|f|f.revision<=through_revision) {
+            if let Some(fence)=self.editor_documents.remove(&key) {fence.current.store(false,Ordering::Release);}
+        }
         self.incremental.release(document_id, through_revision);
         let state_released =
             self.state_store
@@ -12184,6 +12197,7 @@ impl ParserHost {
             let key = ParseRequestKey::new(&request, context);
             let mut result = if self.active_parse_requests.contains(&key) {
                 ExecutedParseResult {
+                    editor_tree: None,
                     wire: failed_parse_result(
                         &request,
                         "parser.request-cycle",
@@ -12210,6 +12224,7 @@ impl ParserHost {
                 .next_parse_result_token
                 .checked_add(1)
                 .ok_or(HostError::ParseResultTokenExhausted)?;
+            self.record_editor_observation(&mut result);
             results.push(result);
         }
         Ok(results)
@@ -12221,8 +12236,8 @@ impl ParserHost {
         context: &InvocationContext,
         request: &ParseRequest,
     ) -> Result<ExecutedParseResult, HostError> {
-        if request.parser_id.starts_with(editor_completion::ROUTE_PREFIX) {
-            return Ok(ExecutedParseResult {wire:failed_parse_result(request,"editor.not-semantic","editing services cannot be used as semantic parsers"),expression_roots:BTreeMap::new(),calls:Vec::new()});
+        if request.parser_id.starts_with(editor_completion::ROUTE_PREFIX) || request.parser_id.starts_with(editor_completion::typed::ROUTE_PREFIX) {
+            return Ok(ExecutedParseResult {editor_tree:None,wire:failed_parse_result(request,"editor.not-semantic","editing services cannot be used as semantic parsers"),expression_roots:BTreeMap::new(),calls:Vec::new()});
         }
         match request.parser_id.as_str() {
             skript_parser::HOST_EXPRESSION_PARSER_ID => {
@@ -12282,6 +12297,7 @@ impl ParserHost {
                 |failure| format!("Expression parse failed: {:?}", failure.kind),
             );
             return Ok(ExecutedParseResult {
+                editor_tree: None,
                 wire: failed_parse_result(request, "parser.expression-no-match", &message),
                 expression_roots: BTreeMap::new(),
                 calls: parsed.calls,
@@ -12297,7 +12313,10 @@ impl ParserHost {
             .first()
             .expect("successful Expression results have one root");
         let child = rebase_expression_node(selected.node, request)?;
+        let editor_tree = self.editor_capture.as_ref().and_then(|_| self.editor_session.as_ref())
+            .map(|session| ast_tree::expression_tree(&session.mapped, &child));
         Ok(ExecutedParseResult {
+            editor_tree,
             wire,
             expression_roots: BTreeMap::from([(root_id, child)]),
             calls: parsed.calls,
@@ -12328,6 +12347,7 @@ impl ParserHost {
         )?;
         let Some(selected) = parsed.matches.selected else {
             return Ok(ExecutedParseResult {
+                editor_tree: None,
                 wire: failed_parse_result(
                     request,
                     "parser.condition-no-match",
@@ -12338,6 +12358,7 @@ impl ParserHost {
             });
         };
         Ok(ExecutedParseResult {
+            editor_tree: None,
             wire: condition_parse_result(
                 request,
                 &selected.node,
@@ -12370,6 +12391,7 @@ impl ParserHost {
             .filter(|node| node.kind == ParserRawNodeKind::Simple && node.children.is_empty());
         let Some(node) = simple else {
             return Ok(ExecutedParseResult {
+                editor_tree: None,
                 wire: failed_parse_result(
                     request,
                     "parser.effect-no-match",
@@ -12385,7 +12407,7 @@ impl ParserHost {
             EffectParseRequest {
                 source: &source,
                 node,
-                context: parse_request_context(request, context).map_err(|message| {
+                context: self.editor_context.clone().map(Ok).unwrap_or_else(|| parse_request_context(request, context)).map_err(|message| {
                     HostError::InvalidParseResult {
                         parser_id: request.parser_id.clone(),
                         message,
@@ -12395,6 +12417,7 @@ impl ParserHost {
             EffectParserConfig::default(),
         )?;
         let mut arena = ParseResultArena::new(request, self.config.syntax_catalog.as_deref());
+        let mut editor_tree = None;
         let root_id = parsed
             .matches
             .into_selected_capture(
@@ -12405,6 +12428,9 @@ impl ParserHost {
             )
             .ok()
             .map(|(summary, value)| {
+                if self.editor_capture.is_some() && let skript_parser::ParsedCaptureValue::Effect(effect) = &value {
+                    editor_tree = editor_completion::typed::rebase_projection(ast_tree::effect_tree(&source, effect), request);
+                }
                 let capture = ParserParsedCapture {
                     capture_index: 0,
                     binding: skript_parser::RegisteredCaptureBinding {
@@ -12452,6 +12478,7 @@ impl ParserHost {
             )
         };
         Ok(ExecutedParseResult {
+            editor_tree,
             wire,
             // A statement result cannot be adopted as an Expression child, even
             // if the called function happens to return a value.
@@ -12486,6 +12513,7 @@ impl ParserHost {
                 });
             }
             return Ok(ExecutedParseResult {
+                editor_tree: None,
                 wire: failed_parse_result(
                     request,
                     "parser.unhandled",
@@ -12529,6 +12557,7 @@ impl ParserHost {
             .into());
         }
         Ok(ExecutedParseResult {
+            editor_tree: None,
             wire: parsed,
             expression_roots: BTreeMap::new(),
             calls: result.calls,
@@ -13633,6 +13662,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_ADDITIONAL_PARSE,
         semantic_proof::value_facts::CAPABILITY,
         editor_completion::CAPABILITY,
+        editor_completion::typed::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
@@ -13941,6 +13971,13 @@ fn validate_manifest(
                     || !manifest.capabilities.iter().any(|c|c.id==editor_completion::CAPABILITY&&c.required&&c.minimum_version==1)
                     || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
                     return Err(HostError::InvalidManifest {message:"editing route must belong to its component and require the v1 observational contract".into()});
+                }
+            }
+            if parser_id.starts_with(editor_completion::typed::ROUTE_PREFIX) {
+                if parser_id != &format!("{}{}",editor_completion::typed::ROUTE_PREFIX,manifest.component_id)
+                    || !manifest.capabilities.iter().any(|c|c.id==editor_completion::typed::CAPABILITY&&c.required&&c.minimum_version==1)
+                    || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
+                    return Err(HostError::InvalidManifest {message:"typed editing route must be owner-bound, input-only and project-stable".into()});
                 }
             }
             if parser_id.trim().is_empty() {
@@ -14764,6 +14801,7 @@ fn create_store(
             #[cfg(test)]
             catalog_measurement: None,
             editor_readonly: false,
+            editor_input_only: false,
             editor_mutation_attempted: false,
             incremental_impure_call: false,
             epoch_clock: None,
@@ -18980,7 +19018,9 @@ mod tests {
                 CAPABILITY_AST_MACRO,
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
+                semantic_proof::value_facts::CAPABILITY,
                 editor_completion::CAPABILITY,
+        editor_completion::typed::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,

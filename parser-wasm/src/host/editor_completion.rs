@@ -1,5 +1,6 @@
 //! Nonsemantic, live-prefix editing queries over the existing custom-parser ABI.
 use super::*;
+pub(in crate::host) mod typed;
 use serde::{Deserialize, Serialize};
 
 pub const ROUTE_PREFIX: &str = "editor.completion/";
@@ -28,6 +29,8 @@ pub struct Output {
     pub complete: bool,
     pub exclusive: bool,
     pub proposals: Vec<Proposal>,
+    #[serde(default)]
+    pub typed_inputs: Vec<typed::Draft>,
 }
 #[derive(Debug, Clone)]
 pub struct Batch {
@@ -36,29 +39,34 @@ pub struct Batch {
     pub input: String,
     pub span: MappedSpan,
     pub output: Output,
+    pub inputs: Vec<typed::Input>,
 }
 pub(super) struct Session {
     pub source: Arc<str>,
+    pub mapped: Arc<MappedSource>,
+    pub fence: Arc<typed::Fence>,
+    owners: BTreeMap<u64, u64>,
     pub batches: Vec<Batch>,
     parents: BTreeMap<u64,Option<u64>>,
     queries: usize,
     bytes: usize,
 }
 impl Session {
-    pub(super) fn new(source:Arc<str>)->Self {
-        Self {source,batches:Vec::new(),parents:BTreeMap::new(),queries:0,bytes:0}
+    fn new(source: Arc<str>, mapped: Arc<MappedSource>, fence: Arc<typed::Fence>) -> Self {
+        Self {source,mapped,fence,owners:BTreeMap::new(),batches:Vec::new(),parents:BTreeMap::new(),queries:0,bytes:0}
     }
     pub(super) fn preparation(&mut self,event:&skript_parser::StructurePreparationEvent<'_>) {
         use skript_parser::StructurePreparationEvent::*;
         match event {
-            Headers {headers,..}=>for h in headers {if !h.ambiguous {self.parents.insert(h.attempt_id,None);}},
-            StructureHeader {header,..}=>{if !header.ambiguous {self.parents.insert(header.attempt_id,None);}},
-            SectionHeader {attempt_id,parent_attempt_id,..}=>{self.parents.insert(*attempt_id,*parent_attempt_id);},
+            Headers {source,headers,..}=>{self.mapped=Arc::new((*source).clone());for h in headers {if !h.ambiguous {self.parents.insert(h.attempt_id,None);self.owners.insert(h.attempt_id,h.candidate.raw_node_id.get());}}},
+            StructureHeader {source,header,..}=>{self.mapped=Arc::new((*source).clone());if !header.ambiguous {self.parents.insert(header.attempt_id,None);self.owners.insert(header.attempt_id,header.candidate.raw_node_id.get());}},
+            SectionHeader {attempt_id,parent_attempt_id,candidate,..}=>{self.parents.insert(*attempt_id,*parent_attempt_id);self.owners.insert(*attempt_id,candidate.raw_node_id.get());},
             Invalidated {attempt_id,..}=>{
                 let mut removed=BTreeSet::from([*attempt_id]);
                 loop {let before=removed.len();for (id,parent) in &self.parents {if parent.is_some_and(|p|removed.contains(&p)){removed.insert(*id);}}if before==removed.len(){break;}}
                 self.batches.retain(|b|!removed.contains(&b.attempt));
                 self.parents.retain(|id,_|!removed.contains(id));
+                self.owners.retain(|id,_|!removed.contains(id));
             }
         }
     }
@@ -76,6 +84,13 @@ fn valid_output(output:&Output,input:&str)->bool {
 }
 
 impl ParserHost {
+    pub(super) fn new_editor_session(&mut self, request: &DocumentParseRequest) -> Session {
+        let key=(request.project_uri.clone(),request.context.document_id.clone());
+        let fence=Arc::new(typed::Fence {project:key.0.clone(),document:key.1.clone(),revision:request.context.document_revision,
+            current:AtomicBool::new(true),providers:self.completion_types.clone()});
+        if let Some(old)=self.editor_documents.insert(key,Arc::clone(&fence)) {old.current.store(false,Ordering::Release);}
+        Session::new(Arc::from(request.source.original()),Arc::new(request.source.clone()),fence)
+    }
     pub(super) fn editor_routes(&self)->Vec<(String,String,char)> {
         self.components.iter().flat_map(|c|{
             let prefix=format!("{ROUTE_PREFIX}{}/",c.manifest.component_id);
@@ -104,6 +119,9 @@ impl ParserHost {
                 expected_types:Vec::new(),span:span.clone(),options:vec![WitMetadataEntry {key:"editor.query-version".into(),value:"1".into(),owner_component_id:None}]},Some(&parse_context_to_wit(context)));
             let before=transaction.savepoint()?;
             let observations=transaction.isolate_editor_observations()?;
+            let typed_enabled=self.components.iter().find(|component|component.manifest.component_id==owner)
+                .is_some_and(|component|component.manifest.capabilities.iter().any(|cap|cap.id==typed::CAPABILITY&&cap.minimum_version<=1));
+            let previous_capture=mem::replace(&mut self.editor_capture,typed_enabled.then(typed::Capture::new));
             let receipts=self.semantic_receipts.replace(semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()));
             let dependencies=self.native_dependency_unavailable.replace(Vec::new());
             let incremental=mem::take(&mut self.incremental);
@@ -115,6 +133,8 @@ impl ParserHost {
             let mutation=self.components.iter().any(|c|c.store.data().editor_mutation_attempted);
             for component in &mut self.components {component.store.data_mut().editor_readonly=false;component.store.data_mut().editor_mutation_attempted=false;}
             self.editor_context=None;
+            let captured=self.editor_capture.take();
+            self.editor_capture=previous_capture;
             self.semantic_receipts=receipts;
             let unavailable=mem::replace(&mut self.native_dependency_unavailable,dependencies).is_some_and(|v|!v.is_empty());
             self.incremental=incremental;
@@ -138,10 +158,16 @@ impl ParserHost {
             if entry.value.len()>128*1024 {continue;}
             let Ok(output)=serde_json::from_str::<Output>(&entry.value) else{continue};
             if !valid_output(&output,input){continue;}
+            let raw_owner=self.editor_session.as_ref().and_then(|s|s.owners.get(&attempt)).copied();
+            let inputs=if output.typed_inputs.is_empty(){Vec::new()}else{
+                let Some(raw_owner)=raw_owner else{continue;};
+                let Some(inputs)=typed::select_inputs(&output,captured.as_ref(),&owner,raw_owner,span,input)else{continue;};inputs
+            };
+            let bytes=inputs.iter().fold(entry.value.len(),|sum,input|sum.saturating_add(input.bytes()));
             let session=self.editor_session.as_mut().unwrap();
-            if session.bytes.saturating_add(entry.value.len())>MAX_BYTES {continue;}
-            session.bytes+=entry.value.len();
-            session.batches.push(Batch {owner,attempt,input:input.into(),span:span.clone(),output});
+            if session.bytes.saturating_add(bytes)>MAX_BYTES {continue;}
+            session.bytes+=bytes;
+            session.batches.push(Batch {owner,attempt,input:input.into(),span:span.clone(),output,inputs});
         }
         Ok(())
     }
@@ -151,14 +177,15 @@ impl ParserHost {
 mod tests {
     use super::*;
     #[test]fn editing_ranges_and_payload_limits_fail_closed(){
-        let mut output=Output {version:1,complete:true,exclusive:true,proposals:vec![Proposal{id:"m".into(),label:"name()".into(),filter_text:"name".into(),insert_text:"name()".into(),snippet:None,start:2,end:2,detail:String::new(),documentation:String::new()}]};
+        let mut output=Output {version:1,complete:true,exclusive:true,typed_inputs:Vec::new(),proposals:vec![Proposal{id:"m".into(),label:"name()".into(),filter_text:"name".into(),insert_text:"name()".into(),snippet:None,start:2,end:2,detail:String::new(),documentation:String::new()}]};
         assert!(valid_output(&output,"\u{e9}."));output.proposals[0].start=1;assert!(!valid_output(&output,"\u{e9}."));
         output.proposals[0].start=2;output.proposals[0].insert_text="x\ny".into();assert!(!valid_output(&output,"\u{e9}."));
     }
     #[test]fn rejecting_ancestor_revokes_only_its_descendant_editing_queries(){
-        let mut s=Session::new(Arc::from("x"));
+        let source=Arc::from("x");let fence=Arc::new(typed::Fence {project:"p".into(),document:"d".into(),revision:1,current:AtomicBool::new(true),providers:CompletionTypeCertificate(Arc::new(AtomicBool::new(true)))});
+        let mut s=Session::new(source,Arc::new(MappedSource::identity("x")),fence);
         s.parents=BTreeMap::from([(1,None),(2,Some(1)),(3,Some(2)),(4,None)]);
-        for attempt in [1,2,3,4]{s.batches.push(Batch {owner:"owned".into(),attempt,input:"x".into(),span:MappedSpan {virtual_range:WitTextRange {start:0,end:1},origins:Vec::new()},output:Output {version:1,complete:true,exclusive:true,proposals:Vec::new()}});}
+        for attempt in [1,2,3,4]{s.batches.push(Batch {owner:"owned".into(),inputs:Vec::new(),attempt,input:"x".into(),span:MappedSpan {virtual_range:WitTextRange {start:0,end:1},origins:Vec::new()},output:Output {version:1,complete:true,exclusive:true,typed_inputs:Vec::new(),proposals:Vec::new()}});}
         s.preparation(&skript_parser::StructurePreparationEvent::Invalidated {attempt_id:1,raw_node_id:skript_parser::RawNodeId::new(0),registration_id:"test",pattern_index:0});
         assert_eq!(s.batches.iter().map(|b|b.attempt).collect::<Vec<_>>(),vec![4]);assert_eq!(s.parents.len(),1);
     }

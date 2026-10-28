@@ -94,7 +94,7 @@ struct AstBuilder<'a> {
     nodes: Vec<AstNode>,
 }
 
-fn expression_tree(source: &MappedSource, expression: &ExpressionNode) -> AstTree {
+pub(super) fn expression_tree(source: &MappedSource, expression: &ExpressionNode) -> AstTree {
     let mut builder = AstBuilder {
         source,
         nodes: Vec::new(),
@@ -104,6 +104,12 @@ fn expression_tree(source: &MappedSource, expression: &ExpressionNode) -> AstTre
         roots: vec![root],
         nodes: builder.nodes,
     }
+}
+
+pub(super) fn effect_tree(source: &MappedSource, effect: &EffectCandidate) -> AstTree {
+    let mut builder = AstBuilder { source, nodes: Vec::new() };
+    let root = builder.effect(effect);
+    AstTree { roots: vec![root], nodes: builder.nodes }
 }
 
 #[cfg(test)]

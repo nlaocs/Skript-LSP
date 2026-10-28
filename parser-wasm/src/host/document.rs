@@ -429,7 +429,7 @@ impl ParserHost {
         let previous_receipts = self.semantic_receipts.replace(
             super::semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()),
         );
-        let editor_session=(!self.editor_routes().is_empty()).then(||super::editor_completion::Session::new(Arc::from(request.source.original())));
+        let editor_session=if self.editor_routes().is_empty(){None}else{Some(self.new_editor_session(&request))};
         let previous_editor=std::mem::replace(&mut self.editor_session,editor_session);
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(

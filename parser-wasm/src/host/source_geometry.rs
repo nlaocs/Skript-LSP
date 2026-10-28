@@ -121,6 +121,28 @@ pub(super) fn canonicalize_semantic_subject_text(node: &mut AstNode) -> bool {
     true
 }
 
+/// Rebase an initial native fragment projection, preserving the verified capture set.
+/// This is not available to mutable AST output or guest-supplied nodes.
+pub(super) fn map_native_projection(node: &mut AstNode, map: &impl Fn(&MappedSpan) -> Option<MappedSpan>) -> bool {
+    if !pattern_capture_geometry_is_current(node) { return false; }
+    let Some(span) = map(&node.span) else { return false; };
+    node.span = span;
+    for capture in &mut node.captures {
+        if let CaptureValue::Span(span) = &mut capture.value {
+            let Some(mapped) = map(span) else { return false; };
+            *span = mapped;
+        }
+    }
+    if let Some(info) = node.summary.as_mut().and_then(|summary| summary.default_expression.as_mut()) {
+        let Some(mapped) = map(&info.span) else { return false; };
+        info.span = mapped;
+    }
+    let Some(value) = fingerprint(node) else { return false; };
+    let Some(seal) = node.metadata.iter_mut().find(|entry| entry.owner_component_id.is_none() && entry.key == SEAL) else { return false; };
+    seal.value = value;
+    true
+}
+
 pub fn has_pattern_capture_geometry(node: &AstNode) -> bool {
     node.metadata
         .iter()
