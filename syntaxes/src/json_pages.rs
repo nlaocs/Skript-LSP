@@ -6,6 +6,7 @@ use std::{collections::{BTreeMap, BTreeSet}, fmt, ops::Range, sync::Arc};
 const MAX_DOCUMENT_BYTES: usize = 4 * 1024 * 1024;
 const MAX_ROWS: usize = 8192;
 const MAX_OBJECT_KEYS: usize = 4096;
+const MAX_ROW_SOURCE_BYTES: usize = 512 * 1024;
 
 /// Invalid structure and resource exhaustion are distinct from an absent path.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -65,7 +66,7 @@ pub struct JsonArrayIndex { bytes: Arc<[u8]>, rows: Arc<[Range<usize>]> }
 pub struct JsonPageRecord { pub index: u64, pub json: Vec<u8> }
 /// A complete bounded page; an oversized first record is an error, not EOF.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct JsonArrayPage { pub total_records: u64, pub items: Vec<JsonPageRecord>, pub next_offset: Option<u64> }
+pub struct JsonArrayPage { pub total_records: u64, pub items: Vec<JsonPageRecord>, pub next_offset: Option<u64>, pub source_bytes_examined: usize }
 
 impl JsonArrayIndex {
     /// A path consists of literal, decoded object keys. No expression evaluation.
@@ -98,11 +99,16 @@ impl JsonArrayIndex {
         let start = usize::try_from(offset).map_err(|_| JsonPageError::Invalid)?;
         if start > self.rows.len() { return Err(JsonPageError::Invalid); }
         let end = start.saturating_add(limit as usize).min(self.rows.len());
-        let mut items = Vec::new(); let mut used = 0usize;
+        let mut items = Vec::new(); let mut used = 0usize;let mut examined=0usize;
         for index in start..end {
             let raw = &self.bytes[self.rows[index].clone()];
             // Bound raw-row decode work even when a projection would be small.
-            if raw.len() > 64 * 1024 { return Err(JsonPageError::Limit); }
+            if raw.len() > MAX_ROW_SOURCE_BYTES { return Err(JsonPageError::Limit); }
+            if !items.is_empty()&&examined.saturating_add(raw.len())>MAX_ROW_SOURCE_BYTES {break;}
+            examined+=raw.len();
+            if fields.is_empty()&&raw.len().saturating_add(8)>max_bytes as usize {
+                if items.is_empty(){return Err(JsonPageError::Limit);}break;
+            }
             let json = if fields.is_empty() { raw.to_vec() } else {
                 let Object(object) = serde_json::from_slice(raw).map_err(|_| JsonPageError::Invalid)?;
                 let selected = fields.iter().filter_map(|field| object.get(field).map(|value| (field, *value))).collect::<BTreeMap<_, _>>();
@@ -117,7 +123,7 @@ impl JsonArrayIndex {
         }
         let next = start + items.len();
         Ok(JsonArrayPage { total_records: self.rows.len() as u64, items,
-            next_offset: (next < self.rows.len()).then_some(next as u64) })
+            next_offset: (next < self.rows.len()).then_some(next as u64),source_bytes_examined:examined })
     }
 }
 
@@ -159,5 +165,18 @@ mod tests {
         assert!(index(br#"[]"#,&["a";9]).is_err());
         let many=format!("[{}]",vec!["null";MAX_ROWS+1].join(","));assert!(index(many.as_bytes(),&[]).is_err());
         assert_eq!(index(&vec![b' ';MAX_DOCUMENT_BYTES+1],&[]).unwrap_err(),JsonPageError::Limit);
+    }
+    #[test]
+    fn large_unselected_type_metadata_projects_without_unbounded_native_scan() {
+        // Actual collected Types rows contain about297KB of unselected metadata.
+        let row=format!(r#"{{"needed":"x","description":"{}"}}"#,"y".repeat(297445));
+        let raw=format!("[{row},{row}]");let idx=index(raw.as_bytes(),&[]).unwrap().unwrap();
+        let first=idx.page(&["needed".into()],0,64,32768).unwrap();
+        assert_eq!(first.items.len(),1);assert_eq!(first.next_offset,Some(1));assert_eq!(first.items[0].json,br#"{"needed":"x"}"#);
+        assert!(first.source_bytes_examined<=MAX_ROW_SOURCE_BYTES);
+        let last=idx.page(&["needed".into()],1,64,32768).unwrap();assert_eq!(last.next_offset,None);
+        assert!(idx.page(&[],0,1,65536).is_err(),"a huge raw reply is still rejected");
+        let huge=format!(r#"[{{"ignored":"{}"}}]"#,"y".repeat(MAX_ROW_SOURCE_BYTES));
+        assert!(index(huge.as_bytes(),&[]).unwrap().unwrap().page(&["needed".into()],0,1,32768).is_err());
     }
 }
