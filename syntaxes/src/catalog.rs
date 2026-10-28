@@ -185,6 +185,13 @@ impl CatalogSource {
         self.documents.get(name).map(AsRef::as_ref)
     }
 
+    /// Builds a bounded raw-array view over this exact immutable source document.
+    /// This validates structure only; it supplies no addon-specific semantic authority.
+    pub fn json_array_index(&self, document: &str, path: &[String]) -> Result<Option<crate::JsonArrayIndex>, crate::JsonPageError> {
+        let Some(bytes) = self.documents.get(document) else { return Ok(None); };
+        crate::JsonArrayIndex::new(Arc::clone(bytes), path)
+    }
+
     /// Returns one indexed top-level JSON object by its source location.
     pub fn record(&self, document: &str, index: usize) -> Option<&CatalogSourceRecord> {
         self.records.get(&(document.to_owned(), index))
