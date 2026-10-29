@@ -289,7 +289,10 @@ interface types {
         required: bool,
         /// Route-specific options. `host.expression` accepts `parse.mode`,
         /// `expression.expected-types`, `expression.time-state`, and temporary
-        /// `context.*` overrides.
+        /// `context.*` overrides. With required capability
+        /// `parser.expression-root-selection` v1, `expression.root-handler`
+        /// selects the caller's unfiltered static Expression registration family
+        /// at the root only; recursive children retain ordinary resolution.
         options: list<metadata-entry>,
     }
 

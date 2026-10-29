@@ -934,6 +934,7 @@ fn a_seed_growth_error_removes_the_partially_completed_memo_entry() {
     session.environment.revision = 17;
     session.environment.registered_error = true;
     let failed_key = MemoKey {
+        root_registrations: None,
         range: request.range,
         candidate_ends: request.ends.clone(),
         expected_type_id: session.expected_type_id(&request.types),

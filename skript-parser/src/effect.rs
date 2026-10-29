@@ -747,9 +747,9 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                         EffectParseError::Expression(session.environment_error(message))
                     })?;
                 let previous = context.map(|context| session.replace_context(context));
-                let parsed = session.parse_prefixes_detailed(
+                let parsed = session.parse_capture_expression_prefixes(
+                    binding,
                     range,
-                    &[range.end],
                     &expected,
                     allow_literals,
                     allow_expressions,

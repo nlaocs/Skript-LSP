@@ -9,7 +9,7 @@ fn certified_body_work_keeps_document_budgets_and_releases_resources() {
     let mut environment=NoopExpressionEnvironment;
     let mut session=ExpressionSession::new(&catalog,None,&source,&mut environment,
         ExpressionParseContext::default(),ExpressionParserConfig {max_candidates:3,max_memo_entries:3,..ExpressionParserConfig::default()});
-    let key=MemoKey {range:TextRange::new(0,1),candidate_ends:vec![1],expected_type_id:0,
+    let key=MemoKey {root_registrations:None,range:TextRange::new(0,1),candidate_ends:vec![1],expected_type_id:0,
         allow_literals:true,allow_expressions:true,time:0,allow_lists:true,
         context:ExpressionParseContext::default(),state_revision:0};
     session.memo.insert(key,PrefixParse::default());

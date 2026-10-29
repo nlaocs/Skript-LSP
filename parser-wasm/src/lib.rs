@@ -134,6 +134,8 @@ pub const CAPABILITY_CONTEXT_UPDATES: &str = "parser.context-updates";
 pub const CAPABILITY_ADDITIONAL_PARSE: &str = "parser.additional-parse";
 /// Capability ID for CoreLibrary and addon Expression leaf parsers.
 pub const CAPABILITY_EXPRESSION_PARSER: &str = "parser.expression";
+/// Root-only registered Expression family selection for recursive parse requests.
+pub const CAPABILITY_EXPRESSION_ROOT_SELECTION: &str = "parser.expression-root-selection";
 /// Capability ID for omitted typed capture default providers.
 pub const CAPABILITY_DEFAULT_EXPRESSION: &str = "parser.default-expression";
 /// Capability ID for Condition semantic hooks.

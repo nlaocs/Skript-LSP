@@ -1125,7 +1125,7 @@ mod tests {
         host.native_cancellation = Some(token.clone());
         let next_token = host.next_parse_result_token;
         let error = host
-            .execute_parse_requests(&transaction, &document.context, None, vec![request.clone()])
+            .execute_parse_requests(&transaction, None, &document.context, None, vec![request.clone()])
             .unwrap_err();
         assert!(
             matches!(
@@ -1147,7 +1147,7 @@ mod tests {
         // data without any registered leaf parser. Cancellation must be an Err.
         host.native_cancellation = None;
         let control = host
-            .execute_parse_requests(&transaction, &document.context, None, vec![request])
+            .execute_parse_requests(&transaction, None, &document.context, None, vec![request])
             .unwrap();
         assert_eq!(control.len(), 1);
         assert!(matches!(

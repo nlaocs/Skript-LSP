@@ -5064,7 +5064,8 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &self,
         syntax: RegisteredSyntaxIdentity<'_>,
     ) -> Result<Vec<RegisteredCaptureBinding>, String> {
-        registered_capture_bindings(&self.hooks.host.components, syntax)
+        registered_capture_bindings(&self.hooks.host.components, syntax,
+            self.hooks.host.config.syntax_catalog.as_deref())
     }
 
     fn resolve_registered_expression(
@@ -9027,6 +9028,7 @@ fn wit_syntax_kind(kind: MatchSyntaxKind) -> SyntaxKind {
 fn registered_capture_bindings(
     components: &[ComponentEntry],
     syntax: RegisteredSyntaxIdentity<'_>,
+    catalog: Option<&Catalog>,
 ) -> Result<Vec<RegisteredCaptureBinding>, String> {
     let mut bindings = BTreeMap::<usize, RegisteredCaptureBinding>::new();
     for component in components
@@ -9046,7 +9048,7 @@ fn registered_capture_bindings(
                         binding.capture_index
                     )
                 })?;
-                let binding = RegisteredCaptureBinding {
+                let mut binding = RegisteredCaptureBinding {
                     capture_index,
                     parser_id: binding.parser_id.clone(),
                     required: binding.required,
@@ -9056,6 +9058,17 @@ fn registered_capture_bindings(
                         .map(|entry| (entry.key.clone(), entry.value.clone()))
                         .collect(),
                 };
+                if binding.options.contains_key("host.expression.root-registrations") {
+                    return Err("capture binding supplies reserved resolved root registrations".into());
+                }
+                if let Some(id) = binding.options.get(EXPRESSION_ROOT_HANDLER) {
+                    if binding.parser_id != skript_parser::HOST_EXPRESSION_PARSER_ID {
+                        return Err("expression root handler requires host.expression".into());
+                    }
+                    let roots = registered_root_family(component, id, catalog)?;
+                    binding.options.insert("host.expression.root-registrations".into(),
+                        serde_json::to_string(&roots).map_err(|error|error.to_string())?);
+                }
                 if let Some(existing) = bindings.get(&capture_index) {
                     if existing != &binding {
                         return Err(format!(
@@ -9468,6 +9481,7 @@ pub struct ParserHost {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ParseRequestKey {
+    requesting_component: Option<usize>,
     parser_id: String,
     input: String,
     expected_types: Vec<(String, bool)>,
@@ -9476,8 +9490,9 @@ struct ParseRequestKey {
 }
 
 impl ParseRequestKey {
-    fn new(request: &ParseRequest, context: &InvocationContext) -> Self {
+    fn new(request: &ParseRequest, context: &InvocationContext, requesting_component: Option<usize>) -> Self {
         Self {
+            requesting_component,
             parser_id: request.parser_id.clone(),
             input: request.input.clone(),
             expected_types: request
@@ -12197,6 +12212,7 @@ impl ParserHost {
     fn execute_parse_requests(
         &mut self,
         transaction: &ParseTransaction,
+        component_index: Option<usize>,
         context: &InvocationContext,
         parent_context: Option<&WitParseContext>,
         requests: Vec<ParseRequest>,
@@ -12212,7 +12228,7 @@ impl ParserHost {
         for request in requests {
             self.check_native_cancellation()?;
             let request = inherit_parse_request_context(request, parent_context);
-            let key = ParseRequestKey::new(&request, context);
+            let key = ParseRequestKey::new(&request, context, component_index);
             let mut result = if self.active_parse_requests.contains(&key) {
                 ExecutedParseResult {
                     editor_tree: None,
@@ -12226,7 +12242,7 @@ impl ParserHost {
                 }
             } else {
                 self.active_parse_requests.push(key);
-                let result = self.execute_parse_request(transaction, context, &request);
+                let result = self.execute_parse_request(transaction, context, &request, component_index);
                 self.active_parse_requests.pop();
                 result?
             };
@@ -12253,13 +12269,24 @@ impl ParserHost {
         transaction: &ParseTransaction,
         context: &InvocationContext,
         request: &ParseRequest,
+        component_index: Option<usize>,
     ) -> Result<ExecutedParseResult, HostError> {
+        if request.parser_id != skript_parser::HOST_EXPRESSION_PARSER_ID
+            && request.options.iter().any(|entry| entry.key == EXPRESSION_ROOT_HANDLER) {
+            return Err(HostError::InvalidParseResult { parser_id: request.parser_id.clone(),
+                message: "expression root handler requires host.expression".into() });
+        }
         if request.parser_id.starts_with(editor_completion::ROUTE_PREFIX) || request.parser_id.starts_with(editor_completion::typed::ROUTE_PREFIX) {
             return Ok(ExecutedParseResult {editor_tree:None,wire:failed_parse_result(request,"editor.not-semantic","editing services cannot be used as semantic parsers"),expression_roots:BTreeMap::new(),calls:Vec::new()});
         }
         match request.parser_id.as_str() {
             skript_parser::HOST_EXPRESSION_PARSER_ID => {
-                self.execute_expression_parse_request(transaction, context, request)
+                let roots = parse_request_root_registrations(request,
+                    component_index.and_then(|index| self.components.get(index)),
+                    self.config.syntax_catalog.as_deref()).map_err(|message| HostError::InvalidParseResult {
+                        parser_id: request.parser_id.clone(), message,
+                    })?;
+                self.execute_expression_parse_request(transaction, context, request, roots)
             }
             skript_parser::HOST_CONDITION_PARSER_ID => {
                 self.execute_condition_parse_request(transaction, context, request)
@@ -12276,6 +12303,7 @@ impl ParserHost {
         transaction: &ParseTransaction,
         context: &InvocationContext,
         request: &ParseRequest,
+        root_registrations: Option<BTreeSet<String>>,
     ) -> Result<ExecutedParseResult, HostError> {
         let source = MappedSource::identity(request.input.clone());
         let parsed = self.parse_expression_in_parse(
@@ -12300,6 +12328,7 @@ impl ParserHost {
                 })?,
             },
             ExpressionParserConfig {
+                root_registrations,
                 root_mode: parse_request_root_mode(request).map_err(|message| {
                     HostError::InvalidParseResult {
                         parser_id: request.parser_id.clone(),
@@ -13058,6 +13087,7 @@ impl ParserHost {
                     })?;
                 let next_parse_results = match self.execute_parse_requests(
                     transaction,
+                    Some(candidate.component_index),
                     &request.context,
                     parent_context.as_ref(),
                     requests,
@@ -13693,6 +13723,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
+        crate::CAPABILITY_EXPRESSION_ROOT_SELECTION,
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
         crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
@@ -15891,6 +15922,7 @@ fn retain_known_span_expansions(source: &MappedSource, span: &mut MappedSpan) {
 const PARSE_CONTEXT_EVENT_CLASSES: &str = "context.event-classes";
 const PARSE_CONTEXT_VALUE_PREFIX: &str = "context.value.";
 const PARSE_MODE: &str = "parse.mode";
+const EXPRESSION_ROOT_HANDLER: &str = "expression.root-handler";
 
 fn hook_payload_parse_context(
     payload: &HookPayload,
@@ -15962,6 +15994,59 @@ fn parse_request_root_mode(request: &ParseRequest) -> Result<ExpressionRootMode,
             "parse request declares unknown parse mode `{mode}`"
         )),
     }
+}
+
+// A registration-family restriction is a parser selection, never a semantic
+// certificate. Resolve only the requesting component's immutable manifest and
+// current Catalog; neither a guest-provided owner nor another component's ID
+// grants access to a different binding. Dynamic-only families and per-pattern
+// selectors are intentionally unsupported by v1.
+fn parse_request_root_registrations(
+    request: &ParseRequest,
+    component: Option<&ComponentEntry>,
+    catalog: Option<&Catalog>,
+) -> Result<Option<BTreeSet<String>>, String> {
+    if request.options.iter().any(|entry| entry.key == "host.expression.root-registrations") {
+        return Err("parse request supplies reserved resolved root registrations".into());
+    }
+    let mut options = request.options.iter().filter(|entry| entry.key == EXPRESSION_ROOT_HANDLER);
+    let Some(option) = options.next() else { return Ok(None); };
+    if options.next().is_some() {
+        return Err("duplicate expression root handler".into());
+    }
+    if parse_request_root_mode(request)? == ExpressionRootMode::LiteralsOnly {
+        return Err("registered root selection cannot use literals-only mode".into());
+    }
+    let component = component.ok_or("expression root selection has no requesting component")?;
+    registered_root_family(component, &option.value, catalog).map(Some)
+}
+
+fn registered_root_family(
+    component: &ComponentEntry, handler_id: &str, catalog: Option<&Catalog>,
+) -> Result<BTreeSet<String>, String> {
+    if component.disabled || component.unloaded {
+        return Err("expression root handler's component is unavailable".into());
+    }
+    let handler = component.manifest.registered_syntax_handlers.iter()
+        .find(|handler| handler.handler_id == handler_id)
+        .ok_or("unknown requesting component's expression root handler")?;
+    if handler.kind != SyntaxKind::Expression || handler.phase != HookPhase::Expression
+        || !handler.pattern_indices.is_empty() || !handler.pattern_sources.is_empty()
+        || !handler.required_tags.is_empty() || !handler.forbidden_tags.is_empty()
+        || !handler.marks.is_empty()
+        || handler.targets.iter().any(|target| matches!(target, RegisteredSyntaxHandlerTarget::DynamicHandler(_))) {
+        return Err("expression root selection requires an unfiltered static expression family".into());
+    }
+    let binding = component.registered_handler_bindings.iter()
+        .find(|binding| binding.handler_id == handler.handler_id)
+        .ok_or("expression root handler has no current binding")?;
+    let catalog = catalog.ok_or("expression root selection requires a Catalog")?;
+    let roots: BTreeSet<_> = binding.registration_ids.iter().cloned().collect();
+    if roots.is_empty() || roots.iter().any(|id| registered_syntax_identity(catalog,
+        MatchSyntaxKind::Expression, id).is_none()) {
+        return Err("expression root handler has no unambiguous current registrations".into());
+    }
+    Ok(roots)
 }
 
 fn parse_request_context(
@@ -19058,6 +19143,7 @@ mod tests {
                 editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,
+                crate::CAPABILITY_EXPRESSION_ROOT_SELECTION,
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
                 crate::CAPABILITY_INCREMENTAL_STRUCTURE_HEADER,
@@ -20414,6 +20500,65 @@ mod tests {
     }
 
     #[test]
+    fn expression_root_families_require_current_caller_bindings_and_capture_resolution() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{CaptureParserBinding, RegisteredSyntaxHandler};
+        let snapshot = ssg::load(Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4")).unwrap();
+        let catalog = snapshot.catalog();
+        let expression = catalog.syntaxes().iter().find(|syntax|syntax.kind()==CatalogSyntaxKind::Expression).unwrap();
+        let effect = catalog.syntaxes().iter().find(|syntax|syntax.kind()==CatalogSyntaxKind::Effect).unwrap();
+        let declaration = |id: &str, kind, phase, registration: &str| RegisteredSyntaxHandler {
+            handler_id:id.into(), kind, phase, targets:vec![RegisteredSyntaxHandlerTarget::Registration(registration.into())],
+            pattern_indices:vec![],pattern_sources:vec![],required_tags:vec![],forbidden_tags:vec![],
+            marks:vec![],capture_parsers:vec![],context_requirements:vec![],
+        };
+        let mut host = ParserHost::new(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"),
+            "/../artifacts/core-library.wasm")), core_test_config()).unwrap();
+        let component = &mut host.components[0];
+        component.manifest.registered_syntax_handlers = vec![declaration("family",SyntaxKind::Expression,
+            HookPhase::Expression,expression.registration_id().as_str())];
+        component.registered_handler_bindings = resolve_registered_handler_bindings(&component.manifest,Some(catalog));
+        let mut request = ParseRequest {request_id:1,parser_id:"host.expression".into(),input:"value".into(),
+            expected_types:vec![],span:MappedSpan {virtual_range:WitTextRange {start:0,end:5},origins:vec![]},
+            options:vec![WitMetadataEntry {key:EXPRESSION_ROOT_HANDLER.into(),value:"family".into(),owner_component_id:Some("foreign".into())}]};
+        let expected = BTreeSet::from([expression.registration_id().as_str().to_owned()]);
+        assert_eq!(parse_request_root_registrations(&request,Some(component),Some(catalog)).unwrap(),Some(expected.clone()));
+        let context = InvocationContext {invocation_id:1,subscription_id:"wrapper".into(),
+            document_id:"file:///root.sk".into(),document_revision:1,expansion:None,syntax_context:0};
+        assert_ne!(ParseRequestKey::new(&request,&context,Some(0)),
+            ParseRequestKey::new(&request,&context,Some(1)),"equal handler names in different callers are not a request cycle");
+        assert!(parse_request_root_registrations(&request,None,Some(catalog)).is_err());
+        assert!(parse_request_root_registrations(&request,Some(component),None).is_err());
+        request.options.push(request.options[0].clone());
+        assert!(parse_request_root_registrations(&request,Some(component),Some(catalog)).is_err());
+        request.options.pop();
+        request.options[0].value="foreign-family".into();
+        assert!(parse_request_root_registrations(&request,Some(component),Some(catalog)).is_err());
+        request.options[0].value="family".into();
+        component.manifest.registered_syntax_handlers[0].marks.push(1);
+        assert!(parse_request_root_registrations(&request,Some(component),Some(catalog)).is_err());
+        component.manifest.registered_syntax_handlers[0].marks.clear();
+        component.disabled=true;
+        assert!(parse_request_root_registrations(&request,Some(component),Some(catalog)).is_err());
+        component.disabled=false;
+        component.registered_handler_bindings[0].registration_ids=vec!["stale".into()];
+        assert!(parse_request_root_registrations(&request,Some(component),Some(catalog)).is_err());
+        component.registered_handler_bindings=resolve_registered_handler_bindings(&component.manifest,Some(catalog));
+        let mut wrapper=declaration("wrapper",SyntaxKind::Effect,HookPhase::Effect,effect.registration_id().as_str());
+        wrapper.capture_parsers.push(CaptureParserBinding {capture_index:0,parser_id:"host.expression".into(),required:true,
+            options:vec![WitMetadataEntry {key:EXPRESSION_ROOT_HANDLER.into(),value:"family".into(),owner_component_id:None}]});
+        component.manifest.registered_syntax_handlers.push(wrapper);
+        component.registered_handler_bindings=resolve_registered_handler_bindings(&component.manifest,Some(catalog));
+        let syntax = registered_syntax_identity(catalog,MatchSyntaxKind::Effect,effect.registration_id().as_str()).unwrap();
+        let bindings=registered_capture_bindings(&host.components,syntax,Some(catalog)).unwrap();
+        assert_eq!(bindings.len(),1);
+        assert_eq!(serde_json::from_str::<BTreeSet<String>>(&bindings[0].options["host.expression.root-registrations"]).unwrap(),expected);
+        host.components[0].manifest.registered_syntax_handlers[1].capture_parsers[0].options.push(WitMetadataEntry {
+            key:"host.expression.root-registrations".into(),value:"[]".into(),owner_component_id:None});
+        assert!(registered_capture_bindings(&host.components,syntax,Some(catalog)).is_err());
+    }
+
+    #[test]
     fn completion_bound_requires_one_current_owner_and_the_exact_handler() {
         use crate::bindings::nlaocs::skript_parser_addon::types::{
             CatalogAnnotation, MetadataEntry, RegisteredSyntaxHandler,
@@ -20569,7 +20714,7 @@ mod tests {
             host.completion_capture_parser_ids(CatalogSyntaxKind::Expression, DEFINITION_ID, REGISTRATION_ID),
             Some(vec![(0, "fixture.parser".into())]),
         );
-        let deduplicated = registered_capture_bindings(&host.components, syntax)
+        let deduplicated = registered_capture_bindings(&host.components, syntax, None)
             .expect("equal capture bindings must compose");
         assert_eq!(deduplicated.len(), 1);
         assert_eq!(deduplicated[0].capture_index, 0);
@@ -20577,7 +20722,7 @@ mod tests {
 
         host.components[0].manifest.registered_syntax_handlers[1].capture_parsers[0] =
             binding("fixture.other-parser");
-        let error = registered_capture_bindings(&host.components, syntax)
+        let error = registered_capture_bindings(&host.components, syntax, None)
             .expect_err("different parsers for one capture must conflict");
         assert!(error.contains("conflicting capture parsers at index 0"));
         assert!(host.completion_capture_parser_ids(CatalogSyntaxKind::Expression, DEFINITION_ID, REGISTRATION_ID).is_none());
@@ -20594,7 +20739,7 @@ mod tests {
             ..dynamic_handler
         }];
         host.components[0].registered_handler_bindings.clear();
-        let dynamic_bindings = registered_capture_bindings(&host.components, dynamic_syntax)
+        let dynamic_bindings = registered_capture_bindings(&host.components, dynamic_syntax, None)
             .expect("dynamic handlers do not need static catalog bindings");
         assert_eq!(dynamic_bindings.len(), 1);
         assert_eq!(dynamic_bindings[0].parser_id, "fixture.dynamic-parser");
@@ -20606,7 +20751,7 @@ mod tests {
 
         dynamic_syntax.dynamic_handler = Some("fixture.other-expression");
         assert!(
-            registered_capture_bindings(&host.components, dynamic_syntax)
+            registered_capture_bindings(&host.components, dynamic_syntax, None)
                 .expect("unmatched dynamic handlers are ignored")
                 .is_empty()
         );
@@ -20840,7 +20985,7 @@ mod tests {
             },
         };
         let parsed = host
-            .execute_parse_request(&transaction, &context, &request)
+            .execute_parse_request(&transaction, &context, &request, None)
             .unwrap();
         validate_parse_result(&request, &parsed.wire).unwrap();
         assert_eq!(parsed.wire.status, WitParseResultStatus::Success);
@@ -20872,7 +21017,7 @@ mod tests {
             bad.span.virtual_range.end = 100 + invalid.len() as u64;
             bad.span.origins[0].original_range.end = 100 + invalid.len() as u64;
             let parsed = host
-                .execute_parse_request(&transaction, &context, &bad)
+                .execute_parse_request(&transaction, &context, &bad, None)
                 .unwrap();
             assert_eq!(
                 parsed.wire.status,

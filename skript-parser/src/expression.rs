@@ -23,7 +23,7 @@ use crate::{FunctionCall, FunctionDefinition, FunctionLookupRequest};
 use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{
@@ -94,6 +94,9 @@ pub struct ExpressionParserConfig {
     pub function_namespace_complete: bool,
     /// Kinds of root expression that may satisfy this parse request.
     pub root_mode: ExpressionRootMode,
+    /// Restrict the root to these frozen registration identities. Children use
+    /// ordinary expression resolution. An empty set accepts no root.
+    pub root_registrations: Option<BTreeSet<String>>,
     pub max_depth: usize,
     pub max_candidates: usize,
     /// Maximum retained memo entries, including recursive child results.
@@ -107,6 +110,7 @@ impl Default for ExpressionParserConfig {
             function: crate::FunctionVersionPolicy::default(),
             function_namespace_complete: true,
             root_mode: ExpressionRootMode::All,
+            root_registrations: None,
             max_depth: 64,
             max_candidates: 10_000,
             max_memo_entries: 20_000,
@@ -1591,6 +1595,7 @@ struct MemoKey {
     allow_expressions: bool,
     time: i32,
     allow_lists: bool,
+    root_registrations: Option<BTreeSet<String>>,
     context: ExpressionParseContext,
     state_revision: u64,
 }
@@ -1659,6 +1664,7 @@ pub(crate) struct ExpressionSession<'a, E> {
     semantic_contexts: Vec<ExpressionParseContext>,
     candidate_scopes: Vec<CandidateScope>,
     config: ExpressionParserConfig,
+    root_selection_depth: usize,
     memo: HashMap<MemoKey, PrefixParse>,
     reserved_memo_slots: usize,
     active: HashSet<MemoKey>,
@@ -1896,6 +1902,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             semantic_contexts: Vec::new(),
             candidate_scopes: Vec::new(),
             config,
+            root_selection_depth: 0,
             memo: HashMap::new(),
             reserved_memo_slots: 0,
             active: HashSet::new(),
@@ -2447,6 +2454,33 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         }
     }
 
+    /// Apply a host-resolved family only at this capture root. Always restore
+    /// the enclosing selection, including no-match, cancellation and errors.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn parse_capture_expression_prefixes(
+        &mut self, binding: &RegisteredCaptureBinding, range: TextRange,
+        expected: &[ExpressionExpectedType], allow_literals: bool,
+        allow_expressions: bool, time: i32, depth: usize,
+    ) -> Result<PrefixParse, ExpressionParseError> {
+        let roots = binding.options.get("host.expression.root-registrations")
+            .map(|json| serde_json::from_str::<BTreeSet<String>>(json)
+                .map_err(|_| self.environment_error("invalid resolved root registrations".into())))
+            .transpose()?;
+        if binding.options.contains_key("expression.root-handler") && roots.is_none() {
+            return Err(self.environment_error("unresolved expression root handler".into()));
+        }
+        if roots.is_some() && !allow_expressions {
+            return Err(self.environment_error("registered capture root requires expressions".into()));
+        }
+        let previous = std::mem::replace(&mut self.config.root_registrations, roots);
+        let previous_depth = std::mem::replace(&mut self.root_selection_depth, depth);
+        let result = self.parse_prefixes_detailed(range, &[range.end], expected,
+            allow_literals, allow_expressions, time, depth);
+        self.config.root_registrations = previous;
+        self.root_selection_depth = previous_depth;
+        result
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn parse_prefixes(
         &mut self,
@@ -2524,6 +2558,8 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             allow_expressions,
             time,
             allow_lists,
+            root_registrations: (depth == self.root_selection_depth)
+                .then(|| self.config.root_registrations.clone()).flatten(),
             context: self.context.clone(),
             state_revision: self
                 .environment
@@ -2629,11 +2665,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
         allow_lists: bool,
     ) -> Result<PrefixParse, ExpressionParseError> {
         self.check_cancelled()?;
+        let root_restricted = depth == self.root_selection_depth && self.config.root_registrations.is_some();
         let mut candidates = Vec::new();
         let mut deferred_candidates = Vec::new();
         let mut failure = None;
         let mut ordinary_candidate_ends = candidate_ends.to_vec();
-        if self
+        if !root_restricted && self
             .source
             .virtual_source()
             .get(range.start..range.end)
@@ -2701,7 +2738,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
             }
         }
         let candidate_ends = ordinary_candidate_ends.as_slice();
-        if include_leaves {
+        if include_leaves && !root_restricted {
             let leaf_request = ExpressionLeafRequest {
                 input: self.source.virtual_source(),
                 remaining: range,
@@ -2832,8 +2869,12 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                 let candidate_text = candidate_range
                     .slice(self.source.virtual_source())
                     .expect("validated Expression range");
-                let matcher_candidates =
+                let mut matcher_candidates =
                     self.matcher_candidates(candidate_text, expected_types, registered_pass);
+                if root_restricted {
+                    let allowed = self.config.root_registrations.as_ref().expect("restricted root");
+                    matcher_candidates.retain(|candidate| allowed.contains(&candidate.registration_id));
+                }
                 let input = MatchInput::from_source(self.source, candidate_range)?;
                 self.frame_starts.push(candidate_range.start);
                 self.frame_depths.push(depth);
@@ -2891,7 +2932,7 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
 
             candidates.append(&mut deferred_candidates);
 
-            if include_leaves && allow_lists {
+            if include_leaves && allow_lists && !root_restricted {
                 let lists = self.parse_expression_lists(
                     range,
                     candidate_ends,
@@ -3358,9 +3399,9 @@ impl<'a, E: ExpressionParseEnvironment> ExpressionSession<'a, E> {
                     let (allow_literals, allow_expressions) = capture_expression_flags(binding)
                         .map_err(|message| self.environment_error(message))?;
                     let previous = context.map(|context| self.replace_context(context));
-                    let parsed = self.parse_prefixes_detailed(
+                    let parsed = self.parse_capture_expression_prefixes(
+                        binding,
                         range,
-                        &[range.end],
                         &expected,
                         allow_literals,
                         allow_expressions,
@@ -5001,6 +5042,9 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
         })
     }
 }
+
+#[cfg(test)]
+mod root_selection_tests;
 
 #[cfg(test)]
 mod tests {

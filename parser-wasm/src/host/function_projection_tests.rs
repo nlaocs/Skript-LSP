@@ -186,7 +186,7 @@ fn additional_parse_preserves_nested_bindings_and_rebased_spans() {
     request.span.origins[0].original_range.start += 100;
     request.span.origins[0].original_range.end += 100;
     let mut results = host
-        .execute_parse_requests(&transaction, &context(1), None, vec![request.clone()])
+        .execute_parse_requests(&transaction, None, &context(1), None, vec![request.clone()])
         .unwrap();
     let result = results.pop().unwrap();
     let native = &result.expression_roots[&result.wire.roots[0]];

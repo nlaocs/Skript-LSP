@@ -1021,6 +1021,62 @@ fn parenthesized_expression_trims_inner_ascii_whitespace_like_skript() {
 }
 
 #[test]
+fn registered_root_selection_keeps_children_order_and_memo_isolated() {
+    use std::collections::BTreeSet;
+    let source_catalog = expression_fixture();
+    let mut syntaxes = source_catalog.syntaxes().to_vec();
+    let mut wrapper = syntaxes.iter().find_map(|syntax| match syntax {
+        Syntax::Expression(value) => Some(value.clone()), _ => None,
+    }).unwrap();
+    wrapper.common.definition_id = "expression:test:root-wrapper".to_owned().into();
+    wrapper.common.registration_id = "expression:test:root-wrapper:0".to_owned().into();
+    syntaxes.push(Syntax::Expression(wrapper));
+    let mut registrations = Vec::new();
+    for syntax in &mut syntaxes {
+        let Syntax::Expression(expression) = syntax else { continue; };
+        let index = registrations.len();
+        let pattern = if index < 2 { "same" } else { "%string%.call\\(\\)" };
+        expression.common.patterns = vec![syntaxes::Pattern { source: pattern.into(),
+            parsed: syntax_pattern_parser::syntax::parse(pattern, source_catalog.plural_rules()).unwrap() }];
+        expression.common.priority = None;
+        expression.common.priority_name = None;
+        expression.common.registration_order = index;
+        expression.return_type = Some(ClassName("java.lang.String".into()));
+        expression.return_type_state = ReturnTypeState::Static;
+        expression.possible_return_types = vec![ClassName("java.lang.String".into())];
+        expression.possible_return_types_state = PossibleReturnTypesState::Complete;
+        registrations.push(expression.common.registration_id.as_str().to_owned());
+    }
+    let catalog = catalog_with_syntaxes(&source_catalog, syntaxes);
+    let run = |text: &str, roots: BTreeSet<String>| {
+        let source = MappedSource::identity(text);
+        parse_expression(&catalog, ExpressionParseRequest { source: &source,
+            range: TextRange::new(0, text.len()), expected_types: vec![expected("java.lang.String")],
+            context: ExpressionParseContext::default() }, &mut LiteralEnvironment,
+            ExpressionParserConfig { root_registrations: Some(roots), ..Default::default() }).unwrap()
+    };
+    let both = BTreeSet::from([registrations[0].clone(), registrations[1].clone()]);
+    let selected = run("same", both).selected.unwrap().node;
+    assert!(matches!(selected.kind, ExpressionNodeKind::Registered { registration_id, .. }
+        if registration_id == registrations[0]), "restriction must preserve equal-priority registration order");
+    let selected = run("same", BTreeSet::from([registrations[1].clone()])).selected.unwrap().node;
+    assert!(matches!(selected.kind, ExpressionNodeKind::Registered { registration_id, .. }
+        if registration_id == registrations[1]), "selection occurs before matching, not after choosing another root");
+    let wrapper = BTreeSet::from([registrations[2].clone()]);
+    for text in ["same.call()", "same.call().call()", "(same).call()", "\"雪😀\".call()"] {
+        let selected = run(text, wrapper.clone()).selected.unwrap_or_else(||panic!("{text}")).node;
+        assert!(matches!(selected.kind, ExpressionNodeKind::Registered { registration_id, .. }
+            if registration_id == registrations[2]));
+        assert_eq!(selected.span.local_range, TextRange::new(0, text.len()));
+        assert!(!selected.children.is_empty(), "recursive children remain unrestricted");
+    }
+    for text in ["same", "\"literal\"", "(same)", "same and same", "same.call() trailing", "same.call("] {
+        assert!(run(text, wrapper.clone()).selected.is_none(), "{text}");
+    }
+    assert!(run("same", BTreeSet::new()).selected.is_none());
+}
+
+#[test]
 fn typed_capture_preserves_its_parenthesized_child() {
     let snapshot = ssg::load(fixture()).expect("schema 3 fixture must load");
     let inner = "dummy direct registry expression";

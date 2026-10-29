@@ -356,6 +356,20 @@ value from an earlier typed Expression capture using selectors such as
 `0.metadata.<key>`. `host.expression` also accepts `parse.mode` (`all`,
 `expressions-only`, or `literals-only`), `expression.expected-types`, and
 `expression.time-state`.
+The additive `parser.expression-root-selection` v1 capability permits the
+`expression.root-handler` option. It resolves an unfiltered static Expression
+handler from the requesting component's manifest and current Catalog, then
+limits only the native root candidates to that registration family. Receiver,
+argument and other recursive children retain ordinary resolution and separate
+memo identities. Bare leaves, grouping/list wrappers and Functions cannot
+satisfy the restricted root. Registration/pattern order, native transactions,
+overrides, type validation and cancellation remain unchanged. Missing,
+ambiguous, foreign, dynamic-only or per-pattern-filtered bindings fail closed.
+An identity-replacing dynamic registration is outside this static family unless
+explicitly selected by a future contract; v1 never substitutes it by name.
+This selects syntax; it grants no semantic, runtime or storage certificate.
+Components using it must require the capability; older hosts reject them at
+initialization. WIT record layout and ABI 30 are unchanged.
 Capture indexes count every pattern capture in source order, including typed
 `%type%` captures before a regex `<.+>` capture.
 A handler may also request named
