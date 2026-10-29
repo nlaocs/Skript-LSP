@@ -113,6 +113,16 @@ and source range as its first evaluated operand in the current context. This
 proves only the parsed prefix used for an editing suggestion, not the unfinished
 statement's eventual runtime evaluation. No effect/syntax name is special-cased.
 
+Preparation attempts and physical body owners are separate. The host indexes
+the current native indentation tree (at most 65,536 nodes), identifies one exact
+line's direct parent, and verifies its complete ancestry under the active
+preparation owner. Typed inputs keep that direct parent, including executable
+entry bodies. The frontend still requires exact current body membership and
+source geometry. Duplicate spans, missing/cyclic ancestry, an oversized index,
+or a changed source/tree pair provide no typed binding; a changed pair also
+revokes the session's old batches. Attempt rejection and revision invalidation
+retain their existing independent lifetime checks.
+
 The semantic frontend reads the existing ordered flow state before the current
 raw line's own recovery barrier, after all preceding statements. An earlier
 unparsed line or unknown local-binding effect invalidates prior facts; a later

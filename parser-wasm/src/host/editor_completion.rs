@@ -1,6 +1,7 @@
 //! Nonsemantic, live-prefix editing queries over the existing custom-parser ABI.
 use super::*;
 pub(in crate::host) mod typed;
+mod physical;
 use serde::{Deserialize, Serialize};
 
 pub const ROUTE_PREFIX: &str = "editor.completion/";
@@ -45,6 +46,7 @@ pub(super) struct Session {
     pub source: Arc<str>,
     pub mapped: Arc<MappedSource>,
     pub fence: Arc<typed::Fence>,
+    geometry: physical::Geometry,
     owners: BTreeMap<u64, u64>,
     pub batches: Vec<Batch>,
     parents: BTreeMap<u64,Option<u64>>,
@@ -53,10 +55,16 @@ pub(super) struct Session {
 }
 impl Session {
     fn new(source: Arc<str>, mapped: Arc<MappedSource>, fence: Arc<typed::Fence>) -> Self {
-        Self {source,mapped,fence,owners:BTreeMap::new(),batches:Vec::new(),parents:BTreeMap::new(),queries:0,bytes:0}
+        Self {source,mapped,fence,geometry:physical::Geometry::default(),owners:BTreeMap::new(),batches:Vec::new(),parents:BTreeMap::new(),queries:0,bytes:0}
     }
     pub(super) fn preparation(&mut self,event:&skript_parser::StructurePreparationEvent<'_>) {
         use skript_parser::StructurePreparationEvent::*;
+        if let Headers {source,tree,..} | StructureHeader {source,tree,..}
+            | SectionHeader {source,tree,..} = event
+            && self.geometry.observe(matches!(event,Headers {..}),source,tree)
+        {
+            self.batches.clear();
+        }
         match event {
             Headers {source,headers,..}=>{self.mapped=Arc::new((*source).clone());for h in headers {if !h.ambiguous {self.parents.insert(h.attempt_id,None);self.owners.insert(h.attempt_id,h.candidate.raw_node_id.get());}}},
             StructureHeader {source,header,..}=>{self.mapped=Arc::new((*source).clone());if !header.ambiguous {self.parents.insert(header.attempt_id,None);self.owners.insert(header.attempt_id,header.candidate.raw_node_id.get());}},
@@ -158,8 +166,11 @@ impl ParserHost {
             if entry.value.len()>128*1024 {continue;}
             let Ok(output)=serde_json::from_str::<Output>(&entry.value) else{continue};
             if !valid_output(&output,input){continue;}
-            let raw_owner=self.editor_session.as_ref().and_then(|s|s.owners.get(&attempt)).copied();
             let inputs=if output.typed_inputs.is_empty(){Vec::new()}else{
+                let raw_owner=self.editor_session.as_ref().and_then(|session| {
+                    let logical=*session.owners.get(&attempt)?;
+                    session.geometry.parent_for(logical,span.virtual_range.start,span.virtual_range.end)
+                });
                 let Some(raw_owner)=raw_owner else{continue;};
                 let Some(inputs)=typed::select_inputs(&output,captured.as_ref(),&owner,raw_owner,span,input)else{continue;};inputs
             };
