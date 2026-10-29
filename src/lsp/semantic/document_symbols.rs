@@ -2,6 +2,7 @@
 //! parentage and exact source maps supply geometry; source text is never parsed.
 use super::*;
 use lsp_types::{DocumentSymbol, SymbolKind};
+use parser_wasm::bindings::nlaocs::skript_parser_addon::types::MetadataEntry;
 use skript_parser::{MappedSource, RawTree};
 
 #[derive(Deserialize)]
@@ -23,7 +24,7 @@ struct Selection {
 pub(super) fn collect(
     result: &DocumentParseResult,
     lines: &LineIndex,
-    valid: impl Fn(&AstNode, &str) -> bool,
+    valid: impl Fn(&AstNode, &MetadataEntry) -> bool,
 ) -> Vec<DocumentSymbol> {
     let blocked = result
         .unresolved_spans()
@@ -45,7 +46,7 @@ pub(super) fn from_ast(
     mapped: &MappedSource,
     lines: &LineIndex,
     blocked: &[(u64, u64)],
-    valid: impl Fn(&AstNode, &str) -> bool,
+    valid: impl Fn(&AstNode, &MetadataEntry) -> bool,
 ) -> Vec<DocumentSymbol> {
     let nodes = ast
         .nodes
@@ -100,7 +101,7 @@ pub(super) fn from_ast(
                 .iter()
                 .filter(|e| e.key == parser_wasm::DOCUMENT_SYMBOL_METADATA);
             let entry = entries.next()?;
-            if entries.next().is_some() || !valid(node, entry.owner_component_id.as_deref()?) {
+            if entries.next().is_some() || entry.owner_component_id.is_none() || !valid(node, entry) {
                 return None;
             }
             if !matches!(node.kind, SyntaxKind::Structure | SyntaxKind::Section) {

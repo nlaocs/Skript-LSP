@@ -464,8 +464,11 @@ impl Document {
             witnessed_nodes,
             result.editor_completions.iter().flat_map(|batch|batch.inputs.iter()).filter(|input|input.is_current()).cloned().collect(),
         )?;
-        document.symbols = document_symbols::collect(result, &document.lines, |node, issuer| {
-            witnesses.provider_valid(node, issuer)
+        document.symbols = document_symbols::collect(result, &document.lines, |node, entry| {
+            // An outline is an authored presentation record, not a claim about
+            // every child expression's semantics. Keep the sealed current
+            // forest/entry and host-stamped owner checks for mixed bodies.
+            witnesses.metadata_owner(node, entry).is_some()
         });
         for region in &result.dependency_unavailable {
             for origin in &region.span.origins {

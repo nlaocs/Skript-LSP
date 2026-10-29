@@ -1165,8 +1165,9 @@ Accepted Structure/Section providers may emit owned metadata with key
 
 `kind` is a standard LSP SymbolKind (1–26). Selection offsets are nonempty,
 header-relative UTF-8 byte offsets, not UTF-16 columns. The native parser supplies
-the full RawTree extent and parentage. Consumers must validate the unique current
-provider witness, exact SourceMap projection, range containment and AST/RawTree
+the full RawTree extent and parentage. Consumers must validate the exact current
+metadata entry's host-stamped accepted owner, sealed source/forest identity,
+exact SourceMap projection, range containment and AST/RawTree
 ancestry. Conflicting records, unknown versions, generated or mixed origins and
 unadopted candidates make no outline claim. Providers must withhold the record
 when header semantics are unresolved. Missing metadata is supported and yields
@@ -1178,12 +1179,13 @@ sections and entry values do not become declarations just because they indent.
 The LSP returns hierarchical DocumentSymbol results when the client supports
 them, otherwise flat SymbolInformation, with legacy SymbolKind fallback.
 
-The current conservative provider witness includes ancestor and subtree writers.
-A foreign contributor can therefore make an otherwise unchanged header symbol
-unavailable. Likewise, a macro-generated or mixed-origin full extent is omitted
-even when its header is exact. Neither condition is silently promoted to native
-source ownership. This feature exposes accepted final semantics and does not
-remove the existing initial-analysis wait.
+Outline records use the existing data-only `metadata_owner` witness. A child
+expression from another provider therefore does not erase an unchanged authored
+declaration. This grants no type, effect or runtime guarantee; semantic consumers
+retain their stronger provider proofs. Post-seal AST/source changes and unadopted
+owners remain rejected. A macro-generated or mixed-origin extent still needs
+valid original geometry; display ownership never authorizes source edits. The
+initial-analysis wait is unchanged.
 
 ### Retained code edits and editor geometry
 

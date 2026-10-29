@@ -38,10 +38,14 @@ fn isolated_private_writes_preserve_core_types_with_one_or_two_other_addons() {
 }
 #[test]
 fn shared_durable_and_caught_failed_access_do_not_borrow_core_authority() {
+    let baseline=analyze(&mut analyzer(),SOURCE,1);
+    let symbols=baseline.semantic.as_ref().unwrap().document_symbols(true);
     for mode in ["shared","document","caught-error"] {
         let actual=analyze(&mut mixed(1,mode),SOURCE,1);
         assert!(diagnostics(&actual).0.is_empty(),"mode={mode}: {:?}",diagnostics(&actual).0);
         assert!(hints(&actual).as_array().unwrap().is_empty(),"mode={mode}: {}",hints(&actual));
+        assert_eq!(actual.semantic.as_ref().unwrap().document_symbols(true),symbols,
+            "authored outline records do not certify the mixed body's types: mode={mode}");
     }
 }
 #[test]

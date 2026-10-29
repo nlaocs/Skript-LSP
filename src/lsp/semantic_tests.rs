@@ -1616,6 +1616,34 @@ fn option_expansion_keeps_exact_binding_hovers_and_write_hints() {
 }
 
 #[test]
+fn document_symbols_require_the_current_sealed_presentation_record() {
+    let catalog=crate::lsp::test_support::runtime_catalog();
+    let mut host=crate::new_parser_host(parser_wasm::HostConfig {
+        syntax_catalog:Some(Arc::clone(&catalog)),
+        runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},
+        ..Default::default()
+    }).unwrap();
+    let source:Arc<str>=Arc::from("# \u{1f98a}\non join:\n    set {_text} to \"hello\"\n");
+    let uri:Uri="file:///sealed-outline/public.sk".parse().unwrap();
+    let mut result=host.parse_document(parser_wasm::DocumentParseRequest::new(
+        "file:///sealed-outline",uri.as_str(),1,source.as_ref()),Default::default()).unwrap();
+    let original=result.ast.clone();
+    assert_eq!(Document::from_result(&result,Arc::clone(&source),uri.clone(),Arc::clone(&catalog)).unwrap().symbols.len(),1);
+    for change in 0..3 {
+        result.ast=original.clone();
+        let node=result.ast.nodes.iter_mut().find(|node|node.metadata.iter().any(|entry|entry.key==parser_wasm::DOCUMENT_SYMBOL_METADATA)).unwrap();
+        let entry=node.metadata.iter_mut().find(|entry|entry.key==parser_wasm::DOCUMENT_SYMBOL_METADATA).unwrap();
+        match change {
+            0=>entry.owner_component_id=Some("unaccepted-provider".into()),
+            1=>entry.value=entry.value.replace("on join","invented declaration"),
+            _=>node.span.virtual_range.end+=1,
+        }
+        assert!(Document::from_result(&result,Arc::clone(&source),uri.clone(),Arc::clone(&catalog))
+            .unwrap().symbols.is_empty(),"changed sealed presentation record: {change}");
+    }
+}
+
+#[test]
 fn document_symbols_use_native_hierarchy_exact_utf16_ranges_and_owned_records() {
     let mut fixture = Fixture::new("# 🌳\n親:\n    子:\n        value\nnext:");
     let child = fixture.push(SyntaxKind::Section, "section", fixture.line(2));
@@ -1637,8 +1665,8 @@ fn document_symbols_use_native_hierarchy_exact_utf16_ranges_and_owned_records() 
         nodes: fixture.nodes,
     };
     let collect = |ast: &AstTree| {
-        document_symbols::from_ast(ast, &raw, &mapped, &lines, &[], |_, issuer| {
-            issuer == "fixture.semantic-provider"
+        document_symbols::from_ast(ast, &raw, &mapped, &lines, &[], |_, entry| {
+            entry.owner_component_id.as_deref() == Some("fixture.semantic-provider")
         })
     };
     let symbols = collect(&ast);
