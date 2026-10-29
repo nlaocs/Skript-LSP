@@ -864,6 +864,11 @@ through the `catalog-data` import without copying all JSON into every payload.
 - `declared-method-exists` replays `Class.getDeclaredMethod` for a captured class.
   `Some(false)` is definitive when schema 5 method metadata is present, while
   `None` preserves older snapshots and uncaptured classes as unresolved.
+- `class-lineage` (catalog-data v6) returns the complete declared ancestor
+  closure, including the queried class. Missing ancestors, cycles, more than
+  128 classes or more than 16 KiB of names return `none`. This is not a list of
+  all runtime implementations. It is an additive import: old addons work with
+  the new host, while a component importing it requires the new host.
 - SSG schema 5 also retains `Language.json`; schema 3 and 4 snapshots have no
   retained Language entries. `catalog-data::language-value` performs an exact,
   case-sensitive key lookup and returns `none` for a missing key or an older

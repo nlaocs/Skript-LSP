@@ -30,6 +30,7 @@ const CATALOG_QUERIES: &[&str] = &[
     "can-convert",
     "change-contract-for-type",
     "class-known",
+    "class-lineage",
     "common-assignable-class",
     "comparator-for-types",
     "container-element-type",

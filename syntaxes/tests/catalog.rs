@@ -36,6 +36,20 @@ fn class(name: &str, super_class: Option<&str>, interfaces: &[&str]) -> Class {
     }
 }
 
+#[test]
+fn complete_class_lineage_is_bounded_and_rejects_missing_or_cyclic_ancestry() {
+    let mut data=parts();
+    data.classes=vec![class("Root",None,&[]),class("I",None,&[]),class("Child",Some("Root"),&["I"])];
+    assert_eq!(Catalog::new(data.clone()).class_lineage("Child"),Some(vec!["Child".into(),"I".into(),"Root".into()]));
+    assert!(Catalog::new(data.clone()).class_lineage("Unknown").is_none());
+    data.classes.remove(0);assert!(Catalog::new(data.clone()).class_lineage("Child").is_none());
+    data.classes=vec![class("A",Some("B"),&[]),class("B",Some("A"),&[])];
+    assert!(Catalog::new(data.clone()).class_lineage("A").is_none());
+    data.classes=(0..129).map(|i|class(&format!("C{i}"),(i>0).then(||format!("C{}",i-1)).as_deref(),&[])).collect();
+    assert!(Catalog::new(data.clone()).class_lineage("C128").is_none());
+    assert_eq!(Catalog::new(data).class_lineage("C127").unwrap().len(),128);
+}
+
 fn event_value(
     event_class: &str,
     value_class: &str,

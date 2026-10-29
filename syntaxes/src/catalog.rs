@@ -979,6 +979,23 @@ impl Catalog {
         &self.parts.classes
     }
 
+    /// A bounded complete declared closure; unknown ancestry is not an empty set.
+    pub fn class_lineage(&self, name: &str) -> Option<Vec<String>> {
+        fn visit(catalog:&Catalog,name:&str,active:&mut std::collections::BTreeSet<String>,done:&mut std::collections::BTreeSet<String>,bytes:&mut usize)->Option<()> {
+            if done.contains(name) {return Some(());}
+            if name.is_empty()||name.len()>1024||active.contains(name)||active.len()+done.len()>=128 {return None;}
+            *bytes=bytes.checked_add(name.len())?;if *bytes>16*1024 {return None;}
+            let class=catalog.class(name)?;
+            active.insert(name.into());
+            if let Some(parent)=&class.super_class {visit(catalog,parent.as_str(),active,done,bytes)?;}
+            for parent in &class.interfaces {visit(catalog,parent.as_str(),active,done,bytes)?;}
+            active.remove(name);done.insert(name.into());Some(())
+        }
+        let mut done=std::collections::BTreeSet::new();
+        visit(self,name,&mut std::collections::BTreeSet::new(),&mut done,&mut 0)?;
+        Some(done.into_iter().collect())
+    }
+
     /// Replays Skript's `Class.getDeclaredMethod` feature probe.
     ///
     /// `None` means either the class or declared-method metadata is unavailable.

@@ -255,6 +255,11 @@ interface catalog-data {
     /// Reports whether the normalized Catalog contains this Java class node.
     class-known: func(class-name: string) -> result<bool, catalog-error>;
 
+    /// Catalog-data capability v6. Complete declared inheritance closure,
+    /// including the queried class; not a runtime implementation inventory.
+    /// None on a missing ancestor, cycle, >128 classes or >16 KiB of names.
+    class-lineage: func(class-name: string) -> result<option<list<string>>, catalog-error>;
+
     /// Replays Skript's exact `Class.getDeclaredMethod` feature probe.
     /// None means that the class or method metadata is unavailable in this snapshot.
     declared-method-exists: func(

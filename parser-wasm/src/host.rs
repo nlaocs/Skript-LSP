@@ -1406,6 +1406,13 @@ impl wit_catalog_data::Host for StoreData {
         Ok(self.catalog()?.class(&class_name).is_some())
     }
 
+    fn class_lineage(&mut self, class_name:String)->Result<Option<Vec<String>>,wit_catalog_data::CatalogError> {
+        self.source_query(None)?;
+        let result=self.catalog()?.class_lineage(&class_name);
+        self.source_output(result.as_ref().map_or(0,|rows|rows.iter().map(String::len).sum()))?;
+        Ok(result)
+    }
+
     fn read_record_fields(
         &mut self,
         source_digest: String,
@@ -13720,7 +13727,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 5));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 6));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
