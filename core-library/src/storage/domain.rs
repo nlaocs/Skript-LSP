@@ -20,7 +20,31 @@ pub(super) struct Class {
 #[derive(Clone, Debug)]
 pub(super) struct Graph(BTreeMap<String, Class>);
 
+/// A borrowed entry in one immutable structural graph, not a runtime identity.
+pub(super) struct ClassRef<'a> {graph:&'a Graph,class:&'a Class}
+impl ClassRef<'_> {
+    pub(super) fn concrete(&self)->bool {
+        matches!(self.class.kind.as_str(),"Class"|"Enum"|"Record"|"Sealed"|"Synthetic"|"MemberClass"|"LocalClass"|"AnonymousClass")
+    }
+    pub(super) fn assignable_to(&self,target:&Self)->Option<bool> {
+        if !std::ptr::eq(self.graph,target.graph){return None;}
+        if self.class.name==target.class.name{return Some(true);}
+        if self.class.lineage_complete {
+            return Some(self.class.interfaces.iter().any(|ancestor|ancestor==&target.class.name)
+                || self.class.super_class.as_deref()==Some(target.class.name.as_str()));
+        }
+        self.graph.assignable(&self.class.name,&target.class.name)
+    }
+    pub(super) fn overlaps(&self,target:&Self)->Option<bool> {
+        if self.assignable_to(target)? || target.assignable_to(self)?{return Some(true);}
+        Some(!(self.concrete()&&target.concrete()))
+    }
+}
+
 impl Graph {
+    pub(super) fn resolve(&self,name:&str)->Option<ClassRef<'_>> {
+        self.0.get(name).map(|class|ClassRef {graph:self,class})
+    }
     pub fn new(classes: Vec<Class>) -> Option<Self> {
         if classes.is_empty() || classes.len() > 8192 {
             return None;
@@ -34,6 +58,14 @@ impl Graph {
 
     /// A missing ancestor is unknown, never proof of disjointness.
     pub fn assignable(&self, from: &str, to: &str) -> Option<bool> {
+        // A complete closure already contains every ancestor. Preserve the
+        // same relation without allocating a traversal for each dispatch test.
+        // Reflexivity does not establish that a class is present in this graph.
+        if from == to { return Some(true); }
+        if let Some(class) = self.0.get(from).filter(|class| class.lineage_complete) {
+            return Some(class.interfaces.iter().any(|ancestor| ancestor == to)
+                || class.super_class.as_deref() == Some(to));
+        }
         let mut pending = vec![from];
         let mut seen = BTreeSet::new();
         let mut complete = true;
@@ -234,5 +266,57 @@ mod tests {
         assert_eq!(g.assignable("Native","Public"),Some(true));
         let a = class("A","Class",None,&[]);
         assert!(Graph::new(vec![a.clone(),a]).is_none());
+    }
+    #[test]
+    fn complete_ancestry_relation_matches_the_bounded_walk_without_closing_unknowns() {
+        // Independent pre-optimization walk, including its missing-node and
+        // mixed complete/incomplete semantics, serves as a differential oracle.
+        fn walk(g:&Graph,from:&str,to:&str)->Option<bool> {
+            let mut pending=vec![from];let mut seen=BTreeSet::new();let mut complete=true;
+            while let Some(name)=pending.pop() {
+                if name==to{return Some(true);}
+                if !seen.insert(name){continue;}
+                if seen.len()>8192{return None;}
+                let Some(c)=g.0.get(name) else{complete=false;continue;};
+                if c.lineage_complete {
+                    if c.interfaces.iter().any(|a|a==to)||c.super_class.as_deref()==Some(to){return Some(true);}
+                    continue;
+                }
+                if let Some(parent)=&c.super_class{pending.push(parent);}
+                pending.extend(c.interfaces.iter().map(String::as_str));
+            }
+            complete.then_some(false)
+        }
+        let mut g=graph();
+        let mut closed=class("Closed","Class",Some("Object"),&["Object","Public","Super","Ghost"]);
+        closed.lineage_complete=true;g.0.insert(closed.name.clone(),closed);
+        for c in [class("ChildClosed","Class",Some("Closed"),&[]),
+            class("Partial","Class",Some("MissingParent"),&["Public"]),
+            class("Forward","Class",Some("missing.Parent"),&["Uncertain"]),
+            class("Uncertain","Interface",None,&["missing.Ancestor"]),
+            class("CycleA","Class",Some("CycleB"),&[]),class("CycleB","Class",Some("CycleA"),&[])] {
+            g.0.insert(c.name.clone(),c);
+        }
+        let names=["Object","Public","Super","Native","Child","Other","Foreign","Slot",
+            "Closed","ChildClosed","Partial","CycleA","CycleB","Forward","Uncertain","Ghost","MissingParent","Unknown",""];
+        for from in names {for to in names {
+            assert_eq!(g.assignable(from,to),walk(&g,from,to),"{from} -> {to}");
+            if let (Some(a),Some(b))=(g.resolve(from),g.resolve(to)) {
+                assert_eq!(a.assignable_to(&b),g.assignable(from,to));
+                assert_eq!(a.overlaps(&b),g.overlap(from,to));
+                assert_eq!(Some(a.concrete()),g.concrete(from));
+            }
+        }}
+        assert_eq!(g.assignable("Closed","Ghost"),Some(true),"complete closure may name an external ancestor");
+        assert_eq!(g.assignable("Closed","Other"),Some(false));
+        assert_eq!(g.assignable("ChildClosed","Public"),Some(true));
+        assert_eq!(g.assignable("Partial","Other"),None,"missing ancestry is still unknown");
+        assert_eq!(g.assignable("Unknown","Object"),None);
+        assert_eq!(g.assignable("Unknown","Unknown"),Some(true),"reflexive relation is not a class-presence claim");
+        assert_eq!(g.overlap("Closed","Foreign"),Some(true),"an open interface remains a possible subtype overlap");
+        assert_eq!(g.assignable("Uncertain","Forward"),None);
+        assert_eq!(g.resolve("Forward").unwrap().overlaps(&g.resolve("Uncertain").unwrap()),Some(true),"forward true short-circuits reverse unknown");
+        let other=g.clone();
+        assert_eq!(g.resolve("Closed").unwrap().assignable_to(&other.resolve("Closed").unwrap()),None,"borrowed entries cannot mix graph owners");
     }
 }

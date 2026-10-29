@@ -152,3 +152,43 @@ fn contradictory_clone_observations_cannot_certify_identity_or_purity() {
     m.records[4]["typeRuntime"]["cloneMethodUnknownReason"]="unavailable".into();
     assert!(m.infer(&["custom.Child".into()]).is_none());
 }
+
+#[test]
+fn resolved_single_pass_dispatch_matches_exact_then_ordered_reference() {
+    fn old<'a>(m:&'a Model,bound:&str)->Option<Vec<&'a Value>> {
+        if m.graph.assignable(bound,bound)!=Some(true)||!m.declarations.contains_key(bound){return None;}
+        let mut indices=BTreeSet::new();
+        for (i,r) in m.records.iter().enumerate() {
+            let c=r["originalClass"].as_str()?;
+            if m.graph.concrete(c)?&&m.graph.assignable(c,bound)?{indices.insert(i);}
+        }
+        let mut covered=false;
+        for (i,r) in m.records.iter().enumerate() {
+            let c=r["originalClass"].as_str()?;
+            if m.graph.overlap(c,bound)?{indices.insert(i);}
+            if m.graph.assignable(bound,c)?{covered=true;break;}
+        }
+        covered.then(||indices.into_iter().map(|i|&m.records[i]).collect())
+    }
+    let mut m=model();
+    let mut interface=d("custom.Open",None,&["java.lang.Object"]);interface.kind="Interface".into();
+    let mut late=d("custom.Late",None,&["missing.Parent"]);late.kind="Interface".into();
+    let declarations=m.declarations.values().cloned().chain([
+        interface,late,d("custom.Partial",Some("missing.Parent"),&[]) ]).collect();
+    m=Model::new(m.records,declarations).unwrap();
+    m.records.push(row("custom.Late",m.records.len()));
+    let compare=|m:&Model|for bound in ["custom.Child","custom.Base","custom.Target","custom.Open",
+        "custom.Partial","missing.Type",SLOT,ITEM,"java.lang.Object"] {
+        let names=|rows:Option<Vec<&Value>>|rows.map(|rs|rs.into_iter().map(|r|r["originalClass"].as_str().unwrap().to_owned()).collect::<Vec<_>>());
+        assert_eq!(names(m.dispatch(bound)),names(old(m,bound)),"{bound}");
+    };
+    compare(&m);
+    // A late exact-class candidate must survive the first covering ordered row.
+    let result=m.dispatch("custom.Base").unwrap();
+    assert!(result.iter().any(|r|r["originalClass"]=="custom.Child"));
+    assert!(!result.iter().any(|r|r["originalClass"]=="custom.Late"),"covered suffix interfaces are not newly queried");
+    // An unavailable late registry class still invalidates the whole proof.
+    m.records.push(row("missing.Row",m.records.len()));
+    compare(&m);assert!(m.dispatch("custom.Child").is_none());
+    m.records.insert(0,row("missing.Early",0));compare(&m);
+}

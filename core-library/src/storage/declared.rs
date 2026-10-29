@@ -103,16 +103,17 @@ impl Model {
     /// ordered entry that covers every value of the public input bound.
     fn dispatch(&self, bound:&str)->Option<Vec<&Value>> {
         if self.graph.assignable(bound,bound)!=Some(true) || !self.declarations.contains_key(bound) {return None;}
-        let mut indices=BTreeSet::new();
+        let input=self.graph.resolve(bound)?;
+        let mut indices=BTreeSet::new();let mut covered=false;
         for (i,r) in self.records.iter().enumerate() {
-            let c=r["originalClass"].as_str()?;
-            if self.graph.concrete(c)? && self.graph.assignable(c,bound)? {indices.insert(i);}
-        }
-        let mut covered=false;
-        for (i,r) in self.records.iter().enumerate() {
-            let c=r["originalClass"].as_str()?;
-            if self.graph.overlap(c,bound)? {indices.insert(i);}
-            if self.graph.assignable(bound,c)? {covered=true;break;}
+            let class=self.graph.resolve(r["originalClass"].as_str()?)?;
+            // The exact-class pass still visits the full registry. In particular,
+            // late concrete registrations survive an earlier ordered cover.
+            if class.concrete() && class.assignable_to(&input)? {indices.insert(i);}
+            if !covered {
+                if class.overlaps(&input)? {indices.insert(i);}
+                if input.assignable_to(&class)? {covered=true;}
+            }
         }
         covered.then(||indices.into_iter().map(|i|&self.records[i]).collect())
     }
