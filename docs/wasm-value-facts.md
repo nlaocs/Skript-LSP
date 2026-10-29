@@ -41,11 +41,15 @@ The expression's evaluation effects remain unknown unless separately certified;
 other local facts must therefore still be invalidated by an unknown call.
 
 A post-storage fact describes the stored binding. It is not a certificate for a
-later Variable lookup/conversion. In particular, a nullable local binding may
-fall back to script default/global values. The current Core read contract does
-not prove that fallback absent or closed, so a nullable stored type can remain
-visible at the lookup boundary while the read expression and a copy are unknown.
-No presence requirement is weakened by this composition feature.
+later Variable lookup/conversion. Variable-read v2 adds an independently owned
+`missingValue: "empty"` contract. Current Core emits it only for fixed-name
+scalar locals under the source-audited Skript 2.15.4 adapter. That path uses
+LiteralString/MESSAGE and does not enumerate default/global fallback names.
+With this claim, a complete nullable bound can survive the lookup while remaining
+nullable. Player refresh, typed conversion and the consuming SET's storage
+transformation still require their own existing contracts. Other names/versions
+and v1 reads do not gain this absence claim; unsupported metadata stays unknown.
+This composition feature alone does not establish a read or a nonempty value.
 
 ## Selected fact composition
 

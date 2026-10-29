@@ -128,10 +128,14 @@ entry `editor.typed-inputs.v1`:
 ```
 
 `storedTypes` describes the current stored binding. `maybeUnset` and `readClosed`
-are separate: an absent local may use a default/global fallback, converters or
-Player refresh. A conditional member proposal is useful editing information,
-not a new Variable expression type guarantee. Nullable copy/type inference and
-hard completion filters keep their original proof requirements. Refinement must
+are separate: unknown lookup paths may use default/global fallback, converters
+or Player refresh. Core's variable-read v2 can close only the absent-value branch
+for audited 2.15.4 fixed-name scalar locals (`missingValue: "empty"`); it does not
+close refresh or conversion, or make a nullable value present. Consumers accept
+v1/v2 observations conservatively and preserve the current source/revision owner.
+A conditional member proposal is useful editing information, not a new runtime
+call guarantee. Nullable copy/type inference and hard completion filters still
+require the relevant lookup and storage contracts. Refinement must
 not turn this record into semantic proof or claim runtime callability.
 
 Refinement runs after semantic flow, without any old StateStore invocation,

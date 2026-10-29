@@ -76,7 +76,7 @@ pub(super) fn parse(
         }
         candidate
             .metadata
-            .push(crate::public_data::variable_read(&requested));
+            .push(crate::public_data::variable_read(&requested, java_trim(body).starts_with('_')));
         candidate
             .metadata
             .push(crate::public_data::default_clone_change_input());

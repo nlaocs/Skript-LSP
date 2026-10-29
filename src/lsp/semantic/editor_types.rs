@@ -42,7 +42,7 @@ fn scalar_read<'a>(tree:&'a AstTree, scope:u64) -> Option<(&'a AstNode,Identity,
     let identity=identity_data(data,scope,node.syntax_context)?;
     if !identity.key.local||identity.list {return None;}
     let read:VariableRead=serde_json::from_str(unique_metadata(node,VARIABLE_READ)?).ok()?;
-    (read.version==1&&!read.requested_types.is_empty()).then_some((node,identity,read))
+    (matches!(read.version,1|2)&&!read.requested_types.is_empty()).then_some((node,identity,read))
 }
 
 impl Engine<'_> {

@@ -1117,7 +1117,12 @@ struct VariableRead {
     may_refresh_player: bool,
     #[serde(default)]
     no_refresh_types: Vec<String>,
+    #[serde(default)]
+    missing_value: Option<MissingVariableValue>,
 }
+#[derive(Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum MissingVariableValue { Empty }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Flow {
@@ -1231,7 +1236,7 @@ impl Engine<'_> {
             let read = unique_metadata(node, VARIABLE_READ)
                 .and_then(|json| serde_json::from_str::<VariableRead>(json).ok())
                 .filter(|read| {
-                    read.version == 1
+                    matches!(read.version, 1 | 2)
                         && !read.requested_types.is_empty()
                         && node.children.is_empty()
                 });
@@ -2246,7 +2251,15 @@ fn operand_prefix(
     }
 }
 fn read_preserves_type_facts(read: &VariableRead, ty: &InferredType, catalog: &Catalog) -> bool {
-    let Some((classes, _)) = ty.proven_present() else {
+    // Missing values may preserve a nullable bound only with an explicit lookup
+    // contract. Do not infer the absence of defaults from the variable spelling
+    // here; the authenticated provider owns that versioned semantic claim.
+    let bound = if read.version == 2 && read.missing_value == Some(MissingVariableValue::Empty) {
+        ty.proven_types()
+    } else {
+        ty.proven_present()
+    };
+    let Some((classes, _)) = bound else {
         return false;
     };
     !classes.is_empty()

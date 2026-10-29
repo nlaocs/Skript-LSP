@@ -54,9 +54,17 @@ native `storageResult` is unavailable, keeping the two computations out of the
 same expression hook's fuel budget.
 
 Write-site hints describe that write's post-state. Later reads also depend on
-lookup/conversion/player-refresh semantics. In particular an absent local can
-fall back to script default/global values; its copy must not blindly inherit the
-stored nullable bound. Branches keep unknown/uninitialized alternatives. Open
+lookup/conversion/player-refresh semantics. Core publishes variable-read v2
+`missingValue: "empty"` for the audited Skript 2.15.4 fixed-name scalar local
+path: `VariableString.newInstance` creates `LiteralString`, whose MESSAGE mode
+makes `getDefaultVariableNames` empty. An absent lookup therefore yields no
+value, including when the script has default/global variables. Nullable bounds
+may pass this lookup only if the existing refresh and requested-type checks
+also pass; SET still applies its normal clone/storage contract. This preserves
+nullability and never implies presence. Global/list/interpolated names,
+unreviewed versions and v1 metadata retain conservative handling. General
+default/global lookup is not closed merely by a stored nullable bound.
+Branches keep unknown/uninitialized alternatives. Open
 interfaces may overlap Slot or other registered cloner domains, so a computed
 union can be wider than the advertised RHS type. This is not a guarantee that
 Player alone is recovered on every environment.

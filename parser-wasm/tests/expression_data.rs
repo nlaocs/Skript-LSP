@@ -413,7 +413,8 @@ fn grouped_and_interpolated_variables_keep_data_on_the_underlying_node() {
                 .expect("the actual Core scalar read boundary must remain owned"),
         )
         .unwrap();
-        assert_eq!(read["version"], 1);
+        assert_eq!(read["version"], 2);
+        assert_eq!(read["missingValue"], "empty");
         assert_eq!(
             read["requestedTypes"],
             serde_json::json!(["java.lang.Object"])

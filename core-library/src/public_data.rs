@@ -218,12 +218,31 @@ pub(crate) fn default_clone_change_input()
 pub const VARIABLE_READ_METADATA_KEY: &str = "skript.semantic.variable-read";
 pub(crate) fn variable_read(
     requested_types: &[String],
+    local: bool,
 ) -> crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    let version = crate::runtime::current().and_then(|profile| profile.skript_version);
+    let missing_is_empty = static_variable_missing_is_empty(version.as_deref(), local);
+    let mut contract = serde_json::json!({"version":1,"requestedTypes":requested_types,
+        "mayRefreshPlayer":true,"noRefreshTypes":crate::catalog::identity_delta_classes()});
+    if missing_is_empty {
+        contract["version"] = 2.into();
+        contract["missingValue"] = "empty".into();
+    }
     crate::nlaocs::skript_parser_addon::types::MetadataEntry {
         key: VARIABLE_READ_METADATA_KEY.into(),
-        value:serde_json::json!({"version":1,"requestedTypes":requested_types,"mayRefreshPlayer":true,"noRefreshTypes":crate::catalog::identity_delta_classes()}).to_string(),
+        value:contract.to_string(),
         owner_component_id:None,
     }
+}
+
+// Only the fixed-name scalar primitive calls variable_read. In audited 2.15.4,
+// VariableString.newInstance returns LiteralString for a name with no embedded
+// Expressions. That constructor retains MESSAGE mode; getDefaultVariableNames
+// returns no candidates before considering isSimple. Variable.getRaw therefore
+// returns the local value or null, without a default/global lookup. Interpolated
+// names and unreviewed versions must not inherit this missing-value contract.
+fn static_variable_missing_is_empty(version: Option<&str>, local: bool) -> bool {
+    local && version == Some("2.15.4")
 }
 
 /// Initialized default source, not a generated source expression or a live value.
@@ -371,6 +390,14 @@ pub enum VariableNamePart {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn fixed_name_missing_contract_is_scoped_to_the_audited_standard_adapter() {
+        assert!(static_variable_missing_is_empty(Some("2.15.4"), true));
+        assert!(!static_variable_missing_is_empty(Some("2.15.4"), false));
+        for version in [None,Some("2.15.3"),Some("2.15.5"),Some("2.16"),Some("2.15.4-custom"),Some("unknown")] {
+            assert!(!static_variable_missing_is_empty(version, true));
+        }
+    }
     #[test]
     fn capture_role_schema_serializes_slot_references_without_source_ranges() {
         let value = CaptureRolesData {
