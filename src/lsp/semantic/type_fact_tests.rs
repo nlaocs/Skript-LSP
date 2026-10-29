@@ -35,6 +35,29 @@ fn presence_completeness_and_certainty_have_separate_proof_requirements() {
 }
 
 #[test]
+fn declared_storage_bound_is_complete_but_does_not_mint_identity_or_presence() {
+    let change:Change=serde_json::from_value(serde_json::json!({"version":5,"mode":"set","targetCapture":0,"valueCapture":1,
+        "bindingRole":"binding","declaredStorage":{"version":1,"basis":"owned.standard-contract.v1","types":["owned.UnknownType"],
+        "complete":true,"maybeUnset":true,"preservesLocalBindings":false}})).unwrap();
+    let ty=declared_storage(&change).unwrap().ty().unwrap();
+    assert!(ty.proven_types().is_some());assert!(ty.proven_present().is_none());
+    assert!(!identity_delta(&change,&ty));assert!(storage_result(&change).is_none());
+    assert!(!declared_storage(&change).unwrap().preserves_local_bindings);
+    let mut old=change;old.version=4;assert!(declared_storage(&old).is_none());
+}
+
+#[test]
+fn complete_declared_upper_bounds_and_joins_do_not_supply_negative_runtime_proof() {
+    let declared=DeclaredStorage {version:1,basis:"owned.contract".into(),types:vec!["org.bukkit.entity.Entity".into()],
+        complete:true,maybe_unset:false,preserves_local_bindings:false}.ty().unwrap();
+    assert!(declared.proven_present().is_some());
+    assert!(declared.exclusion_types().is_none());
+    let joined=declared.join(&value("java.lang.String",false));
+    assert!(joined.proven_types().is_some());assert!(joined.exclusion_types().is_none());
+    assert!(value("java.lang.String",false).exclusion_types().is_some());
+}
+
+#[test]
 fn a_complete_union_is_inferred_and_not_a_heuristic() {
     let joined = value("java.lang.Number", false).join(&value("java.lang.String", false));
     assert_eq!(joined.proven_present().unwrap().0.len(), 2);
@@ -136,6 +159,7 @@ fn heuristic_or_partial_types_cannot_certify_clone_or_read_preservation() {
         storage_result: None,
         binding_role: String::new(),
         dispatch_rules: Vec::new(),
+        declared_storage: None,
     };
     for heuristic in [false, true] {
         let mut candidate = value("java.lang.Number", false);

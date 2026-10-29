@@ -32,7 +32,7 @@ fn current(context:&SourcePreparationContext)->Option<SourceIdentity> {
 }
 
 #[cfg(target_arch="wasm32")]
-pub(crate) fn step(context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {
+pub(crate) fn native_step(context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {
     use crate::nlaocs::skript_parser_addon::catalog_data;
     let mut slot=JOB.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if context.step==0 {*slot=None;}
@@ -73,7 +73,10 @@ pub(crate) fn step(context:SourcePreparationContext)->Result<SourcePreparationSt
 }
 
 #[cfg(not(target_arch="wasm32"))]
-pub(crate) fn step(_context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {Ok(SourcePreparationStatus::Ready("native-no-catalog".into()))}
+pub(crate) fn native_step(_context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {Ok(SourcePreparationStatus::Ready("native-no-catalog".into()))}
+
+#[cfg(target_arch="wasm32")]
+pub(super) fn clear() {*JOB.lock().unwrap_or_else(std::sync::PoisonError::into_inner)=None;}
 
 #[cfg(test)]
 mod tests {

@@ -17,6 +17,9 @@ pub(in crate::lsp) enum Evidence {
     Declaration,
     Assignment,
     StorageResult,
+    /// Complete public bounds computed by an API-contract storage transfer;
+    /// this is not a native-origin or effect/identity certificate.
+    DeclaredTransfer,
     ControlFlowJoin,
 }
 

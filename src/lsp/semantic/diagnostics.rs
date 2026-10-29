@@ -148,7 +148,7 @@ impl Document {
                 if occurrences.next().is_some() {
                     continue;
                 }
-                let Some((classes, _)) = occurrence.ty.proven_present() else {
+                let Some((classes, _)) = occurrence.ty.exclusion_types() else {
                     continue;
                 };
                 if classes.is_empty()

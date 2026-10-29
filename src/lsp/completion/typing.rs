@@ -1021,7 +1021,7 @@ impl Document {
         else {
             return false;
         };
-        let Some((classes, multiple)) = ty.proven_present() else {
+        let Some((classes, multiple)) = ty.exclusion_types() else {
             return false;
         };
         let adopted = self.accepted_slots.get(&(edit.start, edit.end));

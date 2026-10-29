@@ -6,6 +6,17 @@ use crate::nlaocs::skript_parser_addon::types::{
 const CLASS_SUFFIX: &str = ".ExprEventExpression";
 const HANDLER_ID: &str = "core.expression.expr-event-expression";
 
+pub(super) fn change_delegate(payload:&RegisteredExpressionPayload)->Option<crate::storage::declared::DelegatedInput> {
+    // Standard ExprEventExpression.init constructs this exact delegate for any
+    // event/value registration. WrapperExpression forwards beforeChange to it.
+    // Subclasses/other suffix matches cannot acquire this adapter implicitly.
+    (payload.element_class=="ch.njol.skript.expressions.ExprEventExpression").then_some(crate::storage::declared::DelegatedInput {
+        adapter:"skript.expr-event-value-delegate.v1",
+        forwarder:"ch.njol.skript.expressions.base.WrapperExpression",
+        receiver:"ch.njol.skript.expressions.base.EventValueExpression",
+    })
+}
+
 pub(super) fn register(handlers: &mut Vec<RegisteredSyntaxHandler>) {
     register_handler_with_all_type_options(handlers, HANDLER_ID, CLASS_SUFFIX, Vec::new());
 }

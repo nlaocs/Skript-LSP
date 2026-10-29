@@ -1,4 +1,5 @@
 mod domain;
+pub(crate) mod declared;
 mod document;
 pub(crate) mod preparation;
 mod evidence;

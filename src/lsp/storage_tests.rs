@@ -25,6 +25,48 @@ fn parse(source: &str) -> (parser_wasm::DocumentParseResult, semantic::Document)
 }
 
 #[test]
+fn declared_event_contracts_reach_set_and_lookup_for_two_unpinned_events() {
+    for event in ["craft","preparing craft"] {
+        let source=format!("on {event}:\n    set {{_value}} to event-string\n    set {{_copy}} to {{_value}}\n");
+        let (result,document)=parse(&source);
+        let hints=document.write_type_hints();
+        assert!(matches!(&hints[0].label,InlayHintLabel::String(s) if s==": string?"),"{source}: {hints:?}");
+        let change=result.ast.nodes.iter().flat_map(|n|&n.metadata)
+            .find(|m|m.key=="skript.semantic.variable-change").expect("Core SET contract");
+        let change:serde_json::Value=serde_json::from_str(&change.value).unwrap();
+        assert!(change["storageResult"].is_null(),"this case must use the generic declaration path");
+        assert_eq!(change["declaredStorage"]["types"],serde_json::json!(["java.lang.String"]));
+        let at=source.rfind("{_value}").unwrap()+2;
+        let hover=document.hover(LineIndex::new(&source).position(&source,at).unwrap()).unwrap().1;
+        assert!(hover.contains("Current type: string?") || hover.contains("**Current type:** `string?`"),"{hover}");
+        assert!(hover.contains("declared bounds after standard storage transfer"),"{hover}");
+    }
+}
+
+#[test]
+fn an_opaque_caller_does_not_turn_a_stored_declaration_into_a_current_read_proof() {
+    let source="on craft:\n    set {_value} to event-string\n    broadcast {_value}\n";
+    let (_,document)=parse(source);
+    let at=source.rfind("{_value}").unwrap()+2;
+    let hover=document.hover(LineIndex::new(source).position(source,at).unwrap()).unwrap().1;
+    assert!(hover.contains("Current type: ?") || hover.contains("**Current type:** `?`"),"{hover}");
+    assert!(hover.contains("history only"),"{hover}");
+}
+
+#[test]
+fn declared_nullable_storage_does_not_invent_a_closed_default_or_global_copy() {
+    let source="variables:\n    {value} = \"fallback\"\non craft:\n    set {_value} to event-string\n    set {_copy} to {_value}\n";
+    let (result,document)=parse(source);
+    let hints=document.write_type_hints();
+    assert!(hints.iter().any(|h|matches!(&h.label,InlayHintLabel::String(s) if s==": string?")),"{hints:?}");
+    assert!(matches!(&hints.last().unwrap().label,InlayHintLabel::String(s) if s==": ?"),"nullable lookup fallback is not a copied storage certificate: {hints:?}");
+    let edited=source.replace("event-string","\"new\u{1f600}\"");
+    assert!(semantic::Document::from_result(&result,Arc::from(edited.as_str()),"file:///storage-public/test.sk".parse().unwrap(),catalog()).is_err());
+    let (_,edited)=parse(&edited);
+    assert!(matches!(&edited.write_type_hints()[0].label,InlayHintLabel::String(s) if s==": string"));
+}
+
+#[test]
 fn standard_storage_model_write_sites_follow_assignments_and_keep_reads_hint_free() {
     let cases = [
         ("join-single", "on join:\n    set {_target} to player\n    send {_target}\n",vec![(1,": player?")]),
@@ -38,7 +80,13 @@ fn standard_storage_model_write_sites_follow_assignments_and_keep_reads_hint_fre
         ("independent-local-scopes", "command /storagefirst:\n    trigger:\n        set {_same} to player\ncommand /storagesecond:\n    trigger:\n        set {_same} to \"fresh\"\n",vec![(2,": player?"),(5,": string")]),
     ];
     for (name,source,expected) in cases {
-        let (_,document)=parse(source);
+        let (result,document)=parse(source);
+        for change in result.ast.nodes.iter().flat_map(|n|&n.metadata).filter(|m|m.key=="skript.semantic.variable-change") {
+            let change:serde_json::Value=serde_json::from_str(&change.value).unwrap();
+            if !change["storageResult"].is_null() {
+                assert!(change["declaredStorage"].is_null(),"native storage proof takes precedence without duplicate inference: {name}");
+            }
+        }
         let hints=document.write_type_hints();
         let actual=hints.iter().map(|h|(h.position.line,match &h.label { InlayHintLabel::String(s)=>s.as_str(),_=>panic!("unexpected label") })).collect::<Vec<_>>();
         assert_eq!(actual,expected,"{name}");

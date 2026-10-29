@@ -52,12 +52,12 @@ impl Graph {
         complete.then_some(false)
     }
 
-    fn concrete(&self, name: &str) -> Option<bool> {
+    pub(super) fn concrete(&self, name: &str) -> Option<bool> {
         self.0.get(name).map(|c| matches!(c.kind.as_str(), "Class" | "Enum" | "Record" | "Sealed" | "Synthetic" | "MemberClass" | "LocalClass" | "AnonymousClass"))
     }
 
     /// Two unrelated Java classes cannot have a shared subtype. Interfaces can.
-    fn overlap(&self, a: &str, b: &str) -> Option<bool> {
+    pub(super) fn overlap(&self, a: &str, b: &str) -> Option<bool> {
         if self.assignable(a, b)? || self.assignable(b, a)? { return Some(true); }
         Some(!(self.concrete(a)? && self.concrete(b)?))
     }

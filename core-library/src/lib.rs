@@ -77,7 +77,7 @@ struct CoreLibrary;
 impl addon::Guest for CoreLibrary {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
-        storage::preparation::step(context)
+        storage::declared::prepare_step(context)
     }
 
     fn manifest() -> ComponentManifest {
@@ -162,7 +162,7 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement {
                     id: CAPABILITY_CATALOG_DATA.to_owned(),
-                    minimum_version: 5,
+                    minimum_version: 6,
                     required: false,
                 },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SOURCE_PREPARATION.into(), minimum_version: 1, required: false },
@@ -342,7 +342,7 @@ impl addon::Guest for CoreLibrary {
             ParserCapabilityRequirement::required(CAPABILITY_TREE_MACRO, 1),
             ParserCapabilityRequirement::required(CAPABILITY_STATE_STORE, 1),
             ParserCapabilityRequirement::optional(CAPABILITY_DYNAMIC_SYNTAX, 1),
-            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 5),
+            ParserCapabilityRequirement::optional(CAPABILITY_CATALOG_DATA, 6),
         ];
         let capabilities = profile
             .capabilities
@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(manifest.capabilities[8].id, CAPABILITY_DYNAMIC_SYNTAX);
         assert!(!manifest.capabilities[8].required);
         assert_eq!(manifest.capabilities[9].id, CAPABILITY_CATALOG_DATA);
-        assert_eq!(manifest.capabilities[9].minimum_version, 5);
+        assert_eq!(manifest.capabilities[9].minimum_version, 6);
         assert!(!manifest.capabilities[9].required);
         assert_eq!(manifest.state_namespaces.len(), 3);
         assert_eq!(manifest.state_namespaces[1].name, "commands");
@@ -2634,6 +2634,29 @@ mod tests {
                 type_parser_outcome: None,
                 candidates: Vec::new(),
             }),
+        }
+    }
+
+    #[test]
+    fn declared_bound_fallback_preserves_unknown_regex_and_prior_transform_boundaries() {
+        let mut payload=registered_expression("unseen.addon.FixedGetter");
+        payload.return_type_state=ExpressionReturnTypeState::Static;
+        payload.declared_return_type=Some("unseen.Value".into());
+        payload.effective_return_type=payload.declared_return_type.clone();
+        payload.possible_return_types=vec!["unseen.Value".into()];
+        payload.effective_possible_return_types=payload.possible_return_types.clone();
+        payload.possible_return_types_state=ExpressionPossibleReturnTypesState::Complete;
+        payload.effective_possible_return_types_state=ExpressionPossibleReturnTypesState::Complete;
+        payload.declared_multiplicity=Some(DynamicMultiplicity::Single);
+        payload.effective_multiplicity=payload.declared_multiplicity;
+        let Some(expressions::SemanticResolution::Resolved {metadata,..})=expressions::resolve(&payload) else {panic!("complete ordinary declaration")};
+        assert!(metadata.is_empty(),"a type declaration cannot certify callback purity");
+        let mut changed=payload.clone();changed.effective_multiplicity=None;assert!(expressions::resolve(&changed).is_none());
+        let mut changed=payload.clone();changed.effective_return_type=Some("other.Value".into());assert!(expressions::resolve(&changed).is_none());
+        let mut changed=payload.clone();changed.effective_possible_return_types_state=ExpressionPossibleReturnTypesState::Partial;assert!(expressions::resolve(&changed).is_none());
+        for class in ["unseen.addon.RegexGetter","com.btk5h.skriptmirror.skript.reflect.ExprClassReference"] {
+            let mut changed=payload.clone();changed.element_class=class.into();changed.regex_captures=vec!["java.lang.String".into()];
+            assert!(expressions::resolve(&changed).is_none(),"declared type does not validate arbitrary regex semantics");
         }
     }
 

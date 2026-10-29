@@ -1,4 +1,5 @@
 mod context_validation;
+mod declared_bound;
 pub(crate) mod event_value_expression;
 mod expr_all_banned_entries;
 mod expr_any_of;
@@ -195,6 +196,7 @@ fn resolve_selected(
     payload: &RegisteredExpressionPayload,
     publish: &mut Option<fn(&mut RegisteredExpressionPayload)>,
 ) -> Option<SemanticResolution> {
+    let mut change_delegate = None;
     context_validation::resolve(payload)
         .or_else(|| event_value_expression::resolve(payload))
         .or_else(|| expr_all_banned_entries::resolve(payload))
@@ -214,6 +216,7 @@ fn resolve_selected(
         .or_else(|| {
             let resolution = expr_event_expression::resolve(payload)?;
             *publish = Some(expr_event_expression::publish_capture_roles);
+            change_delegate = expr_event_expression::change_delegate(payload);
             Some(resolution)
         })
         .or_else(|| expr_except::resolve(payload))
@@ -268,8 +271,10 @@ fn resolve_selected(
         .or_else(|| simple_literal::resolve(payload))
         .or_else(|| wrapper_expression::resolve(payload))
         .or_else(|| fixed_property::resolve(payload))
+        .or_else(|| declared_bound::resolve(payload))
         .map(|mut resolution| {
             crate::storage::annotate_property(payload, &mut resolution);
+            crate::storage::declared::annotate(payload, &mut resolution, change_delegate);
             resolution
         })
 }

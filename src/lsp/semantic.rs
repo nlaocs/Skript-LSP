@@ -116,8 +116,8 @@ impl InferredType {
         }
         self
     }
-    /// The only boundary for definite diagnostics, filtering and preservation.
-    /// A complete union is proof; partial candidates or heuristics are not.
+    /// A complete current upper-bound set. Identity/effects/negative exclusion
+    /// still require use-specific contracts; this is not an exact-class set.
     pub fn proven_types(&self) -> Option<(&BTreeSet<String>, bool)> {
         match self {
             Self::Values {
@@ -141,6 +141,12 @@ impl InferredType {
         } else {
             None
         }
+    }
+    /// The legacy bool conversion relation cannot prove runtime non-overlap of
+    /// a general declared bound (e.g. Entity may contain a Player subtype).
+    pub fn exclusion_types(&self)->Option<(&BTreeSet<String>,bool)> {
+        if matches!(self,Self::Values {support,..} if support.evidence.contains(&Evidence::DeclaredTransfer)) {return None;}
+        self.proven_present()
     }
     pub fn description(&self, catalog: &Catalog) -> String {
         match self {
@@ -734,6 +740,7 @@ impl Document {
                     Evidence::Declaration => "parameter declaration",
                     Evidence::Assignment => "accepted assignment",
                     Evidence::StorageResult => "provider-certified post-storage type",
+                    Evidence::DeclaredTransfer => "declared bounds after standard storage transfer",
                     Evidence::ControlFlowJoin => "merged current control-flow paths",
                 })
                 .collect::<Vec<_>>()
@@ -999,6 +1006,25 @@ struct Change {
     binding_role: String,
     #[serde(default)]
     dispatch_rules: Vec<change_dispatch::Rule>,
+    #[serde(default)]
+    declared_storage: Option<DeclaredStorage>,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+struct DeclaredStorage {
+    version:u32, basis:String, types:Vec<String>, complete:bool,
+    maybe_unset:bool, preserves_local_bindings:bool,
+}
+impl DeclaredStorage {
+    fn ty(&self)->Option<InferredType> {
+        (self.version==1 && !self.basis.is_empty() && self.basis.len()<=256 && self.complete
+            && !self.types.is_empty() && self.types.len()<=64
+            && self.types.iter().all(|t|!t.is_empty()&&t.len()<=1024&&t!="java.lang.Object")
+            && self.types.iter().collect::<BTreeSet<_>>().len()==self.types.len())
+            .then(||InferredType::Values {classes:self.types.iter().cloned().collect(),multiple:false,maybe_unset:self.maybe_unset,
+                support:TypeSupport::from(Evidence::DeclaredTransfer)})
+    }
 }
 
 /// Result of the accepted provider's complete local-scalar storage operation.
@@ -1317,7 +1343,7 @@ impl Engine<'_> {
             .then(|| {
                 unique_metadata(node, CHANGE)
                     .and_then(|json| serde_json::from_str::<Change>(json).ok())
-                    .filter(|change| matches!(change.version, 1 | 2 | 3 | 4))
+                    .filter(|change| matches!(change.version, 1 | 2 | 3 | 4 | 5))
             })
             .flatten();
         let nonbody = node
@@ -1385,7 +1411,7 @@ impl Engine<'_> {
         // The boundary is AFTER delta evaluation, before unknown target/callback
         // effects. History cannot establish either input to a dispatch rule.
         let mut dispatched = change.as_ref().and_then(|change| {
-            if change.version!=4 || change.binding_role!="dispatch" || unlisted.len()!=1 { return None; }
+            if !matches!(change.version,4|5) || change.binding_role!="dispatch" || unlisted.len()!=1 { return None; }
             let target_id=capture_node(node,change.target_capture,&self.nodes)?;
             if unlisted[0]!=target_id { return None; }
             let identity=self.identity(self.nodes[&target_id],scope)?;
@@ -1418,11 +1444,12 @@ impl Engine<'_> {
                 .value_capture
                 .and_then(|index| capture_node(node, index, &self.nodes))
                 .and_then(|id| child_types.get(&id));
-            matches!(change.version, 2 | 3 | 4)
+            matches!(change.version, 2 | 3 | 4 | 5)
                 && change.target_only
                 && (change.mode == "delete"
                     || value.is_some_and(|value| identity_delta(change, value))
-                    || storage_result(change).is_some_and(|result| result.preserves_local_bindings))
+                    || storage_result(change).is_some_and(|result| result.preserves_local_bindings)
+                    || declared_storage(change).is_some_and(|result|result.preserves_local_bindings))
         });
         if !transparent && !target_only && ((!preserves && !plan.complete) || !unlisted.is_empty())
         {
@@ -1608,7 +1635,7 @@ impl Engine<'_> {
         children: &HashMap<u64, InferredType>,
         dispatched: Option<&StorageResult>,
     ) -> Result<(), String> {
-        if change.version==4 && change.binding_role!="binding" && dispatched.is_none() {
+        if matches!(change.version,4|5) && change.binding_role!="binding" && dispatched.is_none() {
             // Unknown callback effects remain unknown, but no definite binding
             // occurrence or reaching-definition is invented for a value change.
             invalidate(facts,self.exact(node),Invalidation::Provider);
@@ -1666,11 +1693,12 @@ impl Engine<'_> {
             .unwrap_or(InferredType::Unknown);
         let identity_delta = identity_delta(change, &value);
         let stored = (!identity.list).then(|| storage_result(change)).flatten();
-        let certified = matches!(change.version, 2 | 3 | 4)
+        let certified = matches!(change.version, 2 | 3 | 4 | 5)
             && change.target_only
             && (change.mode == "delete" || identity_delta);
         let mut ty = if let Some(result)=dispatched { result.ty().unwrap_or(InferredType::Unknown) } else { match change.mode.as_str() {
             "set" if stored.is_some() => stored.and_then(StorageResult::ty).unwrap(),
+            "set" if !identity.list && declared_storage(change).is_some() => declared_storage(change).and_then(DeclaredStorage::ty).unwrap(),
             "set" if certified && identity_delta => value,
             "delete" if certified => InferredType::unset(),
             "add" if identity.list && certified && identity_delta => previous
@@ -2116,7 +2144,7 @@ fn preserves_locals(node: &AstNode) -> bool {
         .is_some_and(|data| data.version == 1 && data.kind == "preserve")
 }
 fn identity_delta(change: &Change, value: &InferredType) -> bool {
-    matches!(change.version, 2 | 3 | 4)
+    matches!(change.version, 2 | 3 | 4 | 5)
         && (change.identity_delta
             || value.proven_types().is_some_and(|(classes, _)| {
                 classes
@@ -2125,10 +2153,13 @@ fn identity_delta(change: &Change, value: &InferredType) -> bool {
             }))
 }
 fn storage_result(change: &Change) -> Option<&StorageResult> {
-    (matches!(change.version, 3 | 4) && change.mode == "set")
+    (matches!(change.version, 3 | 4 | 5) && change.mode == "set")
         .then_some(change.storage_result.as_ref())
         .flatten()
         .filter(|result| result.ty().is_some())
+}
+fn declared_storage(change:&Change)->Option<&DeclaredStorage> {
+    (change.version==5 && change.mode=="set").then_some(change.declared_storage.as_ref()).flatten().filter(|r|r.ty().is_some())
 }
 fn operand_prefix(
     node: &AstNode,

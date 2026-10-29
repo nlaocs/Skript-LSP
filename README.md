@@ -65,6 +65,9 @@ under the configured `CARGO_TARGET_DIR`. CoreLibrary is mandatory and embedded
 at compile time: rebuild the executable after updating that component. External
 parser addons must match the host contract, currently WIT
 `nlaocs:skript-parser-addon@0.48.0`, ABI `30.0`.
+The current Core also imports catalog-data v6's bounded `class-lineage` query;
+rebuild host and Core together. See [declared storage inference](docs/declared-storage-inference.md)
+for ordinary type bounds, storage conversions and the separate runtime guarantees.
 
 Obtain a complete SSG export directory from the target server's Skript/addon
 environment. This repository reads those exports; the generator is a separate

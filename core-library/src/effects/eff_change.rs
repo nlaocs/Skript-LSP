@@ -148,6 +148,8 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
             crate::storage::for_local_set(delta, operation.mode == ChangeMode::Set, static_target)
         })
         .flatten();
+    let declared_storage = (storage_result.is_none() && authentic && operation.mode == ChangeMode::Set && static_target == Some(false))
+        .then(|| delta.and_then(crate::storage::declared::for_summary)).flatten();
     let context_preserving = authentic
         && target
             .and_then(|value| value.return_type.as_deref())
@@ -168,6 +170,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
             .as_ref()
             .is_some_and(|result| result.preserves_local_bindings)
             || operation.mode == ChangeMode::Delete
+            || declared_storage.as_ref().is_some_and(|result|result.preserves_local_bindings)
             || identity_delta
             || !identity_delta_types.is_empty());
     // Scalar ADD/REMOVE may rebind through arithmetic or mutate a value.
@@ -183,7 +186,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
             crate::storage::native_inputs::compose(target,value,operation.changed_capture,value_capture,context_preserving))
     } else { None };
     let contract = serde_json::json!({
-        "version": 4,
+        "version": 5,
         "bindingRole": binding_role,
         "dispatchRules": dispatch_rules,
         "mode": operation.mode.diagnostic_name(),
@@ -193,6 +196,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         "identityDeltaTypes": identity_delta_types,
         "targetOnly": target_only,
         "storageResult": storage_result,
+        "declaredStorage": declared_storage,
     });
     super::annotate(
         &mut payload,

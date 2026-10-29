@@ -40,6 +40,8 @@ cargo build --locked --release --bin skript-lsp
 `CARGO_TARGET_DIR`以下へ出力されます。必須のCoreLibraryはcompile時に埋め込まれるため、
 componentを更新したら実行ファイルも再buildします。外部parser addonはhostと同じ契約が必要です。
 現在はWIT `nlaocs:skript-parser-addon@0.48.0`、ABI `30.0`です。
+現在のCoreはcatalog-data v6の有界な`class-lineage`も使うため、hostとCoreを一緒にbuildしてください。
+通常の宣言型・保存変換と実行時保証の区別は[保存型推論](docs/declared-storage-inference.md)を参照してください。
 
 対象サーバーのSkript・Addon構成から、完全なSSG export directoryを用意します。
 このrepositoryはexportを読み取る側で、generatorは独立したMinecraft pluginです。
