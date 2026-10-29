@@ -767,6 +767,10 @@ fn effect_candidate<E: ExpressionParseEnvironment>(
                     .filter(|candidate| candidate.node.span.local_range.end == range.end);
                 match candidates.next() {
                     Some(candidate) => {
+                        // Retain the selected child's deferred state and hook
+                        // receipts inside this Effect candidate's transaction.
+                        session.select_expression(&candidate.node)?;
+                        session.check_cancelled()?;
                         let mut capture =
                             crate::expression_parsed_capture(capture_index, candidate.node);
                         capture.binding = binding.clone();

@@ -1,6 +1,6 @@
 use skript_parser::{
     EffectParseRequest, EffectParserConfig, EffectSemanticDecision, EffectSemanticRequest,
-    ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
+    ExpressionEffects, ExpressionLeafCandidate, ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest,
     ExpressionLeafTiming, ExpressionParseContext, ExpressionParseEnvironment, FailureTrace,
     MappedSource, MatchSyntaxKind, NoopExpressionEnvironment, ParsedCaptureValue,
     PatternFailureReason, PatternHookControl, PatternHookEvent, PatternHookScope,
@@ -455,9 +455,16 @@ struct ScopedExpressionCaptureEnvironment {
     nested_parent_context_seen: bool,
     effect_context_leaked: bool,
     effect_parent_context_seen: bool,
+    adopted: Vec<usize>,
+    checkpoints: Vec<Vec<usize>>,
+    reject_effect: bool,
+    fail_effect: bool,
+    cancel_after_adoption: bool,
+    cancelled: bool,
 }
 
 impl PatternMatchEnvironment for ScopedExpressionCaptureEnvironment {
+    fn cancellation_requested(&mut self) -> bool { self.cancelled }
     fn allows_regex_pattern(
         &mut self,
         _kind: MatchSyntaxKind,
@@ -521,7 +528,7 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
                 };
                 Some(ExpressionLeafCandidate {
                     function: None,
-                    effects: None,
+                    effects: (text == "input").then(|| ExpressionEffects::new(1usize)),
                     parser_id: parser_id.to_owned(),
                     kind,
                     timing: if matches!(kind, ExpressionLeafKind::Literal) {
@@ -572,7 +579,27 @@ impl ExpressionParseEnvironment for ScopedExpressionCaptureEnvironment {
             .event_classes
             .iter()
             .any(|event| event.as_str() == "fixture.Event");
-        Ok(EffectSemanticDecision::UseCandidate)
+        if self.fail_effect { return Err("owned test Effect failure".into()); }
+        Ok(if self.reject_effect { EffectSemanticDecision::Reject {
+            reason: "owned test Effect rejection".into(), diagnostics: Vec::new(),
+        } } else { EffectSemanticDecision::UseCandidate })
+    }
+
+    fn apply_expression_effects(&mut self, effects: &ExpressionEffects) -> Result<(), String> {
+        self.adopted.push(*effects.downcast_ref::<usize>().ok_or("invalid owned marker")?);
+        if self.cancel_after_adoption { self.cancelled = true; }
+        Ok(())
+    }
+
+    fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+        self.checkpoints.push(self.adopted.clone());
+        Ok(())
+    }
+
+    fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+        let previous = self.checkpoints.pop().ok_or("missing owned checkpoint")?;
+        if !accepted { self.adopted = previous; }
+        Ok(())
     }
 
     fn state_revision(&self) -> Result<u64, String> {
@@ -660,6 +687,22 @@ fn effect_expression_capture_uses_local_context_without_leaking_it() {
     assert!(environment.nested_parent_context_seen);
     assert!(!environment.effect_context_leaked);
     assert!(environment.effect_parent_context_seen);
+    assert_eq!(environment.adopted, vec![1], "retain the selected regex child's deferred effects");
+    assert!(environment.checkpoints.is_empty());
+
+    for mode in ["reject", "fail", "cancel"] {
+        let mut environment=ScopedExpressionCaptureEnvironment {
+            reject_effect: mode == "reject", fail_effect: mode == "fail",
+            cancel_after_adoption: mode == "cancel", ..Default::default()
+        };
+        let result=parse_effect_with_snapshot(&catalog,Some(&dynamic),EffectParseRequest {
+            source:&source,node:&node,context:event_context(&["fixture.Event"]),
+        },&mut environment,EffectParserConfig::default());
+        if mode == "reject" { assert!(result.unwrap().selected.is_none()); }
+        else { assert!(result.is_err(), "{mode} must stop the outer candidate"); }
+        assert!(environment.adopted.is_empty(), "{mode} must roll back adopted child state");
+        assert!(environment.checkpoints.is_empty(), "{mode} must close candidate transactions");
+    }
 }
 
 #[test]
