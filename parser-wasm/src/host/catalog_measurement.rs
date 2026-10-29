@@ -9,6 +9,7 @@ mod trace;
 mod lifecycle;
 mod type_requirements;
 mod boundary;
+mod effect_fuel;
 
 #[derive(Clone, Default)]
 pub(super) struct Probe(Arc<Mutex<Measurement>>, Option<boundary::Recorder>);
@@ -159,6 +160,8 @@ struct HookSample {
     wall_ns: u64,
     fuel_consumed: u64,
     fuel_unavailable: u64,
+    #[serde(skip_serializing_if="Vec::is_empty")]
+    effect_inputs: Vec<serde_json::Value>,
     input_string_bytes: u64,
     max_input_string_bytes: usize,
     imports: [ImportSample; 17],
@@ -311,6 +314,7 @@ impl Probe {
             HookPayload::RegisteredExpression(payload) => format!("{subscription}/{}#{}", payload.registration_id, payload.pattern_index),
             _ => subscription.to_owned(),
         };
+        effect_fuel::capture(self, &key, invocation);
         let mut timer = self.begin_hook(key, fuel);
         timer.input_bytes = input_bytes(&invocation.payload);
         timer
