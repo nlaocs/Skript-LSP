@@ -1,4 +1,5 @@
 //! Source-backed storage model regressions; public fixtures only.
+mod fuel_fixture;
 use super::{semantic, positions::LineIndex};
 use lsp_types::{InlayHintLabel, Position};
 use parser_wasm::{DocumentParseRequest, DocumentParserConfig, RuntimeProfile, host::{HostConfig, ParserHost}};
