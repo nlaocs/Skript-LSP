@@ -234,7 +234,7 @@ impl Registry {
     }
 }
 
-fn ancestor_authors(tree:&AstTree,root:u64,own:&BTreeMap<u64,BTreeSet<String>>,issuer:&str)->bool {
+pub(super) fn ancestor_authors(tree:&AstTree,root:u64,own:&BTreeMap<u64,BTreeSet<String>>,issuer:&str)->bool {
     let mut reverse=BTreeMap::<u64,Vec<u64>>::new();
     for node in &tree.nodes {for child in references(node) {reverse.entry(child).or_default().push(node.id);}}
     let mut seen=BTreeSet::new();let mut pending=vec![root];
@@ -253,8 +253,14 @@ pub(in crate::host) struct FactClaims {
 }
 
 pub(super) fn volatile(payload:&HookPayload)->bool {
+    // A header-local cache may retain an entry *draft*. Its restored current
+    // payload still passes normal dispatch and receives a fresh private entry
+    // admission. No old entry receipt/certificate is stored or imported.
+    let header_entry = matches!(payload, HookPayload::Structure(p)
+        if matches!(p.timing, super::super::WitStructureTiming::EnterBody));
     let mut found=false;
-    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE)));
+    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE)
+        || e.key==super::entry_facts::DRAFT && !header_entry));
     found
 }
 

@@ -89,3 +89,45 @@ supporting source/data remain the producing addon's responsibility. A complete
 owned source model is distinct from an incomplete API declaration list or a
 captured production server environment. This contract alone does not expose
 LSP flow facts to live variable-member editing queries.
+
+## Accepted header entry facts
+
+The separate optional capability `parser.semantic-entry-facts` v1 allows a
+Structure producer to describe its accepted **entry**, independently of providers
+that later parse its body. It uses the unchanged WIT 0.48 / ABI 30 metadata layout:
+
+```json
+{"version":1,"metadataKeys":["example.parameter-bindings","example.entry-scope"]}
+```
+
+Attach this JSON as the producer's own `parser.semantic.entry-facts.v1` metadata
+on a successfully accepted `EnterBody` output with Trigger body mode and accepted
+document declarations. This is a semantic promise that the listed facts describe
+the accepted header/entry, not the body's final state, purity or authors. The
+host does not infer the meaning of an addon's keys or trust a guest receipt copy.
+
+Admission binds the exact mapped header, native immutable raw owner,
+definition/registration/pattern and accepted private receipt. Final certification
+requires the retained current header receipt (including its actual Exit parents),
+the same owner/value metadata and unique native header association. Foreign
+header, ancestor, unattached or unbound effects deny it. A bound later descendant
+writer alone does not erase these entry facts. Only the selected metadata gains
+authority; `unique_issuer`, body purity and public-data authority are unchanged.
+The complete native forest and current source must still match their seal.
+
+Core selects its parameter bindings and independently established entry-scope
+fact. This does not certify arbitrary parameter defaults, a non-null argument,
+or subsequent Variable conversion/storage. Nullable entry bindings remain
+nullable; unsupported read/storage paths can still become Unknown.
+
+The per-parse bound is 256 entries, 16 distinct keys and 16 KiB of selected values
+and header text per entry, with at most 16 accepted declarations. Expanded or
+ambiguous headers are not admitted. Receipt traversal is bounded to 4096 and
+ancestor traversal to 8192 nodes. Overflow falls back to conservative inference.
+Entry receipts are not exported for body replay. Only a draft may be retained
+by the independently certified header-local cache: existing source/span/context
+restore and normal dispatch validation run again, then a new current private
+entry admission is created. Other timings cannot replay entry drafts. Fresh
+edits, cancellation and reopen cannot reuse a former source's authority. An older host can ignore optional
+participation and retain its conservative result; an addon that requires this
+capability is rejected by a host lacking it. No ABI version or fuel budget changes.

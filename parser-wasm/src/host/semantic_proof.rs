@@ -16,6 +16,7 @@ const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
 
 mod body;
 pub(super) mod value_facts;
+pub(super) mod entry_facts;
 #[cfg(test)]
 mod local_state_tests;
 pub(super) use body::BodyReceiptBundle;
@@ -45,6 +46,7 @@ struct Receipt {
 #[derive(Debug, Default)]
 pub(super) struct ReceiptRegistry {
     pub(super) value_facts: value_facts::Registry,
+    pub(super) entry_facts: entry_facts::Registry,
     receipts: BTreeMap<u64, Receipt>,
     sequence: Arc<AtomicU64>,
     exhausted: bool,
@@ -649,7 +651,12 @@ impl SemanticProofRegistry {
                 else { fallback.push(*parent); }
             }
         }
-        let fact_claims = receipts.map(|registry| registry.value_facts.certify(tree, registry, &retained, &global, &own)).unwrap_or_default();
+        let mut fact_claims = receipts.map(|registry| registry.value_facts.certify(tree, registry, &retained, &global, &own)).unwrap_or_default();
+        if let Some(registry) = receipts {
+            for (id, entry) in registry.entry_facts.certify(tree, registry, &retained, &global, &own) {
+                fact_claims.entry(id).or_default().metadata.extend(entry.metadata);
+            }
+        }
         let index: BTreeMap<_, _> = tree.nodes.iter().map(|node| (node.id, node)).collect();
         let mut ancestors = own.clone();
         for writers in ancestors.values_mut() {

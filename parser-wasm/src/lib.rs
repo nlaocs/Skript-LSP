@@ -39,6 +39,11 @@ pub const ABI_VERSION: AbiVersion = AbiVersion::new(30, 0);
 /// Bounded owner-private source preparation, independent of document revision.
 pub const CAPABILITY_SOURCE_PREPARATION: &str = "parser.source-preparation";
 
+/// Opt-in v1 entry facts bound to an accepted current Structure header. Only
+/// explicitly selected owner metadata is independent of later body writers;
+/// this grants neither whole-body purity nor general cross-provider authority.
+pub const CAPABILITY_SEMANTIC_ENTRY_FACTS: &str = "parser.semantic-entry-facts";
+
 /// Read-only, component-binary-bound immutable dataset inputs.
 pub const CAPABILITY_ADDON_DATA: &str = "parser.addon-data";
 

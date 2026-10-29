@@ -13179,6 +13179,10 @@ impl ParserHost {
                             && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::value_facts::CAPABILITY && c.minimum_version==1) {
                             registry.value_facts.record(token, &next_payload, &component_id);
                         }
+                        if let Some(token) = receipt
+                            && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::entry_facts::CAPABILITY && c.minimum_version==1) {
+                            registry.entry_facts.record(token, &next_payload, &component_id);
+                        }
                         if let Some(call) = calls.last_mut() {
                             call.semantic_receipt = receipt;
                         }
@@ -13720,6 +13724,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_CONTEXT_UPDATES,
         CAPABILITY_ADDITIONAL_PARSE,
         semantic_proof::value_facts::CAPABILITY,
+        semantic_proof::entry_facts::CAPABILITY,
         editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
@@ -19144,6 +19149,7 @@ mod tests {
                 CAPABILITY_CONTEXT_UPDATES,
                 CAPABILITY_ADDITIONAL_PARSE,
                 semantic_proof::value_facts::CAPABILITY,
+                semantic_proof::entry_facts::CAPABILITY,
                 editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,

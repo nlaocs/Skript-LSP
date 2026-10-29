@@ -84,6 +84,16 @@ pub(super) fn resolve(
             .expect("Function parameter bindings are serializable"),
             owner_component_id: None,
         });
+        // Entry facts describe this accepted header, independently of future
+        // body authors. Only these exact owner facts are certified by the host.
+        let keys = payload.candidate.metadata.iter().filter(|entry|
+            entry.key == "skript.semantic.parameters"
+                || entry.key == crate::public_data::EVALUATION_CONTEXT_METADATA_KEY)
+            .map(|entry| entry.key.as_str()).collect::<Vec<_>>();
+        let draft = serde_json::json!({"version":1,"metadataKeys":keys}).to_string();
+        payload.candidate.metadata.push(MetadataEntry {
+            key: "parser.semantic.entry-facts.v1".into(), value: draft, owner_component_id: None,
+        });
         payload
             .candidate
             .declarations

@@ -1247,3 +1247,11 @@ separates value/absence/storage guarantees from evaluation effects, and leaves
 whole-node issuer checks unchanged. It uses the ABI 30 metadata layout (unchanged from ABI 29);
 a producer requiring it is rejected by an older host. See the
 [value-fact contract](../docs/wasm-value-facts.md) for schemas, bounds and limits.
+
+
+The independent optional capability `parser.semantic-entry-facts` v1 binds
+selected Structure entry metadata to its accepted current header. Later body
+writers do not retroactively erase these facts; foreign header/ancestor/global
+effects still deny them. It grants no whole-body issuer or purity certificate.
+See [accepted header entry facts](../docs/wasm-value-facts.md#accepted-header-entry-facts)
+for the producer promise, exact-source/receipt checks, bounds and cache limits.
