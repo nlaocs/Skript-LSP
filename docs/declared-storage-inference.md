@@ -12,6 +12,9 @@ dispatch for `serializeAs`. Exact registrations, including later entries, preced
 ordered superclass selection. A typed cloner may widen the input subtype to its
 declared ClassInfo class. Unknown output contracts stay unresolved. No getter,
 cloner or converter is executed by the LSP.
+Each storage dispatch branch also constrains the value to its selected ClassInfo
+class. If that class is already assignable to `serializeAs`, the standard
+converter returns the same value; a wider input bound does not force a new type.
 
 The current adapter covers the common standard storage API in Skript 2.12-2.15.
 It consumes complete TypeRuntime v3 ancestry and accessor/clone/serialization

@@ -50,6 +50,24 @@ fn exact_registration_after_covering_ordered_entry_is_not_lost() {
     assert!(infer(&m,"custom.Base").types.contains(&"custom.Target".into()));
 }
 #[test]
+fn serialization_uses_the_selected_dispatch_class_without_losing_real_conversions() {
+    for (target,changes_type) in [("custom.Base",false),("custom.Target",true)] {
+        let mut m=model();
+        let mut interface=d("custom.Interface",None,&["java.lang.Object"]);interface.kind="Interface".into();
+        let mut declarations=m.declarations.values().cloned().collect::<Vec<_>>();
+        declarations.iter_mut().find(|d|d.name=="custom.Child").unwrap().interfaces.push(interface.name.clone());
+        declarations.push(interface);
+        m.records[4]["serializeAs"]=json!(target);
+        m.records[4]["typeRuntime"]["serializeAsState"]="present".into();
+        m.records[4]["typeRuntime"]["serializeAsClass"]=json!(target);
+        let m=Model::new(m.records,declarations).unwrap();
+        let (output,preserves)=m.stored_bounds("custom.Interface").unwrap();
+        assert_eq!(output.contains(target),changes_type,"{target}: {output:?}");
+        assert!(output.contains("custom.Interface"));
+        assert_eq!(preserves,!changes_type);
+    }
+}
+#[test]
 fn slots_convert_and_open_interfaces_include_possible_slot_branch() {
     let mut m=model();assert_eq!(infer(&m,SLOT).types,[ITEM]);
     let mut interface=d("custom.Interface",None,&["java.lang.Object"]);interface.kind="Interface".into();

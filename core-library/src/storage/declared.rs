@@ -143,7 +143,10 @@ impl Model {
                     let target=t["serializeAsClass"].as_str()?;
                     if target.is_empty() || target.len()>1024 || !self.declarations.contains_key(target)
                         || r["serializeAs"].as_str()!=Some(target) {return None;}
-                    if self.graph.assignable(bound,target)? {out.insert(bound.into());}
+                    // This dispatch branch's value is also an instance of the
+                    // selected registration class. Converters.convert returns
+                    // the same value if either bound proves it is already T.
+                    if self.graph.assignable(bound,target)? || self.graph.assignable(r["originalClass"].as_str()?,target)? {out.insert(bound.into());}
                     else {out.insert(target.into());preserves=false;}
                 },
                 _=>return None,
