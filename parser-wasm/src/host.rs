@@ -15043,6 +15043,10 @@ fn classify_wasmtime_error(
             message: error.to_string(),
         };
     }
+    #[cfg(test)]
+    if matches!(error.downcast_ref::<Trap>(), Some(Trap::OutOfFuel)) {
+        catalog_measurement::record_fuel_fault(&error);
+    }
     match error.downcast_ref::<Trap>() {
         Some(Trap::Interrupt) => HostError::Timeout {
             component_id,

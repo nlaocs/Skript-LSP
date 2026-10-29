@@ -11,6 +11,8 @@ mod type_requirements;
 mod boundary;
 mod effect_fuel;
 
+pub(super) fn record_fuel_fault(error:&wasmtime::Error) { effect_fuel::record_fault(error); }
+
 #[derive(Clone, Default)]
 pub(super) struct Probe(Arc<Mutex<Measurement>>, Option<boundary::Recorder>);
 

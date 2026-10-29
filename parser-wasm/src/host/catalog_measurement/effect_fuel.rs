@@ -1,6 +1,16 @@
 //! Opt-in, bounded observations for public effect fixtures, including faults.
 use super::*;
 
+pub(super) fn record_fault(error:&wasmtime::Error) {
+    use std::sync::atomic::{AtomicUsize,Ordering};
+    static SEEN:AtomicUsize=AtomicUsize::new(0);
+    if std::env::var_os("SKRIPT_EFFECT_FUEL_PLAN").is_none() || SEEN.fetch_add(1,Ordering::Relaxed)>=8 {return;}
+    // Dedicated test output only: bounded Wasm frames, never a payload dump.
+    let trace=format!("{error:?}").chars().take(8192).collect::<String>();
+    eprintln!("bounded_effect_fuel_backtrace {trace}");
+}
+
+
 pub(super) fn capture(probe:&Probe,key:&str,invocation:&HookInvocation) {
     let HookPayload::Effect(payload)=&invocation.payload else{return;};
     let Some(candidate)=&payload.candidate else{return;};
