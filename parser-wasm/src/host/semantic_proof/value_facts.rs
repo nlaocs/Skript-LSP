@@ -164,7 +164,7 @@ impl Registry {
                 }
                 let mut metadata=Vec::new();
                 for key in draft.metadata_keys {
-                    if key.is_empty() || key.len()>256 || key.starts_with("parser.") {return;}
+                    if key.is_empty() || key.len()>256 || key.starts_with("parser.") && key!=super::super::semantic_transfer::METADATA {return;}
                     let Some(json)=own_entry(&candidate.metadata,&key,issuer) else{return;};
                     metadata.push(WitMetadataEntry {key,value:json.into(),owner_component_id:Some(issuer.into())});
                 }

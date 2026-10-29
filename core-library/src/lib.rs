@@ -74,6 +74,13 @@ fn empty_hook_selector() -> HookSelector {
 
 struct CoreLibrary;
 
+impl exports::nlaocs::skript_parser_addon::semantic_transfer::Guest for CoreLibrary {
+    fn evaluate(request:exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Result<Option<exports::nlaocs::skript_parser_addon::semantic_transfer::Output>,AddonError> {
+        Ok(storage::declared::transfer::query(request))
+    }
+}
+
 impl addon::Guest for CoreLibrary {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {
@@ -215,6 +222,7 @@ impl addon::Guest for CoreLibrary {
                 },
                 CapabilityRequirement { id: "parser.semantic-value-facts".into(), minimum_version: 1, required: false },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_ENTRY_FACTS.into(), minimum_version: 1, required: false },
+                CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_TRANSFER.into(), minimum_version: 1, required: false },
             ],
             subscriptions: vec![
                 HookSubscription {
@@ -983,7 +991,8 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 22);
+        assert_eq!(manifest.capabilities.len(), 23);
+        assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_SEMANTIC_TRANSFER&&c.minimum_version==1&&!c.required));
         assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_SEMANTIC_ENTRY_FACTS && c.minimum_version==1 && !c.required));
         assert!(manifest.capabilities.iter().any(|c|c.id=="parser.semantic-value-facts" && c.minimum_version==1 && !c.required));
         assert!(manifest.capabilities.iter().any(|c| c.id

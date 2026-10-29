@@ -1,0 +1,56 @@
+package nlaocs:skript-parser-addon@0.49.0;
+
+/// Bounded, data-only transfer of a current frontend's complete public type
+/// upper bound. These results are declaration contracts, never runtime-origin,
+/// exact-class, purity, or successful-execution certificates.
+interface semantic-transfer {
+    use types.{addon-error};
+
+    record type-bound {
+        types: list<string>,
+        complete: bool,
+        multiple: bool,
+        maybe-unset: bool,
+    }
+
+    record context {
+        document-id: string,
+        document-revision: u64,
+        node-id: u64,
+        syntax-context: u64,
+        source-digest: string,
+        snapshot-id: string,
+        preparation-generation: u64,
+    }
+
+    record request {
+        subject: context,
+        operation: string,
+        parameters: string,
+        input: type-bound,
+    }
+
+    /// Effect on ALL existing frontend binding facts, including the source.
+    /// A known source poststate is applied after invalidation; the newly computed
+    /// destination SET is applied last. This says nothing about runtime purity.
+    enum binding-effects { preserve, invalidate }
+
+    /// A complete poststate across every runtime branch, after other effects.
+    /// Unknown explicitly revokes the source binding; unchanged is allowed only
+    /// when the operation preserves it. A branch-only write is separate below.
+    variant source-update { unchanged, known(type-bound), unknown }
+
+    record output {
+        value: type-bound,
+        source: source-update,
+        /// Bound written on a writeback branch, not an unconditional poststate.
+        /// None means no complete writeback bound is available; it must not be
+        /// used as proof that the operation cannot write its source.
+        source-writeback: option<type-bound>,
+        effects: binding-effects,
+    }
+
+    /// No StateStore, parsing, dynamic registration, or publication imports are
+    /// allowed. The host enforces ordinary per-call fuel and finite job quotas.
+    evaluate: func(value: request) -> result<option<output>, addon-error>;
+}

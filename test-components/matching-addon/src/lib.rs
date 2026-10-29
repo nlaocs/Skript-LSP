@@ -51,6 +51,11 @@ fn empty_selector() -> HookSelector {
     }
 }
 
+impl crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Guest for MatchingAddon {
+    fn evaluate(_:crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Result<Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output>,crate::nlaocs::skript_parser_addon::types::AddonError> {Ok(None)}
+}
+
 impl addon::Guest for MatchingAddon {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {

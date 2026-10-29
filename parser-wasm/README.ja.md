@@ -1,5 +1,15 @@
 # Parser WASM ABI
 
+現在の契約は **ABI 31 / WIT 0.49** です。`semantic-transfer` guest export と、任意の
+`parser.semantic-transfer` v1 capability を追加しました。現在の完全な公開型上限について、
+読取結果・元変数への書戻しと事後状態・他のbindingへの作用・コピー先の保存結果を分けます。
+host・Core・全addonを揃えて再buildしてください。ABI 30との混在は拒否します。
+capabilityを宣言しないaddonもexportは実装し、`None`を返します。
+[契約・適用範囲・上限](../docs/semantic-transfers.md)を参照してください。
+
+ABI 30 / WIT 0.48では、source単位の有界な準備処理と入れ子JSON pagingを追加しました。
+[source preparation](../docs/source-preparation.md)の世代・失効・予算の契約も引き継ぎます。
+
 ABI 28 / WIT 0.46 では、manifest の `incremental-body-handler-subscriptions`、`incremental-body-subscriptions` と
 `parser.incremental-structure-body` v1 を追加しました。旧WIT／ABIとは互換性が
 ないため、componentを揃えて再buildしてください。空listは再利用しません。
@@ -47,7 +57,7 @@ parser-wasm = { path = "../parser-wasm", default-features = false }
 
 ## WIT contract
 
-WIT packageは`nlaocs:skript-parser-addon@0.46.0`です。`parser-addon` worldはhost serviceを
+WIT packageは`nlaocs:skript-parser-addon@0.49.0`です。`parser-addon` worldはhost serviceを
 importし、guest実装をexportします。ここでいうWIT package versionはRust crateやcomponentの
 versionとは別です。workspaceの両crateは現在`0.1.0`で、CoreLibraryの`component-version`には
 crateの`CARGO_PKG_VERSION`が使われます。
@@ -55,6 +65,7 @@ crateの`CARGO_PKG_VERSION`が使われます。
 Guest export:
 
 - `addon`: static manifestとhost profileのnegotiation
+- `semantic-transfer`: 現在の完全な型上限に対する有界なdata-only変換
 - `hooks`: parser stageの観測、変換、override
 - `text-macro`: virtual UTF-8 source textに対するedit
 - `tree-macro`: losslessなindentation-based RawTreeに対する対象指定edit
@@ -62,13 +73,14 @@ Guest export:
 
 Host import:
 
+- `addon-data`: component・binary・schema・identityに結び付いた不変の入力
 - `catalog-data`: SSGの全read-only document、ID lookup、型関係query、Skript互換の継承距離
 - `state-store`: compare-and-swapとprefix scanを備えたscope付きkey/value storage
 - `tree-data`: invocation単位のimmutable Tree viewに対する上限付きquery
 - `dynamic-syntax-registry`: syntax definitionの追加、override、削除
 
-parser payloadはWITのrecordとvariantです。ABIを通るJSONは`catalog-data`がopaque bytesとして返す
-SSG sourceだけです。Tree macro入力はinvocation単位の参照とtarget headerを持ち、
+parser payloadはWITのrecordとvariantです。semantic metadataやoperation parametersにはprovider所有の
+version付きJSONを使い、`catalog-data`はopaqueなSSG source bytesも返します。Tree macro入力はinvocation単位の参照とtarget headerを持ち、
 `tree-data`でimmutable viewを読みます。生成treeとASTは再帰しないnode ID arenaで表現します。
 
 ## 互換性
@@ -102,7 +114,8 @@ implicit summary、索引化ClassInfo検索の追加で0.35.0へ、型付きDefa
 最終ASTと追加解析nodeへのFunction binding投影で0.40.0へ変わりました。
 nativeの省略根拠とopt-inのincremental subscription manifest追加で0.41.0へ、
 header-local Structure handler契約の追加で0.42.0へ、invocation単位のimmutable Tree access追加で
-0.43.0へ変わりました。manifestの現在の`abi`値は27.0で、
+0.43.0へ変わりました。source preparationで0.48.0、semantic-transfer exportで0.49.0へ変わりました。
+manifestの現在の`abi`値は31.0で、
 runtime handshakeとして`major.minor`の完全一致が必要です。
 
 各parse contextは、外側から内側へ並ぶread-onlyなSection stackを公開します。frameではcatalog addonと
@@ -119,7 +132,7 @@ Function情報は不正なhook出力として拒否し、providerのstateをroll
 このWIT/ABI変更ではCoreLibraryと外部componentの再ビルドが必要です。
 WIT 0.40.0で作ったcomponentは、manifestを読む前のinstantiate時に未解決の
 `@0.40.0` host importとして拒否されます。現行WITを使いmanifestだけがABI 22.0の
-componentは、必要なABI 28.0を示すhandshake診断で拒否されます。
+componentは、必要なABI 31.0を示すhandshake診断で拒否されます。
 現行WITとSDKを使って再ビルドしてください。manifestのversion変更だけでは移行できません。
 
 ### WIT 0.41: 省略の根拠と明示的な再利用契約
@@ -891,7 +904,7 @@ scope・所有者不明の書込みや、State API の捕捉済みエラーと�
 局所作用は純粋性・型・incremental 再利用の証明ではありません。実際の node 変換、
 祖先と部分木の writer、未接続の採用済み receipt、型の発行者の一意性、native の
 source/revision 検証を維持します。表示用の所有権は型の権限を与えません。
-既存 WIT 0.47 / ABI 29 の StateStore 契約で host が区別するため、addon の新しい
+現在の WIT 0.49 / ABI 31 の StateStore 契約（layoutは0.47 / 29から不変）で host が区別するため、addon の新しい
 宣言や opt-in は不要です。
 
 採用された Structure Exit は、検証済み metadata を最終候補へ返します。Rust の
@@ -900,4 +913,4 @@ source/revision 検証を維持します。表示用の所有権は型の権限�
 
 ## 入力を認証した値の根拠
 
-`parser.semantic-value-facts` v1 は、現在の式入力をホストが認証し、親の選択した根拠だけを合成する任意機能です。式が公開する型、値の候補・欠落可能性、保存後の保証、評価時の作用を区別し、ノード全体の単一提供元チェックは維持します。ABI 29 の既存 metadata を使い、この機能を必須とする addon は未対応の古い host で拒否されます。[契約・上限・制限](../docs/wasm-value-facts.md)を参照してください。
+`parser.semantic-value-facts` v1 は、現在の式入力をホストが認証し、親の選択した根拠だけを合成する任意機能です。式が公開する型、値の候補・欠落可能性、保存後の保証、評価時の作用を区別し、ノード全体の単一提供元チェックは維持します。ABI 31のmetadata（layoutはABI 29から不変）を使い、この機能を必須とするaddonは未対応の古いhostで拒否されます。[契約・上限・制限](../docs/wasm-value-facts.md)を参照してください。

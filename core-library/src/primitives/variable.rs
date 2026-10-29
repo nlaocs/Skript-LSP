@@ -77,6 +77,9 @@ pub(super) fn parse(
         candidate
             .metadata
             .push(crate::public_data::variable_read(&requested, java_trim(body).starts_with('_')));
+        if let Some(operation)=crate::storage::declared::transfer::read_operation(&requested,java_trim(body).starts_with('_')) {
+            candidate.metadata.push(operation);
+        }
         candidate
             .metadata
             .push(crate::public_data::default_clone_change_input());

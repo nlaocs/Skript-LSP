@@ -27,6 +27,7 @@ mod history;
 mod editor_types;
 mod navigation;
 mod type_knowledge;
+mod transfer;
 use history::{Invalidation, TypeHistory, historical_facts, invalidate, invalidate_where};
 pub(super) use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
@@ -311,6 +312,7 @@ pub(super) struct Document {
     completion_points: Vec<CompletionPoint>,
     completion_type_bindings: usize,
     editor_type_facts: Vec<parser_wasm::host::EditorCompletionTypeFact>,
+    transfer_certificate:Option<parser_wasm::host::semantic_transfer::Certificate>,
     writes: Vec<Write>,
     pub functions: Vec<FunctionSymbol>,
     pub dependencies: BTreeSet<Dependency>,
@@ -323,6 +325,19 @@ impl Document {
         uri: Uri,
         catalog: Arc<Catalog>,
     ) -> Result<Self, String> {
+        Self::from_result_with_transfer(result,source,uri,catalog,None)
+    }
+    pub fn from_result_with_host(
+        result:&DocumentParseResult,source:Arc<str>,uri:Uri,catalog:Arc<Catalog>,
+        host:&mut parser_wasm::ParserHost,cancellation:Option<parser_wasm::DocumentCancellationToken>,
+    )->Result<Self,String> {
+        let mut resolver=host.semantic_transfer_session(result,cancellation);
+        Self::from_result_with_transfer(result,source,uri,catalog,Some(&mut resolver))
+    }
+    fn from_result_with_transfer(
+        result:&DocumentParseResult,source:Arc<str>,uri:Uri,catalog:Arc<Catalog>,
+        transfer_resolver:Option<&mut dyn transfer::Resolver>,
+    )->Result<Self,String> {
         if result.source.original() != source.as_ref() {
             return Err("semantic source differs from parsed revision".into());
         }
@@ -463,6 +478,7 @@ impl Document {
             Some(&result.source),
             witnessed_nodes,
             result.editor_completions.iter().flat_map(|batch|batch.inputs.iter()).filter(|input|input.is_current()).cloned().collect(),
+            transfer_resolver,
         )?;
         document.symbols = document_symbols::collect(result, &document.lines, |node, entry| {
             // An outline is an authored presentation record, not a claim about
@@ -544,6 +560,7 @@ impl Document {
         mapped_source: Option<&skript_parser::MappedSource>,
         witnessed_nodes: HashSet<u64>,
         editor_inputs: Vec<parser_wasm::host::EditorCompletionInput>,
+        transfer_resolver: Option<&mut dyn transfer::Resolver>,
     ) -> Result<Self, String> {
         if mapped_source.is_some_and(|mapped| mapped.original()!=source.as_ref()) {
             return Err("semantic mapping differs from parsed source".into());
@@ -569,6 +586,7 @@ impl Document {
             completion_points: Vec::new(),
             completion_type_bindings: 0,
             editor_type_facts: Vec::new(),
+            transfer_certificate:None,
             writes: Vec::new(),
             functions,
             dependencies: BTreeSet::new(),
@@ -600,6 +618,7 @@ impl Document {
             evaluation_context: None,
             context_preservation: HashMap::new(),
             editor_inputs,
+            transfer_resolver,
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -613,7 +632,9 @@ impl Document {
             .sort_by_key(|point| (point.range.start, point.range.end));
         Ok(document)
     }
-    pub fn editor_type_facts(&self) -> &[parser_wasm::host::EditorCompletionTypeFact] { &self.editor_type_facts }
+    pub fn is_current(&self)->bool {self.transfer_certificate.as_ref().is_none_or(|c|c.is_current())}
+    pub fn transfer_certificate(&self)->Option<parser_wasm::host::semantic_transfer::Certificate> {self.transfer_certificate.clone()}
+    pub fn editor_type_facts(&self) -> &[parser_wasm::host::EditorCompletionTypeFact] {if self.is_current(){&self.editor_type_facts}else{&[]}}
 
     /// Only this exact revision's authenticated operand boundary can certify a
     /// candidate's stored local type. No previous occurrence is extrapolated.
@@ -623,7 +644,7 @@ impl Document {
         edit: TextRange,
         name: &str,
     ) -> Option<(&InferredType, &[String], &CompletionOwner)> {
-        if source != self.source.as_ref() || self.unavailable.iter().any(|r| overlaps(*r, edit)) {
+        if !self.is_current() || source != self.source.as_ref() || self.unavailable.iter().any(|r| overlaps(*r, edit)) {
             return None;
         }
         let index = self
@@ -660,6 +681,7 @@ impl Document {
     /// already have explicit annotations, while reads and object-property targets
     /// never enter this view. Geometry and facts share this document's revision.
     pub fn write_type_hints(&self) -> Vec<lsp_types::InlayHint> {
+        if !self.is_current(){return Vec::new();}
         self.writes
             .iter()
             .filter(|write| write.role == WriteRole::Binding)
@@ -685,6 +707,7 @@ impl Document {
             .collect()
     }
     pub fn type_at(&self, position: Position) -> Option<(Range, &InferredType)> {
+        if !self.is_current(){return None;}
         let occurrence = self.at(position)?;
         if !matches!(occurrence.reference, Reference::Variable { .. }) {
             return None;
@@ -1130,7 +1153,7 @@ struct Flow {
     kind: String,
 }
 
-struct Engine<'a> {
+struct Engine<'a,'r> {
     document: &'a mut Document,
     mapped_source: Option<&'a skript_parser::MappedSource>,
     witnessed_nodes: HashSet<u64>,
@@ -1144,8 +1167,9 @@ struct Engine<'a> {
     evaluation_context: Option<(String, String, String)>,
     context_preservation: HashMap<u64, bool>,
     editor_inputs: Vec<parser_wasm::host::EditorCompletionInput>,
+    transfer_resolver:Option<&'r mut dyn transfer::Resolver>,
 }
-impl Engine<'_> {
+impl Engine<'_,'_> {
     fn node(&mut self, id: u64, scope: u64, facts: &mut Facts) -> Result<InferredType, String> {
         if !self.visiting.insert(id) {
             return Err("cyclic semantic AST".into());
@@ -1236,7 +1260,7 @@ impl Engine<'_> {
             let read = unique_metadata(node, VARIABLE_READ)
                 .and_then(|json| serde_json::from_str::<VariableRead>(json).ok())
                 .filter(|read| {
-                    matches!(read.version, 1 | 2)
+                    matches!(read.version, 1 | 2 | 3)
                         && !read.requested_types.is_empty()
                         && node.children.is_empty()
                 });
@@ -1294,6 +1318,12 @@ impl Engine<'_> {
             let safe = read
                 .as_ref()
                 .is_some_and(|read| read_preserves_type_facts(read, &ty, &self.document.catalog));
+            let previous=fact.cloned();
+            let history=fact.and_then(|fact|fact.history.clone());
+            let transferred=if identity.key.local&&!identity.list&&read.as_ref().is_some_and(|r|r.version==3&&r.missing_value==Some(MissingVariableValue::Empty))
+                && metadata_owner(node,VARIABLE_READ)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
+                self.transfer(node,&ty)?
+            } else {None};
             if !identity.key.local {
                 self.document
                     .dependencies
@@ -1304,18 +1334,21 @@ impl Engine<'_> {
             }
             self.document.occurrences.push(Occurrence {
                 range,
-                reference: Reference::Variable { identity, reaching },
+                reference: Reference::Variable { identity:identity.clone(), reaching },
                 node: node.id,
-                ty: ty.clone(),
-                history: fact.and_then(|fact| fact.history.clone()),
+                ty: transferred.as_ref().and_then(|o|transfer::inferred(&o.value)).unwrap_or_else(||ty.clone()),
+                history,
             });
-            if !safe {
+            if let Some(output)=&transferred {
+                self.apply_read_transfer(&identity,output,previous,range,facts);
+            } else if !safe {
                 invalidate(facts, Some(range), Invalidation::Read);
             }
             for child in &node.children {
                 self.node(*child, scope, &mut Facts::new())?;
             }
-            return Ok(if safe { ty } else { InferredType::Unknown });
+            return Ok(transferred.as_ref().and_then(|o|transfer::inferred(&o.value))
+                .unwrap_or_else(||if safe {ty}else{InferredType::Unknown}));
         }
         if node
             .summary
@@ -1351,7 +1384,7 @@ impl Engine<'_> {
             .then(|| {
                 unique_metadata(node, CHANGE)
                     .and_then(|json| serde_json::from_str::<Change>(json).ok())
-                    .filter(|change| matches!(change.version, 1 | 2 | 3 | 4 | 5))
+                    .filter(|change| matches!(change.version, 1 | 2 | 3 | 4 | 5 | 6))
             })
             .flatten();
         let nonbody = node
@@ -1419,7 +1452,7 @@ impl Engine<'_> {
         // The boundary is AFTER delta evaluation, before unknown target/callback
         // effects. History cannot establish either input to a dispatch rule.
         let mut dispatched = change.as_ref().and_then(|change| {
-            if !matches!(change.version,4|5) || change.binding_role!="dispatch" || unlisted.len()!=1 { return None; }
+            if !matches!(change.version,4|5|6) || change.binding_role!="dispatch" || unlisted.len()!=1 { return None; }
             let target_id=capture_node(node,change.target_capture,&self.nodes)?;
             if unlisted[0]!=target_id { return None; }
             let identity=self.identity(self.nodes[&target_id],scope)?;
@@ -1447,12 +1480,18 @@ impl Engine<'_> {
             let mut historical = historical_facts(facts);
             child_types.insert(*child, self.node(*child, scope, &mut historical)?);
         }
-        let target_only = dispatched.is_some() || change.as_ref().is_some_and(|change| {
+        let transferred_storage=if let Some(change)=change.as_ref().filter(|c|c.version==6&&c.mode=="set"&&c.binding_role=="binding") {
+            let value=change.value_capture.and_then(|index|capture_node(node,index,&self.nodes)).and_then(|id|child_types.get(&id));
+            if metadata_owner(node,CHANGE)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
+                if let Some(value)=value {self.transfer(node,value)?}else{None}
+            }else{None}
+        }else{None};
+        let target_only = dispatched.is_some() || transferred_storage.as_ref().is_some_and(|o|matches!(o.effects,transfer::BindingEffects::Preserve)) || change.as_ref().is_some_and(|change| {
             let value = change
                 .value_capture
                 .and_then(|index| capture_node(node, index, &self.nodes))
                 .and_then(|id| child_types.get(&id));
-            matches!(change.version, 2 | 3 | 4 | 5)
+            matches!(change.version, 2 | 3 | 4 | 5 | 6)
                 && change.target_only
                 && (change.mode == "delete"
                     || value.is_some_and(|value| identity_delta(change, value))
@@ -1465,7 +1504,7 @@ impl Engine<'_> {
         }
         if node.kind == SyntaxKind::Effect {
             if let Some(change) = change {
-                self.change(node, scope, facts, &change, &child_types, dispatched.as_ref().map(|(_,result)|result))?;
+                self.change(node, scope, facts, &change, &child_types, dispatched.as_ref().map(|(_,result)|result),transferred_storage.as_ref())?;
             } else {
                 // An unadvertised effect may invoke arbitrary addon code.
                 invalidate(facts, range, Invalidation::Provider);
@@ -1642,8 +1681,9 @@ impl Engine<'_> {
         change: &Change,
         children: &HashMap<u64, InferredType>,
         dispatched: Option<&StorageResult>,
+        transferred:Option<&transfer::Output>,
     ) -> Result<(), String> {
-        if matches!(change.version,4|5) && change.binding_role!="binding" && dispatched.is_none() {
+        if matches!(change.version,4|5|6) && change.binding_role!="binding" && dispatched.is_none() {
             // Unknown callback effects remain unknown, but no definite binding
             // occurrence or reaching-definition is invented for a value change.
             invalidate(facts,self.exact(node),Invalidation::Provider);
@@ -1674,6 +1714,9 @@ impl Engine<'_> {
             return Ok(());
         };
         let previous = facts.get(&identity.key).cloned();
+        if transferred.is_some_and(|o|matches!(o.effects,transfer::BindingEffects::Invalidate)) {
+            invalidate(facts,Some(range),Invalidation::Provider);
+        }
         // A list/prefix or dynamic alias can affect any element family. Keep no
         // scalar facts across it until the provider publishes disjoint families.
         if identity.list {
@@ -1701,10 +1744,10 @@ impl Engine<'_> {
             .unwrap_or(InferredType::Unknown);
         let identity_delta = identity_delta(change, &value);
         let stored = (!identity.list).then(|| storage_result(change)).flatten();
-        let certified = matches!(change.version, 2 | 3 | 4 | 5)
+        let certified = matches!(change.version, 2 | 3 | 4 | 5 | 6)
             && change.target_only
             && (change.mode == "delete" || identity_delta);
-        let mut ty = if let Some(result)=dispatched { result.ty().unwrap_or(InferredType::Unknown) } else { match change.mode.as_str() {
+        let mut ty = if let Some(output)=transferred {transfer::inferred(&output.value).unwrap_or(InferredType::Unknown)} else if let Some(result)=dispatched { result.ty().unwrap_or(InferredType::Unknown) } else { match change.mode.as_str() {
             "set" if stored.is_some() => stored.and_then(StorageResult::ty).unwrap(),
             "set" if !identity.list && declared_storage(change).is_some() => declared_storage(change).and_then(DeclaredStorage::ty).unwrap(),
             "set" if certified && identity_delta => value,
@@ -2129,6 +2172,7 @@ fn retain_semantic_contracts_with_composition(node: &mut AstNode, issuer: Option
                 | VALUE_RESULT
                 | VARIABLE_READ
                 | EVALUATION_CONTEXT
+                | parser_wasm::host::semantic_transfer::METADATA
         ) || issuer.is_some_and(|issuer| entry.owner_component_id.as_deref() == Some(issuer))
             || entry.owner_component_id.as_ref().is_some_and(|owner| composed.contains(&(owner.clone(),entry.key.clone())))
     });
@@ -2152,7 +2196,7 @@ fn preserves_locals(node: &AstNode) -> bool {
         .is_some_and(|data| data.version == 1 && data.kind == "preserve")
 }
 fn identity_delta(change: &Change, value: &InferredType) -> bool {
-    matches!(change.version, 2 | 3 | 4 | 5)
+    matches!(change.version, 2 | 3 | 4 | 5 | 6)
         && (change.identity_delta
             || value.proven_types().is_some_and(|(classes, _)| {
                 classes
@@ -2161,13 +2205,13 @@ fn identity_delta(change: &Change, value: &InferredType) -> bool {
             }))
 }
 fn storage_result(change: &Change) -> Option<&StorageResult> {
-    (matches!(change.version, 3 | 4 | 5) && change.mode == "set")
+    (matches!(change.version, 3 | 4 | 5 | 6) && change.mode == "set")
         .then_some(change.storage_result.as_ref())
         .flatten()
         .filter(|result| result.ty().is_some())
 }
 fn declared_storage(change:&Change)->Option<&DeclaredStorage> {
-    (change.version==5 && change.mode=="set").then_some(change.declared_storage.as_ref()).flatten().filter(|r|r.ty().is_some())
+    (matches!(change.version,5|6) && change.mode=="set").then_some(change.declared_storage.as_ref()).flatten().filter(|r|r.ty().is_some())
 }
 fn operand_prefix(
     node: &AstNode,
@@ -2254,7 +2298,7 @@ fn read_preserves_type_facts(read: &VariableRead, ty: &InferredType, catalog: &C
     // Missing values may preserve a nullable bound only with an explicit lookup
     // contract. Do not infer the absence of defaults from the variable spelling
     // here; the authenticated provider owns that versioned semantic claim.
-    let bound = if read.version == 2 && read.missing_value == Some(MissingVariableValue::Empty) {
+    let bound = if matches!(read.version,2|3) && read.missing_value == Some(MissingVariableValue::Empty) {
         ty.proven_types()
     } else {
         ty.proven_present()

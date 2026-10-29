@@ -181,32 +181,34 @@ fn heuristic_or_partial_types_cannot_certify_clone_or_read_preservation() {
 
 #[test]
 fn nullable_reads_require_an_explicit_empty_missing_contract_and_safe_conversion() {
-    let catalog = crate::lsp::test_support::multi_addon_catalog();
-    let mut read = VariableRead {version:2,requested_types:vec!["java.lang.Object".into()],
-        may_refresh_player:true,no_refresh_types:vec!["java.lang.String".into()],
-        missing_value:Some(MissingVariableValue::Empty)};
-    let nullable=value("java.lang.String",true);
-    assert!(read_preserves_type_facts(&read,&nullable,&catalog));
-    assert!(matches!(nullable,InferredType::Values {maybe_unset:true,..}),"lookup cannot invent presence");
-    for version in [0,1,3] {
-        read.version=version;
-        assert!(!read_preserves_type_facts(&read,&nullable,&catalog));
-    }
-    read.version=2;read.missing_value=None;
-    assert!(!read_preserves_type_facts(&read,&nullable,&catalog),"unknown fallback is not empty");
-    read.missing_value=Some(MissingVariableValue::Empty);
-    read.requested_types=vec!["java.lang.Number".into()];
-    assert!(!read_preserves_type_facts(&read,&nullable,&catalog),"typed converter still requires its own contract");
-    read.requested_types=vec!["java.lang.Object".into()];
-    assert!(!read_preserves_type_facts(&read,&value("org.bukkit.entity.Player",true),&catalog),
-        "missing-value closure does not close Player refresh");
-    for (certainty,complete) in [(Certainty::Heuristic,true),(Certainty::Inferred,false)] {
-        let mut partial=nullable.clone();
-        if let InferredType::Values {support,..}=&mut partial {support.certainty=certainty;support.candidates_complete=complete;}
-        assert!(!read_preserves_type_facts(&read,&partial,&catalog));
-    }
-    for missing in ["unknown","global-default","invented"] {
-        assert!(serde_json::from_value::<VariableRead>(serde_json::json!({"version":2,
-            "requestedTypes":["java.lang.Object"],"mayRefreshPlayer":false,"missingValue":missing})).is_err());
+    for accepted_version in [2,3] {
+        let catalog = crate::lsp::test_support::multi_addon_catalog();
+        let mut read = VariableRead {version:accepted_version,requested_types:vec!["java.lang.Object".into()],
+            may_refresh_player:true,no_refresh_types:vec!["java.lang.String".into()],
+            missing_value:Some(MissingVariableValue::Empty)};
+        let nullable=value("java.lang.String",true);
+        assert!(read_preserves_type_facts(&read,&nullable,&catalog));
+        assert!(matches!(nullable,InferredType::Values {maybe_unset:true,..}),"lookup cannot invent presence");
+        for version in [0,1,4] {
+            read.version=version;
+            assert!(!read_preserves_type_facts(&read,&nullable,&catalog));
+        }
+        read.version=accepted_version;read.missing_value=None;
+        assert!(!read_preserves_type_facts(&read,&nullable,&catalog),"unknown fallback is not empty");
+        read.missing_value=Some(MissingVariableValue::Empty);
+        read.requested_types=vec!["java.lang.Number".into()];
+        assert!(!read_preserves_type_facts(&read,&nullable,&catalog),"typed converter still requires its own contract");
+        read.requested_types=vec!["java.lang.Object".into()];
+        assert!(!read_preserves_type_facts(&read,&value("org.bukkit.entity.Player",true),&catalog),
+            "missing-value closure does not close Player refresh");
+        for (certainty,complete) in [(Certainty::Heuristic,true),(Certainty::Inferred,false)] {
+            let mut partial=nullable.clone();
+            if let InferredType::Values {support,..}=&mut partial {support.certainty=certainty;support.candidates_complete=complete;}
+            assert!(!read_preserves_type_facts(&read,&partial,&catalog));
+        }
+        for missing in ["unknown","global-default","invented"] {
+            assert!(serde_json::from_value::<VariableRead>(serde_json::json!({"version":accepted_version,
+                "requestedTypes":["java.lang.Object"],"mayRefreshPlayer":false,"missingValue":missing})).is_err());
+        }
     }
 }

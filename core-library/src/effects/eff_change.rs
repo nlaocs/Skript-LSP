@@ -181,12 +181,17 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let dispatch_rules = if authentic && static_target==Some(false) && operation.mode==ChangeMode::Add {
         crate::storage::local_add_rules()
     } else { Vec::new() };
+    let transfer_operation=(authentic&&operation.mode==ChangeMode::Set&&static_target==Some(false))
+        .then(||delta.and_then(crate::storage::declared::transfer::set_operation)).flatten();
     let composition = if authentic && operation.mode == ChangeMode::Set && storage_result.is_some() {
         target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
             crate::storage::native_inputs::compose(target,value,operation.changed_capture,value_capture,context_preserving))
+    } else if transfer_operation.is_some() {
+        target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
+            crate::storage::native_inputs::compose_transfer(target,value,operation.changed_capture,value_capture,context_preserving))
     } else { None };
     let contract = serde_json::json!({
-        "version": 5,
+        "version": 6,
         "bindingRole": binding_role,
         "dispatchRules": dispatch_rules,
         "mode": operation.mode.diagnostic_name(),
@@ -203,6 +208,9 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         "skript.semantic.variable-change",
         &contract.to_string(),
     );
+    if let Some(transfer)=transfer_operation {
+        super::annotate(&mut payload,&transfer.key,&transfer.value);
+    }
     if authentic {
         if context_preserving {
             super::annotate(

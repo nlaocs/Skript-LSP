@@ -266,7 +266,7 @@ fn validate_component(component: &[u8], display_name: &str) -> Result<()> {
             _ => None,
         })
         .collect::<BTreeSet<_>>();
-    let expected = BTreeSet::from(["addon", "hooks", "text-macro", "tree-macro", "ast-macro"]);
+    let expected = BTreeSet::from(["addon", "semantic-transfer", "hooks", "text-macro", "tree-macro", "ast-macro"]);
     if exports != expected {
         bail!("{display_name} exports {exports:?}, expected {expected:?}");
     }

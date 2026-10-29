@@ -97,9 +97,9 @@ After the specific semantic resolvers, unchanged complete static declarations
 can supply ordinary bounds without a custom resolver. This does not certify
 arbitrary init/getter effects or promote a partial/dynamic bound.
 
-This is an additive import with unchanged WIT 0.48 / ABI30 record layouts. Old
-addons using previous imports remain compatible with the new host. The new Core
-requires the new host import; an old host fails linking rather than silently
-substituting an older inference rule. Unchanged ABI does not imply compatibility
-in both directions. Third-party semantics remain provider-owned, with no
+The declaration lookup was added without changing the WIT 0.48 / ABI30 record
+layouts at that time. The current world is WIT 0.49 / ABI31: rebuild all components
+together, including the mandatory semantic-transfer export. Older worlds are
+incompatible. The current Core also requires its host imports; an old host fails
+linking rather than silently substituting an older inference rule. Third-party semantics remain provider-owned, with no
 Java- or addon-specific inference branches in the host.

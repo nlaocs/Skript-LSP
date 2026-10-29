@@ -250,6 +250,7 @@ impl Fixture {
             None,
             HashSet::new(),
             Vec::new(),
+            None,
         )
         .unwrap();
         (document, ast)

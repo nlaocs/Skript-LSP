@@ -274,6 +274,7 @@ pub struct DocumentParseResult {
     pub component_failures: Vec<ComponentFailure>,
     pub state: CommitSummary,
     semantic_proofs: super::semantic_proof::SemanticProofRegistry,
+    pub(super) transfer_fence: Option<super::semantic_transfer::Fence>,
 }
 
 impl DocumentParseResult {
@@ -434,7 +435,11 @@ impl ParserHost {
         let previous_receipts = self.semantic_receipts.replace(
             super::semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()),
         );
-        let editor_session=if self.editor_routes().is_empty(){None}else{Some(self.new_editor_session(&request))};
+        // A document fence exists even without an editing provider. Editing
+        // observations and semantic transfers share lifetime, not authority.
+        let session = self.new_editor_session(&request);
+        let transfer_fence = self.transfer_fence(Arc::clone(&session.fence));
+        let editor_session=if self.editor_routes().is_empty(){None}else{Some(session)};
         let previous_editor=std::mem::replace(&mut self.editor_session,editor_session);
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
@@ -505,6 +510,7 @@ impl ParserHost {
         );
 
         Ok(DocumentParseResult {
+            transfer_fence,
             editor_completions,
             static_name_rename: self.static_name_rename_certificate(),
             function_namespace_complete,

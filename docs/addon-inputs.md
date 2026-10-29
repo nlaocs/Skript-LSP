@@ -1,7 +1,8 @@
 # Independent addon inputs and editing proposals
 
-WIT `nlaocs:skript-parser-addon@0.48.0`, ABI `30.0`, adds the
-`parser.addon-data` v1 capability. Rebuild the host, CoreLibrary and all external
+The current contract is WIT `nlaocs:skript-parser-addon@0.49.0`, ABI `31.0`.
+The `parser.addon-data` v1 capability was introduced in WIT 0.47 / ABI 29.
+Rebuild the host, CoreLibrary and all external
 components together. Older WIT imports or ABI manifests are rejected. SSG files
 and the Catalog remain separate from these optional addon inputs.
 

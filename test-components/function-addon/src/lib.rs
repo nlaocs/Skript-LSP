@@ -10,6 +10,11 @@ use parser_wasm::{
 };
 const ID: &str = "test.function-addon";
 struct FunctionAddon;
+impl crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Guest for FunctionAddon {
+    fn evaluate(_:crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Result<Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output>,crate::nlaocs::skript_parser_addon::types::AddonError> {Ok(None)}
+}
+
 impl addon::Guest for FunctionAddon {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {

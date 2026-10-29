@@ -11,6 +11,12 @@ See the [DefaultExpression guide](../docs/default-expressions.md).
 `parser-wasm::ParserHost`. It is the stable home for Skript's built-in parsing
 behavior that must use the same addon ABI as third-party parser addons.
 
+The optional `parser.semantic-transfer` v1 path computes current complete public
+type bounds through an audited Skript 2.15.4 fixed-local-scalar read and subsequent
+storage. Returned values, source writeback/poststate and other binding effects
+are separate; this is not a runtime-origin or successful-execution certificate.
+See [semantic transfers](../docs/semantic-transfers.md) for compatibility and limits.
+
 Older schema-7 snapshots remain readable. Where authoritative cloner/`beforeChange` facts are absent, affected assignment and read facts remain Unknown; a declared type alone does not supply those guarantees.
 
 The provider-owned `skript.semantic.storage-result` contract describes the complete
@@ -38,7 +44,7 @@ implements the API but has no Catalog still retains Unknown.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.48.0` and ABI `30.0`
+- WIT package `nlaocs:skript-parser-addon@0.49.0` and ABI `31.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list
@@ -304,7 +310,7 @@ into the component.
 
 Do not publish the raw core Wasm module directly. The workspace task builds it,
 embeds WIT metadata, converts it to a Component Model artifact, validates its
-five exported interfaces, and writes the file consumed by the root crate:
+six exported interfaces, and writes the file consumed by the root crate:
 
 ```sh
 rustup target add wasm32-unknown-unknown

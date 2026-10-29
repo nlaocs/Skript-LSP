@@ -77,7 +77,7 @@ mod tests {
             panic!("bundled CoreLibrary must be a Component");
         };
         let world = &resolve.worlds[world_id];
-        assert_eq!(world.exports.len(), 5);
+        assert_eq!(world.exports.len(), 6);
     }
 
     #[test]

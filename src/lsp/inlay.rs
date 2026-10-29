@@ -23,6 +23,8 @@ pub(super) struct Document {
     source: Arc<str>,
     lines: LineIndex,
     hints: Vec<InlayHint>,
+    variable_hints:Vec<InlayHint>,
+    transfer_certificate:Option<parser_wasm::host::semantic_transfer::Certificate>,
 }
 
 #[derive(Deserialize)]
@@ -260,6 +262,8 @@ impl Document {
             source,
             lines,
             hints,
+            variable_hints:Vec::new(),
+            transfer_certificate:None,
         })
     }
 
@@ -270,9 +274,8 @@ impl Document {
         if !semantic.source_matches(&self.source) {
             return Err("inlay and semantic sources differ".into());
         }
-        self.hints.extend(semantic.write_type_hints());
-        self.hints
-            .sort_by_key(|hint| (hint.position.line, hint.position.character));
+        self.variable_hints=semantic.write_type_hints();
+        self.transfer_certificate=semantic.transfer_certificate();
         Ok(())
     }
 
@@ -286,15 +289,17 @@ impl Document {
         if start > end {
             return Vec::new();
         }
-        self.hints
-            .iter()
+        let current=self.transfer_certificate.as_ref().is_none_or(|c|c.is_current());
+        let mut hints=self.hints.iter().chain(self.variable_hints.iter().filter(|_|current))
             .filter(|hint| {
                 self.lines
                     .offset(&self.source, hint.position)
                     .is_some_and(|offset| start <= offset && offset <= end)
             })
             .cloned()
-            .collect()
+            .collect::<Vec<_>>();
+        hints.sort_by_key(|hint|(hint.position.line,hint.position.character));
+        hints
     }
 }
 

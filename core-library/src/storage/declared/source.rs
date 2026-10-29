@@ -61,7 +61,7 @@ mod guest {
     use super::*;
     use std::sync::{Arc,Mutex,LazyLock,RwLock};
     use crate::nlaocs::skript_parser_addon::catalog_data;
-    struct Prepared {model:Model,methods:RwLock<BTreeMap<String,bool>>}
+    struct Prepared {model:Model,generation:u64,methods:RwLock<BTreeMap<String,bool>>}
     static MODELS:LazyLock<RwLock<BTreeMap<String,Arc<Prepared>>>>=LazyLock::new(||RwLock::new(BTreeMap::new()));
     struct Job {source:SourceIdentity,generation:u64,next:u32,phase:usize,offset:u64,types:Vec<Value>,native_start:Option<u32>,declared_ready:bool}
     static JOB:Mutex<Option<Job>>=Mutex::new(None);
@@ -73,6 +73,15 @@ mod guest {
         let prepared=MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key(&input.source)).cloned()?;
         let result=prepared.model.infer(&input.input_types)?;
         (current().as_ref()==Some(&input.source)).then_some(result)
+    }
+    pub(super) fn transfer(request:&crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output> {
+        // No StateStore import is needed in the data-only query. Source and
+        // preparation generation are supplied by the authenticated host session.
+        let source=SourceIdentity {source_digest:request.subject.source_digest.clone(),snapshot_id:request.subject.snapshot_id.clone()};
+        let prepared=MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key(&source)).cloned()?;
+        if prepared.generation!=request.subject.preparation_generation {return None;}
+        super::super::transfer::evaluate(&prepared.model,request)
     }
     pub(super) fn prepare(mut context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {
         if context.generation==0 {
@@ -127,7 +136,7 @@ mod guest {
             if current().as_ref()!=Some(&source) {return None;}
             let mut models=MODELS.write().unwrap_or_else(std::sync::PoisonError::into_inner);
             if models.len()>=16 {models.clear();}
-            models.insert(key(&source),Arc::new(Prepared {model,methods:RwLock::new(BTreeMap::new())}));
+            models.insert(key(&source),Arc::new(Prepared {model,generation:context.generation,methods:RwLock::new(BTreeMap::new())}));
             job.declared_ready=true;
             Some(SourcePreparationStatus::Pending("declared-storage-ready".into()))
         })();
@@ -185,6 +194,11 @@ mod guest {
 pub(crate) fn prepare_step(context:SourcePreparationContext)->Result<SourcePreparationStatus,AddonError> {
     #[cfg(target_arch="wasm32")] {guest::prepare(context)}
     #[cfg(not(target_arch="wasm32"))] {crate::storage::preparation::native_step(context)}
+}
+pub(super) fn transfer(request:&crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+    ->Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output> {
+    #[cfg(target_arch="wasm32")] {guest::transfer(request)}
+    #[cfg(not(target_arch="wasm32"))] {let _=request;None}
 }
 pub(crate) fn annotate(payload:&RegisteredExpressionPayload,resolution:&mut SemanticResolution,delegate:Option<DelegatedInput>) {
     #[cfg(target_arch="wasm32")] guest::annotate(payload,resolution,delegate);

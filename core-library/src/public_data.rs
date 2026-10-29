@@ -225,7 +225,7 @@ pub(crate) fn variable_read(
     let mut contract = serde_json::json!({"version":1,"requestedTypes":requested_types,
         "mayRefreshPlayer":true,"noRefreshTypes":crate::catalog::identity_delta_classes()});
     if missing_is_empty {
-        contract["version"] = 2.into();
+        contract["version"] = if requested_types==["java.lang.Object"] {3}else{2}.into();
         contract["missingValue"] = "empty".into();
     }
     crate::nlaocs::skript_parser_addon::types::MetadataEntry {

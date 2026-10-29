@@ -107,7 +107,7 @@ clientがdynamic watcher登録に対応する場合、`**/*.sk`のcreate/change/
 
 ## Incremental処理とAddon契約
 
-公開WITは`nlaocs:skript-parser-addon@0.48.0`、ABIは`30.0`である。旧ABIのcomponentは再buildする。
+公開WITは`nlaocs:skript-parser-addon@0.49.0`、ABIは`31.0`である。旧ABIのcomponentは再buildする。
 `parser.incremental-local-syntax` v1とmanifestの`incremental-local-subscriptions`へ
 明示したhookだけが再利用候補になる。現在payload/context、物理source行、不変Catalog/runtime/binding、
 観測したStateのget/scan値が返却値を完全に決め、guest履歴や未観測の入力へ依存しないという契約である。
@@ -548,9 +548,20 @@ option置換の前後で変更されていない断片は、hoverや書き込み
 
 ### Source単位の有界な準備処理
 
-WIT 0.48 / ABI 30 では、Coreとaddonが不変の収集データを小分けに検証する
-`parser.source-preparation` v1と、`catalog-data` v5の入れ子JSON pagingを追加しています。
+現在のWIT 0.49 / ABI 31は、WIT 0.48 / ABI 30で導入した`parser.source-preparation` v1と
+`catalog-data` v5の入れ子JSON pagingを保持します。Coreとaddonが不変の収集データを小分けに検証します。
 全componentを同時に再ビルドし、旧版混在は拒否します。準備世代はbody／呼出しcacheの
 有効性へ結合されます。編集時のscope・revision・型の証明を代替するものではありません。
 構造検証のReadyだけではgetterの実装や値の生成元、保存後型を保証しません。
 [処理順序・独立した上限・計測の読み方](source-preparation.md)を参照してください。
+
+### 現在の型上限に対するsemantic transfer
+
+ABI 31の`semantic-transfer` exportと任意の`parser.semantic-transfer` v1 capabilityにより、
+現在のflowが持つ完全な型上限を、採用providerの操作へ渡せます。読取結果、元変数への条件付き書戻し、
+全分岐を含む元変数の事後状態、他bindingへの作用、コピー先への保存結果を分離します。
+Coreの最初のadapterはSkript 2.15.4の固定名ローカルscalarを対象とし、標準APIが参照する
+refresh領域と既存のclone・serializeAsモデルから計算します。型名やイベント名の成功リストではありません。
+これは通常の宣言型上限の推論であり、runtime起源・exact class・Java呼出成功の証明ではありません。
+未対応のlookupや不完全な根拠をUnknownから確定型へ昇格させません。
+[操作・所有者・失効・実行予算の契約](semantic-transfers.md)を参照してください。

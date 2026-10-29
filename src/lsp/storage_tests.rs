@@ -1,5 +1,6 @@
 //! Source-backed storage model regressions; public fixtures only.
 mod fuel_fixture;
+mod transfer;
 use super::{semantic, positions::LineIndex};
 use lsp_types::{InlayHintLabel, Position};
 use parser_wasm::{DocumentParseRequest, DocumentParserConfig, RuntimeProfile, host::{HostConfig, ParserHost}};
@@ -74,7 +75,7 @@ fn fixed_local_nullable_copies_ignore_unrelated_defaults_and_invalidate_after_ed
         .expect("copy RHS lookup contract");
     assert_eq!(read.owner_component_id.as_deref(),Some("nlaocs.core-library"));
     let read:serde_json::Value=serde_json::from_str(&read.value).unwrap();
-    assert_eq!(read["version"],2);
+    assert_eq!(read["version"],3);
     assert_eq!(read["missingValue"],"empty");
 
     let edited=source.replace("event-string","\"new\u{1f600}\"");

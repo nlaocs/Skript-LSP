@@ -11,6 +11,11 @@
 Componentです。third-party parser addonと同じABIを使う必要がある、Skript標準の
 解析処理を実装するための安定した配置場所です。
 
+任意の`parser.semantic-transfer` v1経路は、監査したSkript 2.15.4の固定名ローカルscalarについて、
+読取とその後の保存を通る現在の完全な公開型上限を計算します。戻り値、元変数への書戻し・事後状態、
+他bindingへの作用は別々に保持し、runtime起源や実行成功の保証にはしません。
+[semantic transferの契約・互換性・上限](../docs/semantic-transfers.md)を参照してください。
+
 古いschema 7 snapshotも引き続き読み込めます。cloner/`beforeChange`の確かな情報がない場合、
 影響する代入や読取の事実はUnknownのまま保持し、型宣言だけから保証を補いません。
 
@@ -19,7 +24,7 @@ Componentです。third-party parser addonと同じABIを使う必要がある�
 現在は統合の基礎として次を提供します。
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.48.0`とABI `30.0`
+- WIT package `nlaocs:skript-parser-addon@0.49.0`とABI `31.0`
 - `addon.initialize`におけるABIとcapabilityのnegotiation
 - Skript/Minecraft versionと有効plugin一覧を含むWIT `RuntimeProfile`の保持
 - DefaultExpression provider、Document health check、ParseStageのExpression候補、登録ExpressionとType、Condition、Effect、Section、
@@ -223,7 +228,7 @@ Wasm componentへWasmtimeをcompileせず、ABI定数と互換性検証だけを
 ## Build pipeline
 
 raw core Wasm moduleを直接配布しないでください。workspace taskはmoduleをbuildし、WIT
-metadataを埋め込み、Component Model artifactへ変換し、5つのexport interfaceを検証して
+metadataを埋め込み、Component Model artifactへ変換し、6つのexport interfaceを検証して
 ルートcrateが使用するfileへ出力します。
 
 ```sh

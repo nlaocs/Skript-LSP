@@ -11,6 +11,11 @@ const SCHEMA:&str="test.semantic-state";
 pub(crate) struct SemanticStateAddon;
 fn effects()->HookEffects {HookEffects {diagnostics:vec![],context_updates:vec![],parse_requests:vec![],parse_results:vec![]}}
 fn error(message:impl Into<String>)->AddonError {AddonError {kind:AddonErrorKind::InvalidPayload,message:message.into(),diagnostics:vec![]}}
+impl crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Guest for SemanticStateAddon {
+    fn evaluate(_:crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Result<Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output>,crate::nlaocs::skript_parser_addon::types::AddonError> {Ok(None)}
+}
+
 impl addon::Guest for SemanticStateAddon {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {

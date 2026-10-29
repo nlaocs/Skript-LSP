@@ -192,6 +192,7 @@ fn forwarding_hook(closure:&[String],forwarder:&str,mut declares:impl FnMut(&str
 
 mod source;
 pub(crate) use source::{annotate, for_summary, prepare_step};
+pub(crate) mod transfer;
 
 #[cfg(test)]
 mod tests;

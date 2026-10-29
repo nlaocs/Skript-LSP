@@ -7,6 +7,7 @@
 mod ast_macro;
 mod addon_data;
 mod source_preparation;
+pub mod semantic_transfer;
 pub use source_preparation::{SourcePreparationReport,SourcePreparationStep};
 mod editor_completion;
 pub use editor_completion::{Batch as EditorCompletionBatch, Output as EditorCompletionOutput, Proposal as EditorCompletionProposal};
@@ -9445,6 +9446,7 @@ pub struct ParserHost {
     #[cfg(test)]
     legacy_type_expected: bool,
     completion_types: CompletionTypeCertificate,
+    transfer_authority: semantic_transfer::Authority,
     source_preparation_reports: Vec<SourcePreparationReport>,
     source_preparation_clock: source_preparation::Clock,
     source_preparation_reports_dropped: u64,
@@ -9718,6 +9720,7 @@ impl ParserHost {
         self.completion_types.clone()
     }
     fn revoke_completion_types(&mut self) {
+        self.transfer_authority.revoke();
         self.completion_types.0.store(false, Ordering::Release);
         self.completion_types = CompletionTypeCertificate(Arc::new(AtomicBool::new(true)));
     }
@@ -9883,6 +9886,7 @@ impl ParserHost {
             #[cfg(test)]
             legacy_type_expected: false,
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
+            transfer_authority: semantic_transfer::Authority::default(),
             source_preparation_reports: Vec::new(),
             source_preparation_clock: source_preparation::Clock::default(),
             source_preparation_reports_dropped: 0,
@@ -13272,6 +13276,7 @@ impl ParserHost {
     }
 
     fn restart_cancelled_component(&mut self, component_index: usize) -> Result<(), HostError> {
+        self.transfer_authority.revoke();
         // A restart-safe component must retain the exact manifest (including
         // bounds) and resolved bindings. Failure revokes through disable_component;
         // an ordinary cancelled attempt does not change immutable Catalog facts.
@@ -13716,6 +13721,7 @@ pub fn host_capabilities() -> Vec<Capability> {
     [
         crate::CAPABILITY_ADDON_DATA,
         crate::CAPABILITY_SOURCE_PREPARATION,
+        crate::CAPABILITY_SEMANTIC_TRANSFER,
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,
@@ -19141,6 +19147,7 @@ mod tests {
             [
                 crate::CAPABILITY_ADDON_DATA,
                 crate::CAPABILITY_SOURCE_PREPARATION,
+                crate::CAPABILITY_SEMANTIC_TRANSFER,
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,

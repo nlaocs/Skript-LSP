@@ -134,7 +134,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(30, 0)
+        parser_wasm::AbiVersion::new(31, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -151,7 +151,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.48.0")
+        Some("0.49.0")
     );
 
     let world = package
@@ -190,7 +190,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
         .collect::<Vec<_>>();
     assert_eq!(
         exports,
-        ["addon", "hooks", "text-macro", "tree-macro", "ast-macro"]
+        ["addon", "semantic-transfer", "hooks", "text-macro", "tree-macro", "ast-macro"]
     );
 }
 

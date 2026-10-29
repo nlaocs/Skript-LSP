@@ -79,10 +79,11 @@ snapshot, model/basis/premise, adopted registration, owner, document revision,
 scope, range and expansion. Core-private Parse receipts carry authority; public
 context metadata alone does not. Source/model/context changes, stale or foreign
 receipts, cancellation and missing preparation cannot manufacture a current proof.
-Source-preparation generation continues to invalidate body reuse through ABI 30.
+Source-preparation generation continues to invalidate body reuse in ABI 31.
 
-The WIT/ABI stays `nlaocs:skript-parser-addon@0.48.0` / `30.0`; this change adds
-observation semantics, not a host ABI. Existing per-call fuel and paging limits
+The v2 observation schema added observation semantics without a host ABI change.
+The current WIT/ABI is `nlaocs:skript-parser-addon@0.49.0` / `31.0`; all components
+must use that world. Existing per-call fuel and paging limits
 are retained. Preparation failure leaves dependent storage facts unresolved and
 does not masquerade as successful semantic certification.
 

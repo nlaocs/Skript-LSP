@@ -50,6 +50,17 @@ pub(crate) fn compose(target:&ParseSummary,value:&ParseSummary,target_capture:u6
         {"capture":value_capture,"publicSchemas":[]}
     ]}).to_string())
 }
+/// A deferred flow transfer does not assert the delta's value domain. It still
+/// binds both exact current input subjects and the variable target identity.
+pub(crate) fn compose_transfer(target:&ParseSummary,value:&ParseSummary,target_capture:u64,value_capture:u64,context_preserving:bool)->Option<String> {
+    if input(target)?.issuer!=crate::COMPONENT_ID || input(value)?.issuer!=crate::COMPONENT_ID {return None;}
+    let mut keys=vec!["skript.semantic.variable-change","skript.semantic.operand-evaluation","parser.semantic-transfer.v1"];
+    if context_preserving {keys.push(crate::public_data::EVALUATION_CONTEXT_METADATA_KEY);}
+    Some(serde_json::json!({"version":1,"metadataKeys":keys,"inputs":[
+        {"capture":target_capture,"publicSchemas":[crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID]},
+        {"capture":value_capture,"publicSchemas":[]}
+    ]}).to_string())
+}
 
 #[cfg(test)]
 mod tests {

@@ -7,13 +7,15 @@
 //! standard Number parser deliberately does not recognize.
 #![allow(missing_docs)] // `wit_bindgen` generates the exported guest API.
 
+use core::sync::atomic::{AtomicU8, Ordering};
+
 wit_bindgen::generate!({
     path: "../../parser-wasm/wit",
     world: "parser-addon",
     generate_unused_types: true,
 });
 
-use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, text_macro, tree_macro};
+use exports::nlaocs::skript_parser_addon::{addon, ast_macro, hooks, semantic_transfer, text_macro, tree_macro};
 use nlaocs::skript_parser_addon::{
     state_store,
     types::{
@@ -25,13 +27,13 @@ use nlaocs::skript_parser_addon::{
         HookSubscription, HookTarget, HostProfile, MetadataEntry, RegisteredSyntaxHandler,
         RegisteredSyntaxHandlerTarget, StateEncoding, StateNamespaceDeclaration,
         StateNamespaceVisibility, StateScope, StateValue, SyntaxKind, TextMacroInput,
-        TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput, TypeParserOutcome,
+        StructureTiming, TextMacroOutput, TextRange, TreeMacroInput, TreeMacroOutput, TypeParserOutcome,
         TypeParserUnresolved,
     },
 };
 use parser_wasm::{
     ABI_VERSION, AbiVersion as ParserAbiVersion, CAPABILITY_EXPRESSION_PARSER,
-    CAPABILITY_STATE_STORE, Capability as ParserCapability,
+    CAPABILITY_SEMANTIC_TRANSFER, CAPABILITY_STATE_STORE, CAPABILITY_STRUCTURE_PARSER, Capability as ParserCapability,
     CapabilityRequirement as ParserCapabilityRequirement, validate_compatibility,
 };
 
@@ -75,6 +77,10 @@ const DEFERRED_TYPE_DIAGNOSTIC_CODE: &str = "type-parser-test.deferred-type";
 const STATE_NAMESPACE: &str = "type-parser-test";
 const STATE_SCHEMA: &str = "test.type-parser-addon.state";
 const UNRESOLVED_STATE_KEY: &str = "unresolved-number";
+const TRANSFER_OPERATION: &str = "test.type-parser-addon.transfer.v1";
+const TRANSFER_SUBSCRIPTION: &str = "type-parser.transfer-structure";
+const TRANSFER_REGISTRATION: &str = "structure:test.type-parser-addon:transfer:0";
+static TRANSFER_CASE: AtomicU8 = AtomicU8::new(0);
 
 struct TypeParserAddon;
 
@@ -88,6 +94,34 @@ fn empty_selector() -> HookSelector {
         return_type: None,
         multiplicity: None,
         metadata: Vec::new(),
+    }
+}
+
+impl semantic_transfer::Guest for TypeParserAddon {
+    fn evaluate(request: semantic_transfer::Request) -> Result<Option<semantic_transfer::Output>, AddonError> {
+        let case = TRANSFER_CASE.load(Ordering::Relaxed);
+        if case == 0 || request.operation != TRANSFER_OPERATION || request.parameters != case.to_string() {
+            return Ok(None);
+        }
+        let mut output = semantic_transfer::Output {
+            value: request.input,
+            source: semantic_transfer::SourceUpdate::Unchanged,
+            source_writeback: None,
+            effects: semantic_transfer::BindingEffects::Preserve,
+        };
+        match case {
+            2 => output.value.complete = false,
+            3 => output.value.types = vec![NUMBER_CLASS.to_owned(); 2],
+            4 => {
+                output.value.types = (0..64).map(|index| format!("fixture.Value{index}.{}", "x".repeat(980))).collect();
+                output.source = semantic_transfer::SourceUpdate::Known(output.value.clone());
+                output.source_writeback = Some(output.value.clone());
+            }
+            5 => { let _ = record_state("semantic-transfer-forbidden"); }
+            6 => loop { core::hint::spin_loop(); },
+            _ => {}
+        }
+        Ok(Some(output))
     }
 }
 
@@ -122,6 +156,16 @@ impl addon::Guest for TypeParserAddon {
                     minimum_version: 1,
                     required: true,
                 },
+                CapabilityRequirement {
+                    id: CAPABILITY_SEMANTIC_TRANSFER.to_owned(),
+                    minimum_version: 1,
+                    required: true,
+                },
+                CapabilityRequirement {
+                    id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
+                    minimum_version: 2,
+                    required: true,
+                },
             ],
             subscriptions: vec![
                 HookSubscription {
@@ -140,6 +184,15 @@ impl addon::Guest for TypeParserAddon {
                     priority: 0,
                     mode: HookMode::Transform,
                     capability_id: CAPABILITY_EXPRESSION_PARSER.to_owned(),
+                    selector: empty_selector(),
+                },
+                HookSubscription {
+                    id: TRANSFER_SUBSCRIPTION.to_owned(),
+                    target: HookTarget::Registration(TRANSFER_REGISTRATION.to_owned()),
+                    phase: HookPhase::Structure,
+                    priority: 0,
+                    mode: HookMode::Transform,
+                    capability_id: CAPABILITY_STRUCTURE_PARSER.to_owned(),
                     selector: empty_selector(),
                 },
             ],
@@ -165,6 +218,16 @@ impl addon::Guest for TypeParserAddon {
     }
 
     fn initialize(profile: HostProfile) -> Result<(), CompatibilityError> {
+        // Explicit test profiles alone activate the body-free test Structure.
+        TRANSFER_CASE.store(match profile.runtime.language.as_deref() {
+            Some("test.semantic-transfer/good") => 1,
+            Some("test.semantic-transfer/partial") => 2,
+            Some("test.semantic-transfer/duplicate-types") => 3,
+            Some("test.semantic-transfer/oversized") => 4,
+            Some("test.semantic-transfer/forbidden-state") => 5,
+            Some("test.semantic-transfer/fuel") => 6,
+            _ => 0,
+        }, Ordering::Relaxed);
         let capabilities = profile
             .capabilities
             .into_iter()
@@ -214,6 +277,20 @@ impl addon::Guest for TypeParserAddon {
 
 impl hooks::Guest for TypeParserAddon {
     fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        if input.context.subscription_id == TRANSFER_SUBSCRIPTION {
+            let case = TRANSFER_CASE.load(Ordering::Relaxed);
+            if case == 0 { return Ok(noop()); }
+            let HookPayload::Structure(mut payload) = input.payload else {
+                return Err(addon_error("transfer fixture requires a Structure payload"));
+            };
+            if payload.candidate.registration_id != TRANSFER_REGISTRATION
+                || payload.timing != StructureTiming::EnterBody { return Ok(noop()); }
+            payload.candidate.metadata.push(metadata("parser.semantic-transfer.v1", &format!(
+                "{{\"version\":1,\"operation\":\"{TRANSFER_OPERATION}\",\"parameters\":\"{case}\"}}"
+            )));
+            return Ok(HookOutput {decision: HookDecision::ContinueProcessing,
+                replacement: Some(HookPayload::Structure(payload)), effects: empty_effects()});
+        }
         let direct_no_match = input.context.subscription_id == DIRECT_NO_MATCH_SUBSCRIPTION_ID;
         if input.context.subscription_id != SUBSCRIPTION_ID && !direct_no_match {
             return Err(addon_error("unknown Type parser subscription"));

@@ -620,6 +620,7 @@ impl ProjectIndex {
                 stage: PreparationStage::Started,
             });
         }
+        let semantic_cancellation=config.cancellation.clone();
         let parsed = match observer.as_mut() {
             Some(observer) => host.parse_document_with_preparation(request, config, &mut |event| {
                 observer(Preparation {
@@ -655,11 +656,12 @@ impl ProjectIndex {
                 });
             }
         }
-        let semantic = Arc::new(semantic::Document::from_result(
+        let semantic = Arc::new(semantic::Document::from_result_with_host(
             &result,
             Arc::clone(&source.view.source),
             source.view.uri.clone(),
             catalog,
+            host,Some(semantic_cancellation),
         )?);
         let lookup_names = result
             .functions
@@ -806,7 +808,7 @@ impl ProjectIndex {
             .filter_map(|(uri, record)| {
                 discovered
                     .get(uri)
-                    .filter(|source| source.same(&record.source))
+                    .filter(|source| source.same(&record.source)&&record.semantic.is_current())
                     .map(|_| (uri.clone(), record.clone()))
             })
             .collect::<BTreeMap<_, _>>();
@@ -948,7 +950,7 @@ impl ProjectIndex {
                 && self.revisions.get(current_uri.as_str()) == Some(&parsed.revision)
                 && working
                     .get(current_uri.as_str())
-                    .is_some_and(|record| record.source.same(current))
+                    .is_some_and(|record| record.source.same(current)&&record.semantic.is_current())
         });
         let (result, record, revision) = if let Some(parsed) = retained {
             let record = working
@@ -1013,7 +1015,7 @@ impl ProjectIndex {
                 && self
                     .documents
                     .get(parsed.source.key())
-                    .is_some_and(|record| record.source.same(&parsed.source))
+                    .is_some_and(|record| record.source.same(&parsed.source)&&record.semantic.is_current())
         }) {
             self.handoff = Some(ResultHandoff {
                 epoch: snapshot.epoch,
@@ -1155,6 +1157,7 @@ impl ProjectIndex {
         };
         let documents = working
             .values()
+            .filter(|record|record.semantic.is_current())
             .map(|record| Arc::clone(&record.semantic))
             .collect();
         self.documents = working;

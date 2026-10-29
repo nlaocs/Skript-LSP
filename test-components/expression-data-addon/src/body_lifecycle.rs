@@ -15,6 +15,11 @@ fn empty()->HookEffects {HookEffects {diagnostics:vec![],context_updates:vec![],
 fn error(message:impl Into<String>)->AddonError {AddonError {kind:AddonErrorKind::InvalidPayload,message:message.into(),diagnostics:vec![]}}
 fn selector()->HookSelector {HookSelector {pattern_index:None,pattern_source:None,mark:None,tags:vec![],captures:vec![],return_type:None,multiplicity:None,metadata:vec![]}}
 
+impl crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Guest for BodyLifecycleAddon {
+    fn evaluate(_:crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
+        ->Result<Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output>,crate::nlaocs::skript_parser_addon::types::AddonError> {Ok(None)}
+}
+
 impl addon::Guest for BodyLifecycleAddon {
     fn prepare_source_step(context: crate::nlaocs::skript_parser_addon::types::SourcePreparationContext)
         -> Result<crate::nlaocs::skript_parser_addon::types::SourcePreparationStatus, crate::nlaocs::skript_parser_addon::types::AddonError> {

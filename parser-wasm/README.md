@@ -1,6 +1,13 @@
 # Parser WASM ABI
 
-ABI **30 / WIT 0.48** adds bounded owner-private source preparation and generic
+ABI **31 / WIT 0.49** adds the `semantic-transfer` guest export and optional
+`parser.semantic-transfer` v1 capability for current, complete public type bounds.
+Read results, source writeback/poststate, binding effects and destination storage
+remain separate. Rebuild host, Core and all addons together; ABI 30 components
+are incompatible. An addon without the capability still implements the export
+and returns `None`. See [semantic transfers](../docs/semantic-transfers.md).
+
+ABI **30 / WIT 0.48** added bounded owner-private source preparation and generic
 nested JSON paging (`catalog-data` v5). Host, Core and every addon must be rebuilt
 together; older versions are rejected. See [the lifecycle and limits](../docs/source-preparation.md).
 
@@ -78,7 +85,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.48.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.49.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -87,6 +94,7 @@ uses its crate version (`CARGO_PKG_VERSION`) as `component-version`.
 Guest exports:
 
 - `addon`: static manifest and host-profile negotiation
+- `semantic-transfer`: bounded data-only transfer of current complete type bounds
 - `hooks`: parser-stage observation, transformation, and override
 - `text-macro`: edits over virtual UTF-8 source text
 - `tree-macro`: targeted edits over the indentation-based lossless RawTree
@@ -101,8 +109,9 @@ Host imports:
 - `tree-data`: invocation-scoped immutable Tree views with bounded queries
 - `dynamic-syntax-registry`: add, override, and remove syntax definitions
 
-Parser payloads are WIT records and variants. The only JSON crossing the ABI is
-opaque SSG source returned as `catalog-data` bytes. Tree macro inputs use an
+Parser payloads are WIT records and variants. Provider-owned, versioned JSON may
+appear in semantic metadata and operation parameters; `catalog-data` also returns
+opaque SSG source bytes. Tree macro inputs use an
 invocation-scoped reference and target header; `tree-data` reads the immutable
 view. Generated trees and AST values use non-recursive node-ID arenas.
 
@@ -150,7 +159,8 @@ multiple targets for each registered semantic handler, including dynamic
   it to 0.40.0. Native omission provenance and the opt-in incremental
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
-changed it to 0.43.0. The manifest's current `abi` value is 30.0 and
+changed it to 0.43.0. Bounded source preparation changed it to 0.48.0;
+the semantic-transfer export changed it to 0.49.0. The manifest's current `abi` value is 31.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -172,7 +182,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 30.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 31.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts
@@ -369,7 +379,7 @@ An identity-replacing dynamic registration is outside this static family unless
 explicitly selected by a future contract; v1 never substitutes it by name.
 This selects syntax; it grants no semantic, runtime or storage certificate.
 Components using it must require the capability; older hosts reject them at
-initialization. WIT record layout and ABI 30 are unchanged.
+initialization. This capability uses existing record layouts; the current world is WIT 0.49 / ABI 31.
 Capture indexes count every pattern capture in source order, including typed
 `%type%` captures before a regex `<.+>` capture.
 A handler may also request named
@@ -1231,7 +1241,7 @@ Local State reach is not a purity, type or incremental-reuse certificate. Actual
 node transformations and ancestor/subtree writers, unattached retained receipts,
 the unique semantic issuer check and native source/revision validation all remain
 in force. Editing proposal ownership cannot grant semantic type authority. This
-host-side distinction uses the WIT 0.48 / ABI 30 StateStore contract (unchanged from 0.47 / 29);
+host-side distinction uses the WIT 0.49 / ABI 31 StateStore contract (its layout is unchanged from 0.47 / 29);
 addons require no new declaration or opt-in.
 
 Successful Structure Exit returns validated metadata to the final candidate. The
@@ -1244,7 +1254,7 @@ keeps accepted Exit receipts attached without relaxing truly unattached writers.
 `parser.semantic-value-facts` v1 composes selected parent facts from current
 native-sealed expression inputs. It preserves the advertised expression type,
 separates value/absence/storage guarantees from evaluation effects, and leaves
-whole-node issuer checks unchanged. It uses the ABI 30 metadata layout (unchanged from ABI 29);
+whole-node issuer checks unchanged. It uses the ABI 31 metadata layout (unchanged from ABI 29);
 a producer requiring it is rejected by an older host. See the
 [value-fact contract](../docs/wasm-value-facts.md) for schemas, bounds and limits.
 

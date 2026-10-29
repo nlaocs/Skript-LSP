@@ -1,10 +1,11 @@
 # Bounded source preparation
 
-WIT **0.48.0 / ABI 30.0** adds an optional lifecycle capability,
-`parser.source-preparation` v1, and `catalog-data` v5 JSON array paging. Rebuild
+WIT **0.48.0 / ABI 30.0** introduced the optional lifecycle capability
+`parser.source-preparation` v1 and `catalog-data` v5 JSON array paging. The current
+world is **0.49.0 / ABI 31.0**. Rebuild
 the host, Core and every addon together. Older ABI/WIT components are rejected;
-an ABI 30 component that does not declare the preparation capability is not
-called. The export is still part of the ABI 30 world and must be implemented.
+an ABI 31 component that does not declare the preparation capability is not
+called. The preparation export remains part of `addon` and must be implemented.
 
 ## Lifecycle and authority
 

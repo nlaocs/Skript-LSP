@@ -1,7 +1,7 @@
 # Sealed value inputs and selected semantic facts
 
-The opt-in host capability `parser.semantic-value-facts` v1 uses WIT 0.48 /
-ABI30 metadata transport (unchanged from ABI29). A producer requires this capability before emitting
+The opt-in host capability `parser.semantic-value-facts` v1 uses WIT 0.49 /
+ABI31 metadata transport (its layout is unchanged from ABI29). A producer requires this capability before emitting
 value-domain drafts. Core advertises optional participation: without native
 input seals it keeps the older conservative result. A host lacking this capability rejects
 a producer that requires the capability. This does not change the WIT layout.
@@ -94,7 +94,7 @@ LSP flow facts to live variable-member editing queries.
 
 The separate optional capability `parser.semantic-entry-facts` v1 allows a
 Structure producer to describe its accepted **entry**, independently of providers
-that later parse its body. It uses the unchanged WIT 0.48 / ABI 30 metadata layout:
+that later parse its body. It uses the WIT 0.49 / ABI 31 metadata layout, unchanged from the previous metadata contract:
 
 ```json
 {"version":1,"metadataKeys":["example.parameter-bindings","example.entry-scope"]}

@@ -354,11 +354,12 @@ impl Analyzer for ParserAnalyzer {
             Ok(mut result) => {
                 result.ast = result.editor_ast();
                 let semantic_result = semantic.take().map(Ok).unwrap_or_else(|| {
-                    semantic::Document::from_result(
+                    semantic::Document::from_result_with_host(
                         &result,
                         Arc::clone(&job.source),
                         job.uri.clone(),
                         Arc::clone(&self.catalog),
+                        &mut self.host,Some(job.control.token.clone()),
                     )
                     .map(Arc::new)
                 });
@@ -401,6 +402,14 @@ impl Analyzer for ParserAnalyzer {
                         Ok(batches)=>result.editor_completions.extend(batches),
                         Err(error)=>completion_error=Some(format!("typed editing refinement failed: {error}")),
                     }
+                }
+                if semantic.as_ref().is_some_and(|document|!document.is_current()) {
+                    // Refinement can fault/restart a provider after annotations
+                    // were materialized. Never publish the revoked flow facts.
+                    flow_diagnostics.clear();
+                    semantic=None;
+                    inlay=None;
+                    annotations_error=Some("semantic transfer authority changed before publication".into());
                 }
                 // Conversion and recursive destruction stay on the worker's large stack.
                 match completion::Document::from_result(

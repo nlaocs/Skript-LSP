@@ -1,6 +1,6 @@
 # Live suffix-member editing queries
 
-This optional public host service uses the existing WIT 0.48.0 / ABI 30.0 custom
+This optional public host service uses the existing WIT 0.49.0 / ABI 31.0 custom
 parser interface. A Component requires `parser.editor-completion` version 1 and
 `parser.additional-parse`, together with project-stable semantics. An older host
 without the editing capability rejects that manifest. ABI equality alone is not
@@ -87,7 +87,7 @@ promise of arbitrary late-file completion after its query budget is exhausted.
 ## Stored-variable editing inputs (optional v1)
 
 `parser.editor-typed-inputs` version 1 adds an editing-only second pass over the
-same ABI 30 / WIT 0.48 metadata transport (introduced in ABI 29 / WIT 0.47). Require the capability and project-stable
+same ABI 31 / WIT 0.49 metadata transport (introduced in ABI 29 / WIT 0.47). Require the capability and project-stable
 semantics, and register exactly one owner route `editor.refine/<component-id>`.
 Older hosts reject that required capability; an ABI number alone is insufficient.
 
