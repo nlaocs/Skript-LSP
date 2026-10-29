@@ -54,16 +54,34 @@ fn an_opaque_caller_does_not_turn_a_stored_declaration_into_a_current_read_proof
 }
 
 #[test]
-fn declared_nullable_storage_does_not_invent_a_closed_default_or_global_copy() {
+fn fixed_local_nullable_copies_ignore_unrelated_defaults_and_invalidate_after_edits() {
     let source="variables:\n    {value} = \"fallback\"\non craft:\n    set {_value} to event-string\n    set {_copy} to {_value}\n";
     let (result,document)=parse(source);
     let hints=document.write_type_hints();
-    assert!(hints.iter().any(|h|matches!(&h.label,InlayHintLabel::String(s) if s==": string?")),"{hints:?}");
-    assert!(matches!(&hints.last().unwrap().label,InlayHintLabel::String(s) if s==": ?"),"nullable lookup fallback is not a copied storage certificate: {hints:?}");
+    let actual=hints.iter().map(|hint| (hint.position,match &hint.label {
+        InlayHintLabel::String(label)=>label.as_str(),_=>panic!("unexpected label"),
+    })).collect::<Vec<_>>();
+    assert_eq!(actual,vec![(Position::new(3,16),": string?"),(Position::new(4,15),": string?")]);
+
+    // The audited fixed-name local lookup does not consult {value}'s default.
+    // Its explicit empty result preserves unset, not unconditional presence.
+    let read_start=source.rfind("{_value}").unwrap() as u64;
+    let read=result.ast.nodes.iter()
+        .filter(|node| node.span.virtual_range.start==read_start)
+        .flat_map(|node| &node.metadata)
+        .find(|entry| entry.key=="skript.semantic.variable-read")
+        .expect("copy RHS lookup contract");
+    assert_eq!(read.owner_component_id.as_deref(),Some("nlaocs.core-library"));
+    let read:serde_json::Value=serde_json::from_str(&read.value).unwrap();
+    assert_eq!(read["version"],2);
+    assert_eq!(read["missingValue"],"empty");
+
     let edited=source.replace("event-string","\"new\u{1f600}\"");
     assert!(semantic::Document::from_result(&result,Arc::from(edited.as_str()),"file:///storage-public/test.sk".parse().unwrap(),catalog()).is_err());
-    let (_,edited)=parse(&edited);
-    assert!(matches!(&edited.write_type_hints()[0].label,InlayHintLabel::String(s) if s==": string"));
+    let (_,edited_document)=parse(&edited);
+    let edited_hints=edited_document.write_type_hints();
+    assert_eq!(edited_hints.len(),2);
+    assert!(edited_hints.iter().all(|hint|matches!(&hint.label,InlayHintLabel::String(label) if label==": string")));
 }
 
 #[test]
