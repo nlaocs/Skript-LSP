@@ -13753,7 +13753,7 @@ pub fn host_capabilities() -> Vec<Capability> {
     .map(|id| {
         Capability::new(
             id,
-            if id == CAPABILITY_STRUCTURE_PARSER {
+            if id == CAPABILITY_STRUCTURE_PARSER || id==editor_completion::typed::CAPABILITY {
                 2
             } else {
                 1
@@ -14046,7 +14046,7 @@ fn validate_manifest(
             }
             if parser_id.starts_with(editor_completion::typed::ROUTE_PREFIX) {
                 if parser_id != &format!("{}{}",editor_completion::typed::ROUTE_PREFIX,manifest.component_id)
-                    || !manifest.capabilities.iter().any(|c|c.id==editor_completion::typed::CAPABILITY&&c.required&&c.minimum_version==1)
+                    || !manifest.capabilities.iter().any(|c|c.id==editor_completion::typed::CAPABILITY&&c.required&&c.minimum_version==2)
                     || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
                     return Err(HostError::InvalidManifest {message:"typed editing route must be owner-bound, input-only and project-stable".into()});
                 }

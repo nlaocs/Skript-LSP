@@ -766,7 +766,8 @@ impl Document {
         if matches!(state, Lexical::String | Lexical::Comment) {
             return Ok(empty());
         }
-        if let Some(result)=self.editing_query_at(line,offset,snippets)? { return Ok(result); }
+        let editing=self.editing_query_at(line,offset,snippets)?;
+        if let Some((result,true))=editing.as_ref(){return Ok(result.clone());}
         let finite_captures_current = self
             .index
             .typing
@@ -1240,7 +1241,13 @@ impl Document {
             }
         }
         let (mut items, result_limited) = items.finish();
-        let is_incomplete = result_limited || self.index.limited || frontier_limited || !references;
+        let mut is_incomplete = result_limited || self.index.limited || frontier_limited || !references;
+        if let Some((extra,false))=editing {
+            is_incomplete|=extra.is_incomplete;
+            let mut seen=HashSet::new();
+            let combined=extra.items.into_iter().chain(items).filter(|i|seen.insert((i.label.clone(),format!("{:?}",i.text_edit)))).collect::<Vec<_>>();
+            is_incomplete|=combined.len()>MAX_ITEMS;items=combined.into_iter().take(MAX_ITEMS).collect();
+        }
         for (index, item) in items.iter_mut().enumerate() {
             item.sort_text = Some(format!("{index:06}"));
         }

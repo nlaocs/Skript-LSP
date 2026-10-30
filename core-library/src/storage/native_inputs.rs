@@ -62,6 +62,13 @@ pub(crate) fn compose_transfer(target:&ParseSummary,value:&ParseSummary,target_c
     ]}).to_string())
 }
 
+/// Seal intrinsic effects against one current parsed operand. Evaluation of
+/// that operand is not certified by this composition.
+pub(crate) fn compose_effect_input(value:&ParseSummary,capture:u64,keys:&[&str])->Option<String> {
+    input(value)?;
+    Some(serde_json::json!({"version":1,"metadataKeys":keys,"inputs":[{"capture":capture,"publicSchemas":[]}]}).to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

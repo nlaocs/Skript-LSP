@@ -7,6 +7,7 @@ use crate::nlaocs::skript_parser_addon::types::{MetadataEntry, ParseSummary};
 const KEY: &str = "parser.semantic-transfer.v1";
 const READ: &str = "skript.standard-variable-read.v1";
 const SET: &str = "skript.standard-local-set.v1";
+const GLOBAL: &str = "skript.standard-global-write-candidate.v1";
 // The instanceof/replacement domain of Variable.convertIfOldPlayer in2.15.4.
 // This describes the standard operation, not a permitted producer/type list.
 const REFRESH_DOMAIN: &str = "org.bukkit.entity.Player";
@@ -35,6 +36,23 @@ pub(crate) fn set_operation(delta:&ParseSummary)->Option<MetadataEntry> {
     let data:Value=serde_json::from_str(&entry.value).ok()?;
     (data==serde_json::json!({"version":1,"kind":"default-clone"}) && crate::runtime::skript_version_is("2.15.4"))
         .then(||operation(SET,serde_json::to_string(&Set {version:1,kind:"local-scalar-default-clone".into()}).expect("SET contract serializes")))
+}
+/// Upper bound of the value passed to global persistence, not a poststate.
+pub(crate) fn global_set_operation(delta:&ParseSummary)->Option<MetadataEntry> {
+    if !crate::runtime::skript_version_is("2.15.4") {return None;}
+    if delta.metadata.iter().any(|entry|entry.key==crate::public_data::CHANGE_INPUT_METADATA_KEY) {
+        // An explicit malformed/foreign/duplicate contract cannot fall back
+        // to a different witness and silently become a valid default input.
+        set_operation(delta)?;
+    } else {
+        // Registered expressions use the existing current-source, exact-summary
+        // default-beforeChange witness. Its stored result authorizes the path;
+        // it is NOT used as a new RHS (which would apply storage twice).
+        super::for_summary(delta)?;
+    }
+    Some(MetadataEntry {key:KEY.into(),owner_component_id:None,value:serde_json::json!({"version":2,
+        "outputUse":"completion-candidate","operation":GLOBAL,
+        "parameters":serde_json::to_string(&Set {version:1,kind:"global-write-candidate-default-clone".into()}).ok()?}).to_string()})
 }
 fn valid(input:&wire::TypeBound)->bool {
     input.complete && !input.multiple && input.types.len()<=64 && (!input.types.is_empty()||input.maybe_unset)
@@ -72,17 +90,18 @@ pub(super) fn evaluate(model:&Model,request:&wire::Request)->Option<wire::Output
             Some(wire::Output {value:bound(types.into_iter().collect(),true),source:wire::SourceUpdate::Unknown,
                 source_writeback:written,effects:wire::BindingEffects::Invalidate})
         },
-        SET=>{
+        SET|GLOBAL=>{
             let parameters:Set=serde_json::from_str(&request.parameters).ok()?;
-            if parameters.version!=1 || parameters.kind!="local-scalar-default-clone" {return None;}
+            let global=request.operation==GLOBAL;
+            if parameters.version!=1 || parameters.kind!=if global {"global-write-candidate-default-clone"}else{"local-scalar-default-clone"} {return None;}
             if request.input.types.is_empty() {
                 // An empty SET delta deletes the binding before cloning.
-                return Some(wire::Output {value:bound(Vec::new(),true),source:wire::SourceUpdate::Unchanged,source_writeback:None,effects:wire::BindingEffects::Preserve});
+                return Some(wire::Output {value:bound(Vec::new(),true),source:if global {wire::SourceUpdate::Unknown}else{wire::SourceUpdate::Unchanged},source_writeback:None,effects:effects(!global)});
             }
             let stored=model.infer(&request.input.types)?;
             Some(wire::Output {value:bound(stored.types,request.input.maybe_unset||!stored.preserves_local_bindings&&stored.maybe_unset),
-                source:if stored.preserves_local_bindings {wire::SourceUpdate::Unchanged}else{wire::SourceUpdate::Unknown},
-                source_writeback:None,effects:effects(stored.preserves_local_bindings)})
+                source:if !global&&stored.preserves_local_bindings {wire::SourceUpdate::Unchanged}else{wire::SourceUpdate::Unknown},
+                source_writeback:None,effects:effects(!global&&stored.preserves_local_bindings)})
         },
         _=>None,
     }
@@ -169,6 +188,22 @@ mod tests {
             assert!(evaluate(&m,&r).is_none(),"{case}");
         }
     }
+
+    #[test]
+    fn global_candidate_is_the_planned_value_not_current_shared_state() {
+        let m=model();
+        for nullable in [false,true] {
+            let mut r=request(GLOBAL,&["java.lang.String"],nullable);
+            r.parameters=serde_json::to_string(&Set {version:1,kind:"global-write-candidate-default-clone".into()}).unwrap();
+            let out=evaluate(&m,&r).unwrap();
+            assert_eq!(out.value.types,["java.lang.String"]);assert_eq!(out.value.maybe_unset,nullable);
+            assert!(matches!(out.source,wire::SourceUpdate::Unknown));
+            assert!(matches!(out.effects,wire::BindingEffects::Invalidate));assert!(out.source_writeback.is_none());
+            r.parameters=serde_json::to_string(&Set {version:1,kind:"local-scalar-default-clone".into()}).unwrap();
+            assert!(evaluate(&m,&r).is_none(),"global operation cannot masquerade as local storage");
+        }
+    }
+
     #[test]
     fn saved_actual_snapshot_can_compute_both_copy_domains_offline() {
         let Ok(root)=std::env::var("SKRIPT_TRANSFER_SNAPSHOT") else{return;};

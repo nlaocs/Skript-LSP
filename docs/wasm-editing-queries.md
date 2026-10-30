@@ -84,9 +84,9 @@ Exact single-origin source equality and UTF-8 boundaries are required; generated
 or ambiguous source is suppressed. The service is intentionally bounded, not a
 promise of arbitrary late-file completion after its query budget is exhausted.
 
-## Stored-variable editing inputs (optional v1)
+## Stored-variable editing inputs (optional v2)
 
-`parser.editor-typed-inputs` version 1 adds an editing-only second pass over the
+`parser.editor-typed-inputs` version 2 adds an editing-only second pass over the
 same ABI 31 / WIT 0.49 metadata transport (introduced in ABI 29 / WIT 0.47). Require the capability and project-stable
 semantics, and register exactly one owner route `editor.refine/<component-id>`.
 Older hosts reject that required capability; an ABI number alone is insufficient.
@@ -105,7 +105,7 @@ resource. Provider revocation, a new parse of the document or document release
 invalidates the observation. The result's revision and original/virtual text must
 still match. Effect results remain ineligible for Expression adoption.
 
-The current frontend handles scalar local-variable subjects (including native
+The current frontend handles fixed-name scalar local/global subjects (including native
 grouping). A plain subject begins at the raw code start. A later subject needs
 an `anchor` reference to a native `host.effect` prefix ending at the receiver.
 Its authenticated operand-evaluation contract must identify the same variable
@@ -128,21 +128,24 @@ raw line's own recovery barrier, after all preceding statements. An earlier
 unparsed line or unknown local-binding effect invalidates prior facts; a later
 certified write may establish a new current binding. There is
 no fallback to occurrence history, lexical declarations or an older revision.
-Unproved, list, generated, ambiguous or unavailable input has no typed result.
+List, generated, ambiguous or unavailable input has no typed result. A separate,
+bounded same-flow global candidate may be sent with `certainty: "inferred"`,
+`complete: false` and `readClosed: false`; it never supplies semantic proof.
 
 The host then invokes the owner refinement route with one ownerless metadata
-entry `editor.typed-inputs.v1`:
+entry `editor.typed-inputs.v2`:
 
 ```json
-{"version":1,"documentRevision":4,"inputs":[{"id":"receiver-1","start":8,"end":11,"storedTypes":["java.lang.String"],"complete":true,"multiple":false,"maybeUnset":true,"readClosed":false,"evidence":"current-native-semantic-flow","boundary":"parsed-prefix-first-operand","semanticGuarantee":false}]}
+{"version":2,"documentRevision":4,"inputs":[{"id":"receiver-1","start":8,"end":11,"storedTypes":["java.lang.String"],"complete":true,"multiple":false,"maybeUnset":true,"readClosed":false,"certainty":"current","evidence":"current-native-semantic-flow","boundary":"parsed-prefix-first-operand","semanticGuarantee":false}]}
 ```
 
 `storedTypes` describes the current stored binding. `maybeUnset` and `readClosed`
 are separate: unknown lookup paths may use default/global fallback, converters
 or Player refresh. Core's variable-read v2 can close only the absent-value branch
-for audited 2.15.4 fixed-name scalar locals (`missingValue: "empty"`); it does not
-close refresh or conversion, or make a nullable value present. Consumers accept
-v1/v2 observations conservatively and preserve the current source/revision owner.
+for audited 2.15.4 fixed-name scalars (`missingValue: "empty"`); it does not
+close refresh or conversion, or make a nullable value present. The typed-input envelope is v2 only. Consumers preserve source/revision ownership;
+inferred inputs use evidence `same-flow-prior-candidate` and cannot establish types.
+See [shared scalar flow](shared-scalar-flow.md) for candidate lifetime and effects.
 A conditional member proposal is useful editing information, not a new runtime
 call guarantee. Nullable copy/type inference and hard completion filters still
 require the relevant lookup and storage contracts. Refinement must
@@ -159,7 +162,8 @@ deadline, cancellation, Store restart/disable and output quotas remain in force.
 
 Bounds per query: 64 observed native results, 128 nodes and 128 KiB per result,
 32 selected inputs, and the existing 2 MiB document ledger. The frontend sends
-at most 16 complete proven classes per input; a provider may support fewer and
-must fail closed otherwise. The reflect prototype currently consumes a single
-class and marks nullable/unclosed reads incomplete. This is not a promise that
-all runtime members, unknown types or unions can be enumerated.
+at most 16 class names per input, either a complete current bound or explicitly
+incomplete inferred candidates; a provider may support fewer and must fail
+closed otherwise. Reflect handles listed unions and marks nullable, unclosed
+or inferred receivers incomplete. This is not a promise that all runtime
+members, unknown types or unions can be enumerated.

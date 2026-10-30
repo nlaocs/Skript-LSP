@@ -100,9 +100,11 @@ An empty SET delta deletes the binding before clone processing; identity-only
 storage preserves definite presence, and nullable or effectful paths retain the absence
 allowed by their contracts.
 
-The initial adapter does not extend these guarantees to globals/default
-fallback, lists, interpolated names, unsupported versions, incomplete/old
-metadata or opaque custom transforms. Such paths keep their conservative result.
+Global current-state guarantees require an explicit provider execution/effects
+contract. The standard global operation supplies completion-only planned-value
+candidates; it does not certify persistent poststate. See [shared scalar flow](shared-scalar-flow.md).
+Lists, interpolated names, unsupported versions, incomplete/old metadata and
+opaque custom transforms retain conservative semantic results.
 Custom semantics can supply a separate provider-owned operation through the
 same public interface; neither host nor Core selects them by an addon name.
 

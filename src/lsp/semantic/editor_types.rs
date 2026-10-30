@@ -40,7 +40,7 @@ fn scalar_read<'a>(tree:&'a AstTree, scope:u64) -> Option<(&'a AstNode,Identity,
     if records.next().is_some()||record.schema_version!=1 {return None;}
     let data:IdentityData=serde_json::from_str(&record.json).ok()?;
     let identity=identity_data(data,scope,node.syntax_context)?;
-    if !identity.key.local||identity.list {return None;}
+    if identity.list {return None;}
     let read:VariableRead=serde_json::from_str(unique_metadata(node,VARIABLE_READ)?).ok()?;
     (matches!(read.version,1|2|3)&&!read.requested_types.is_empty()).then_some((node,identity,read))
 }
@@ -72,11 +72,16 @@ impl Engine<'_,'_> {
             let Some(root)=tree.nodes.iter().find(|node|node.id==*root) else{return;};
             if root.span.virtual_range.start!=line_start as u64 {return;}
         }
-        let Some(fact)=facts.get(&identity.key).filter(|fact|fact.has_current()) else{return;};
-        let Some((classes,multiple))=fact.ty.proven_types() else{return;};
-        if multiple||classes.is_empty()||classes.len()>16 {return;}
-        let InferredType::Values {maybe_unset,..}=&fact.ty else{return;};
-        self.document.editor_type_facts.push(TypeFact {input:input.clone(),classes:classes.iter().cloned().collect(),complete:true,
-            multiple,maybe_unset:*maybe_unset,read_closed:read_preserves_type_facts(&read,&fact.ty,&self.document.catalog)});
+        let Some(fact)=facts.get(&identity.key) else{return;};
+        let current=identity.key.local||self.shared_isolated;
+        let (classes,maybe_unset,inferred)=if current&&let Some((classes,false))=fact.ty.proven_types() {
+            let InferredType::Values {maybe_unset,..}=&fact.ty else{return;};
+            (classes,*maybe_unset,false)
+        }else if !identity.key.local&&let Some((classes,maybe_unset))=shared::candidate_bound(fact) {
+            (classes,maybe_unset,true)
+        }else{return;};
+        if classes.is_empty()||classes.len()>16 {return;}
+        self.document.editor_type_facts.push(TypeFact {input:input.clone(),classes:classes.iter().cloned().collect(),complete:!inferred,
+            multiple:false,maybe_unset,inferred,read_closed:!inferred&&read_preserves_type_facts(&read,&fact.ty,&self.document.catalog)});
     }
 }

@@ -12,6 +12,7 @@ pub(super) enum Invalidation {
     ControlFlow,
     Write,
     Alias,
+    Shared,
 }
 impl Invalidation {
     fn description(self) -> &'static str {
@@ -23,6 +24,7 @@ impl Invalidation {
             Self::ControlFlow => "loop or provider control flow is unverified",
             Self::Write => "write result/storage preservation is unverified",
             Self::Alias => "a write may overlap this variable binding",
+            Self::Shared => "shared execution interval or interference assumptions expired",
         }
     }
 }
@@ -74,7 +76,8 @@ pub(super) fn historical_facts(facts: &Facts) -> Facts {
     facts
         .iter()
         .filter_map(|(key, fact)| {
-            let history = fact.history.clone()?;
+            let history = fact.history.clone();
+            if history.is_none()&&fact.candidate.is_none(){return None;}
             Some((
                 key.clone(),
                 Fact {
@@ -82,7 +85,8 @@ pub(super) fn historical_facts(facts: &Facts) -> Facts {
                     definitions: Vec::new(),
                     alias: fact.alias.clone(),
                     list: fact.list,
-                    history: Some(history),
+                    history,
+                    candidate:if key.local {None}else{fact.candidate.clone()},
                 },
             ))
         })
@@ -100,6 +104,10 @@ pub(super) fn invalidate_where(
 ) {
     for (key, fact) in facts.iter_mut() {
         if affected(key, fact) {
+            if !key.local {
+                if matches!(reason,Invalidation::Alias|Invalidation::Write|Invalidation::Source){fact.candidate=None;}
+                else if let Some(candidate)=super::shared::Candidate::new(&fact.ty){fact.candidate=Some(candidate);}
+            }
             if let Some(history) = TypeHistory::from_current(fact, cause, reason) {
                 fact.history = Some(history);
             }
@@ -120,5 +128,6 @@ pub(super) fn invalidate_where(
         !matches!(fact.ty, InferredType::Unknown)
             || !fact.definitions.is_empty()
             || fact.history.is_some()
+            || fact.candidate.is_some()
     });
 }

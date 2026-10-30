@@ -28,6 +28,7 @@ mod editor_types;
 mod navigation;
 mod type_knowledge;
 mod transfer;
+mod shared;
 use history::{Invalidation, TypeHistory, historical_facts, invalidate, invalidate_where};
 pub(super) use type_knowledge::{Certainty, Evidence, Support as TypeSupport};
 
@@ -225,6 +226,7 @@ struct Fact {
     alias: Option<String>,
     list: bool,
     history: Option<TypeHistory>,
+    candidate: Option<shared::Candidate>,
 }
 impl Fact {
     // History-only keys are retained for hover, never as current flow inputs.
@@ -619,6 +621,7 @@ impl Document {
             context_preservation: HashMap::new(),
             editor_inputs,
             transfer_resolver,
+            shared_isolated:false,
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -1154,6 +1157,7 @@ struct Flow {
 }
 
 struct Engine<'a,'r> {
+    shared_isolated:bool,
     document: &'a mut Document,
     mapped_source: Option<&'a skript_parser::MappedSource>,
     witnessed_nodes: HashSet<u64>,
@@ -1176,7 +1180,9 @@ impl Engine<'_,'_> {
         }
         let node = *self.nodes.get(&id).ok_or("missing semantic AST node")?;
         let completion_owner = self.pending_completion_owner.take();
+        let previous_shared_scope=self.shared_isolated;
         if node.kind == SyntaxKind::Structure {
+            self.shared_isolated=shared::isolated(node);
             self.evaluation_context = unique_metadata(node, EVALUATION_CONTEXT)
                 .and_then(|json| serde_json::from_str::<EvaluationContext>(json).ok())
                 .filter(|claim| claim.version == 1 && claim.kind == "scope")
@@ -1191,6 +1197,7 @@ impl Engine<'_,'_> {
             self.evaluation_context = None;
         }
         let answer = self.node_inner(node, scope, facts, completion_owner);
+        if node.kind==SyntaxKind::Structure {shared::expire(facts,self.exact(node));self.shared_isolated=previous_shared_scope;}
         self.visiting.remove(&id);
         answer
     }
@@ -1298,11 +1305,7 @@ impl Engine<'_,'_> {
                     });
                 }
             }
-            let fact = identity
-                .key
-                .local
-                .then(|| facts.get(&identity.key))
-                .flatten();
+            let fact = facts.get(&identity.key).filter(|_|identity.key.local||self.shared_isolated);
             // This is the stored value at the authenticated lookup boundary,
             // before a typed Variable invokes converters or Player refresh.
             let ty = if read.is_some() {
@@ -1322,7 +1325,7 @@ impl Engine<'_,'_> {
             let history=fact.and_then(|fact|fact.history.clone());
             let transferred=if identity.key.local&&!identity.list&&read.as_ref().is_some_and(|r|r.version==3&&r.missing_value==Some(MissingVariableValue::Empty))
                 && metadata_owner(node,VARIABLE_READ)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
-                self.transfer(node,&ty)?
+                self.transfer(node,&ty,transfer::Use::Flow)?
             } else {None};
             if !identity.key.local {
                 self.document
@@ -1339,11 +1342,13 @@ impl Engine<'_,'_> {
                 ty: transferred.as_ref().and_then(|o|transfer::inferred(&o.value)).unwrap_or_else(||ty.clone()),
                 history,
             });
+            if !identity.key.local && !shared::shared_preserved(node) {shared::expire(facts,Some(range));}
             if let Some(output)=&transferred {
                 self.apply_read_transfer(&identity,output,previous,range,facts);
             } else if !safe {
                 invalidate(facts, Some(range), Invalidation::Read);
             }
+            if shared::local_invalidated(node) {invalidate_where(facts,Some(range),Invalidation::Provider,|key,_|key.local);}
             for child in &node.children {
                 self.node(*child, scope, &mut Facts::new())?;
             }
@@ -1480,10 +1485,17 @@ impl Engine<'_,'_> {
             let mut historical = historical_facts(facts);
             child_types.insert(*child, self.node(*child, scope, &mut historical)?);
         }
+        shared::after_operation(node,facts,range);
         let transferred_storage=if let Some(change)=change.as_ref().filter(|c|c.version==6&&c.mode=="set"&&c.binding_role=="binding") {
             let value=change.value_capture.and_then(|index|capture_node(node,index,&self.nodes)).and_then(|id|child_types.get(&id));
             if metadata_owner(node,CHANGE)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
-                if let Some(value)=value {self.transfer(node,value)?}else{None}
+                if let Some(value)=value {self.transfer(node,value,transfer::Use::Flow)?}else{None}
+            }else{None}
+        }else{None};
+        let candidate_storage=if let Some(change)=change.as_ref().filter(|c|c.version==6&&c.mode=="set"&&c.binding_role=="binding") {
+            let value=change.value_capture.and_then(|index|capture_node(node,index,&self.nodes)).and_then(|id|child_types.get(&id));
+            if metadata_owner(node,CHANGE)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
+                if let Some(value)=value {self.transfer(node,value,transfer::Use::Completion)?}else{None}
             }else{None}
         }else{None};
         let target_only = dispatched.is_some() || transferred_storage.as_ref().is_some_and(|o|matches!(o.effects,transfer::BindingEffects::Preserve)) || change.as_ref().is_some_and(|change| {
@@ -1504,10 +1516,11 @@ impl Engine<'_,'_> {
         }
         if node.kind == SyntaxKind::Effect {
             if let Some(change) = change {
-                self.change(node, scope, facts, &change, &child_types, dispatched.as_ref().map(|(_,result)|result),transferred_storage.as_ref())?;
+                self.change(node, scope, facts, &change, &child_types, dispatched.as_ref().map(|(_,result)|result),transferred_storage.as_ref(),candidate_storage.as_ref())?;
             } else {
-                // An unadvertised effect may invoke arbitrary addon code.
-                invalidate(facts, range, Invalidation::Provider);
+                // Unknown effects can invalidate locals; explicitly modeled
+                // suspension preserves bindings after operand evaluation.
+                if !shared::declared(node) {invalidate(facts, range, Invalidation::Provider);}
             }
         }
         if !body.is_empty() {
@@ -1682,6 +1695,7 @@ impl Engine<'_,'_> {
         children: &HashMap<u64, InferredType>,
         dispatched: Option<&StorageResult>,
         transferred:Option<&transfer::Output>,
+        candidate:Option<&transfer::Output>,
     ) -> Result<(), String> {
         if matches!(change.version,4|5|6) && change.binding_role!="binding" && dispatched.is_none() {
             // Unknown callback effects remain unknown, but no definite binding
@@ -1714,7 +1728,7 @@ impl Engine<'_,'_> {
             return Ok(());
         };
         let previous = facts.get(&identity.key).cloned();
-        if transferred.is_some_and(|o|matches!(o.effects,transfer::BindingEffects::Invalidate)) {
+        if transferred.or(candidate).is_some_and(|o|matches!(o.effects,transfer::BindingEffects::Invalidate)) {
             invalidate(facts,Some(range),Invalidation::Provider);
         }
         // A list/prefix or dynamic alias can affect any element family. Keep no
@@ -1728,12 +1742,14 @@ impl Engine<'_,'_> {
             });
         }
         if !identity.key.local {
-            self.document.writes.push(Write {
-                identity,
-                range,
-                role: WriteRole::Binding,
-                post_type: InferredType::Unknown,
-            });
+            let ty=if !identity.list&&self.shared_isolated&&shared::shared_preserved(node) {
+                transferred.and_then(|o|transfer::inferred(&o.value)).unwrap_or(InferredType::Unknown)
+            }else{InferredType::Unknown};
+            if !identity.list {
+                shared::global_write(&identity,ty.clone(),if change.mode=="delete" {None}else{candidate},facts);
+                if change.mode=="delete" {if let Some(f)=facts.get_mut(&identity.key){f.candidate=None;}}
+            }
+            self.document.writes.push(Write {identity,range,role:WriteRole::Binding,post_type:ty});
             return Ok(());
         }
         let value = change
@@ -1794,6 +1810,7 @@ impl Engine<'_,'_> {
                 alias: identity.alias.clone(),
                 list: identity.list,
                 history: history.clone(),
+                candidate:None,
             },
         );
         // The target occurrence describes the value after this accepted write.
@@ -1941,6 +1958,7 @@ impl Engine<'_,'_> {
                     alias: identity.alias.clone(),
                     list: identity.list,
                     history: None,
+                    candidate:None,
                 },
             );
             self.document.writes.push(Write {
@@ -2121,7 +2139,7 @@ fn definition_may_bind(write: &Identity, read: &Identity) -> bool {
             }
 }
 fn join_facts(left: &Facts, right: &Facts) -> Facts {
-    left.iter()
+    let mut joined:Facts=left.iter()
         .filter_map(|(key, left)| {
             let right = right.get(key)?;
             let mut definitions = left.definitions.clone();
@@ -2149,10 +2167,21 @@ fn join_facts(left: &Facts, right: &Facts) -> Facts {
                     },
                     list: left.list || right.list,
                     history: TypeHistory::join(left.history.as_ref(), right.history.as_ref()),
+                    candidate:shared::Candidate::join(left.candidate.as_ref(),right.candidate.as_ref()),
                 },
             ))
         })
-        .collect()
+        .collect();
+    // A candidate in only one branch is still a useful incomplete suggestion.
+    // It never establishes that the binding is initialized on the other path.
+    for (key,fact) in left.iter().chain(right.iter()) {
+        if !key.local&&!joined.contains_key(key)&&fact.candidate.is_some() {
+            if joined.len()>=4096 {break;}
+            let mut copy=fact.clone();copy.ty=InferredType::Unknown;copy.definitions.clear();copy.history=None;
+            joined.insert(key.clone(),copy);
+        }
+    }
+    joined
 }
 // The issuer comes from the original node's accepted provider witness. Preserve
 // duplicate contracts for the existing unique-metadata checks; do not deduplicate.
@@ -2168,6 +2197,8 @@ fn retain_semantic_contracts_with_composition(node: &mut AstNode, issuer: Option
                 | FLOW
                 | PARAMETERS
                 | LOCAL_EFFECTS
+                | shared::BINDINGS
+                | shared::SCOPE
                 | OPERANDS
                 | VALUE_RESULT
                 | VARIABLE_READ
@@ -2191,7 +2222,7 @@ fn metadata_owner<'a>(node: &'a AstNode, key: &str) -> Option<&'a str> {
     entry.owner_component_id.as_deref()
 }
 fn preserves_locals(node: &AstNode) -> bool {
-    unique_metadata(node, LOCAL_EFFECTS)
+    shared::local_preserved(node) || unique_metadata(node, LOCAL_EFFECTS)
         .and_then(|json| serde_json::from_str::<Flow>(json).ok())
         .is_some_and(|data| data.version == 1 && data.kind == "preserve")
 }

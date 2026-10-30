@@ -95,7 +95,15 @@ pub(super) fn resolve(
     }
 }
 
-fn accept_delayed(payload: EffectPayload, diagnostics: Vec<Diagnostic>) -> HookOutput {
+fn accept_delayed(mut payload: EffectPayload, diagnostics: Vec<Diagnostic>) -> HookOutput {
+    if crate::runtime::skript_version_is("2.15.4") && payload.candidate.as_ref().is_some_and(|candidate|
+        crate::catalog::standard_effect_source(candidate,"ch.njol.skript.effects.Delay")) {
+        super::annotate(&mut payload,"skript.semantic.binding-effects",r#"{"version":1,"local":"preserve","shared":"suspend"}"#);
+        super::annotate(&mut payload,crate::public_data::OPERAND_EVALUATION_METADATA_KEY,r#"{"version":1,"prefix":[0]}"#);
+        let composition=super::parsed_capture(&payload,0).and_then(|capture|capture.summary.as_ref())
+            .and_then(|summary|crate::storage::native_inputs::compose_effect_input(summary,0,&["skript.semantic.binding-effects",crate::public_data::OPERAND_EVALUATION_METADATA_KEY]));
+        if let Some(composition)=composition {super::annotate(&mut payload,crate::storage::native_inputs::COMPOSE,&composition);}
+    }
     let syntax_context = payload.context.syntax_context;
     let mut output = super::continue_with_diagnostics(payload, diagnostics);
     output.effects.context_updates.push(ContextUpdate {

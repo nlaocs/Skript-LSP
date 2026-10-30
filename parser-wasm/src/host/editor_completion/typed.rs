@@ -5,7 +5,7 @@ use crate::host::semantic_proof::SemanticWitnesses;
 
 pub const CAPABILITY: &str = "parser.editor-typed-inputs";
 pub const ROUTE_PREFIX: &str = "editor.refine/";
-pub const FACTS: &str = "editor.typed-inputs.v1";
+pub const FACTS: &str = "editor.typed-inputs.v2";
 const MAX_OBSERVATIONS: usize = 64;
 const MAX_NODES: usize = 128;
 const MAX_OBSERVATION_BYTES: usize = 128 * 1024;
@@ -88,6 +88,8 @@ pub struct TypeFact {
     pub multiple: bool,
     pub maybe_unset: bool,
     pub read_closed: bool,
+    /// Incomplete same-flow candidates, usable only as nonsemantic suggestions.
+    pub inferred: bool,
 }
 
 pub(in crate::host) struct Capture {
@@ -214,18 +216,19 @@ impl ParserHost {
                     .is_some_and(|n|witnesses.native_valid(n)) {continue;}
                 let matching=facts.iter().filter(|fact|same_input(&fact.input,input)).collect::<Vec<_>>();
                 let [fact]=matching.as_slice() else{continue;};
-                if !fact.complete || fact.multiple || fact.classes.is_empty() || fact.classes.len()>16
-                    || fact.classes.iter().any(|class|class.is_empty()||class.len()>1024||class=="java.lang.Object")
+                if fact.complete==fact.inferred || fact.inferred&&fact.read_closed || fact.multiple || fact.classes.is_empty() || fact.classes.len()>16
+                    || fact.classes.iter().any(|class|class.is_empty()||class.len()>1024||class=="java.lang.Object"||class.chars().any(char::is_control))
                     || fact.classes.iter().collect::<BTreeSet<_>>().len()!=fact.classes.len() {continue;}
                 selected.push(serde_json::json!({"id":input.id,"start":input.start,"end":input.end,
                     "storedTypes":fact.classes,"complete":fact.complete,"multiple":fact.multiple,"maybeUnset":fact.maybe_unset,
-                    "readClosed":fact.read_closed,"evidence":"current-native-semantic-flow","boundary":"parsed-prefix-first-operand",
+                    "readClosed":fact.read_closed,"certainty":if fact.inferred {"inferred"}else{"current"},
+                    "evidence":if fact.inferred {"same-flow-prior-candidate"}else{"current-native-semantic-flow"},"boundary":"parsed-prefix-first-operand",
                     "semanticGuarantee":false}));
                 allowed.push((input.start,input.end));
             }
             if selected.is_empty(){continue;}
             let fence=&batch.inputs[0].subject.fence;
-            let json=serde_json::json!({"version":1,"documentRevision":fence.revision,"inputs":selected}).to_string();
+            let json=serde_json::json!({"version":2,"documentRevision":fence.revision,"inputs":selected}).to_string();
             if json.len()>128*1024 {continue;}
             let route=format!("{ROUTE_PREFIX}{}",batch.owner);
             let index=self.components.iter().position(|component|component.manifest.component_id==batch.owner)
@@ -282,9 +285,11 @@ impl ParserHost {
             let entries=node.metadata.iter().filter(|metadata|metadata.key==RESULT).collect::<Vec<_>>();
             let [metadata]=entries.as_slice()else{return Err(invalid("one bounded proposal record is required"));};
             if metadata.value.len()>128*1024 {return Err(invalid("typed proposal record exceeds its limit"));}
-            let proposed:Output=serde_json::from_str(&metadata.value).map_err(|_|invalid("invalid typed proposal JSON"))?;
+            let mut proposed:Output=serde_json::from_str(&metadata.value).map_err(|_|invalid("invalid typed proposal JSON"))?;
             if !valid_output(&proposed,&batch.input)||!proposed.typed_inputs.is_empty()
                 ||proposed.proposals.iter().any(|p|!allowed.contains(&(p.start,p.end))){return Err(invalid("typed proposals escaped their selected input ranges"));}
+            let inferred=selected.iter().any(|v|v["certainty"]=="inferred");
+            stamp_uncertainty(&mut proposed,inferred);
             bytes=bytes.saturating_add(metadata.value.len());if bytes>MAX_BYTES{break;}
             output.push(Batch {owner:batch.owner.clone(),attempt:batch.attempt,input:batch.input.clone(),span:batch.span.clone(),output:proposed,inputs:Vec::new()});
         }
@@ -292,12 +297,24 @@ impl ParserHost {
     }
 }
 
+fn stamp_uncertainty(output:&mut Output,inferred:bool) {
+    output.inferred=inferred;
+    if inferred {output.complete=false;output.exclusive=false;}
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_provider_cannot_erase_inference_or_make_it_an_exclusive_complete_menu() {
+        let mut output:super::Output=serde_json::from_str(r#"{"version":1,"complete":true,"exclusive":true,"proposals":[]}"#).unwrap();
+        super::stamp_uncertainty(&mut output,true);
+        assert!(output.inferred&&!output.complete&&!output.exclusive);
+        assert!(super::valid_output(&output,""));
+    }
     use super::*;
     #[test]
     fn drafts_cannot_supply_foreign_or_unobserved_native_subjects() {
-        let output=Output {version:1,complete:false,exclusive:true,proposals:Vec::new(),typed_inputs:vec![Draft {id:"one".into(),
+        let output=Output {version:1,complete:false,exclusive:true,inferred:false,proposals:Vec::new(),typed_inputs:vec![Draft {id:"one".into(),
             subject:Reference {host_token:5,root_id:0},anchor:None,start:5,end:8}]};
         let span=MappedSpan {virtual_range:WitTextRange {start:0,end:8},origins:Vec::new()};
         assert!(select_inputs(&output,None,"a",1,&span,"{_a}.sub").is_none());

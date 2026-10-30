@@ -239,10 +239,11 @@ pub(crate) fn variable_read(
 // VariableString.newInstance returns LiteralString for a name with no embedded
 // Expressions. That constructor retains MESSAGE mode; getDefaultVariableNames
 // returns no candidates before considering isSimple. Variable.getRaw therefore
-// returns the local value or null, without a default/global lookup. Interpolated
+// returns the stored value or null, without a default-candidate lookup. Interpolated
 // names and unreviewed versions must not inherit this missing-value contract.
 fn static_variable_missing_is_empty(version: Option<&str>, local: bool) -> bool {
-    local && version == Some("2.15.4")
+    let _=local;
+    version == Some("2.15.4")
 }
 
 /// Initialized default source, not a generated source expression or a live value.
@@ -393,7 +394,7 @@ mod tests {
     #[test]
     fn fixed_name_missing_contract_is_scoped_to_the_audited_standard_adapter() {
         assert!(static_variable_missing_is_empty(Some("2.15.4"), true));
-        assert!(!static_variable_missing_is_empty(Some("2.15.4"), false));
+        assert!(static_variable_missing_is_empty(Some("2.15.4"), false));
         for version in [None,Some("2.15.3"),Some("2.15.5"),Some("2.16"),Some("2.15.4-custom"),Some("unknown")] {
             assert!(!static_variable_missing_is_empty(version, true));
         }

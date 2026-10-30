@@ -142,6 +142,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let authentic = catalog::standard_effect_source(candidate, "ch.njol.skript.effects.EffChange");
     let target = changed.and_then(|capture| capture.summary.as_ref());
     let static_target = target.and_then(static_variable);
+    let global_scalar=target.and_then(|t|static_variable_in_scope(t,"global"))==Some(false);
     let delta = changer.and_then(|capture| capture.summary.as_ref());
     let storage_result = authentic
         .then(|| {
@@ -181,8 +182,8 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     let dispatch_rules = if authentic && static_target==Some(false) && operation.mode==ChangeMode::Add {
         crate::storage::local_add_rules()
     } else { Vec::new() };
-    let transfer_operation=(authentic&&operation.mode==ChangeMode::Set&&static_target==Some(false))
-        .then(||delta.and_then(crate::storage::declared::transfer::set_operation)).flatten();
+    let transfer_operation=(authentic&&operation.mode==ChangeMode::Set&&(static_target==Some(false)||global_scalar))
+        .then(||delta.and_then(|d|if global_scalar {crate::storage::declared::transfer::global_set_operation(d)}else{crate::storage::declared::transfer::set_operation(d)})).flatten();
     let composition = if authentic && operation.mode == ChangeMode::Set && storage_result.is_some() {
         target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
             crate::storage::native_inputs::compose(target,value,operation.changed_capture,value_capture,context_preserving))
@@ -240,7 +241,8 @@ fn variable_list(summary: &ParseSummary) -> Option<bool> {
     serde_json::from_str::<serde_json::Value>(&record.json).ok()?["list"].as_bool()
 }
 
-fn static_variable(summary: &ParseSummary) -> Option<bool> {
+fn static_variable(summary: &ParseSummary) -> Option<bool> {static_variable_in_scope(summary,"local")}
+fn static_variable_in_scope(summary:&ParseSummary,scope:&str)->Option<bool> {
     if summary.kind != "variable" {
         return None;
     }
@@ -257,7 +259,7 @@ fn static_variable(summary: &ParseSummary) -> Option<bool> {
     let value: serde_json::Value = serde_json::from_str(&records[0].json).ok()?;
     // Global writes can synchronously serialize older queued values. That path
     // does not have the caller-local isolation promised by targetOnly.
-    if value["scope"] != "local"
+    if value["scope"] != scope
         || value["resolution"] != "static"
         || value["name"].as_str().is_none()
     {

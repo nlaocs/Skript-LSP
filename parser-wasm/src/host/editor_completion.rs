@@ -29,6 +29,8 @@ pub struct Output {
     pub version: u32,
     pub complete: bool,
     pub exclusive: bool,
+    #[serde(default)]
+    pub inferred: bool,
     pub proposals: Vec<Proposal>,
     #[serde(default)]
     pub typed_inputs: Vec<typed::Draft>,
@@ -81,7 +83,7 @@ impl Session {
 }
 
 fn valid_output(output:&Output,input:&str)->bool {
-    output.version==1 && output.exclusive && output.proposals.len()<=256 && output.proposals.iter().all(|p|
+    output.version==1 && (!output.inferred||!output.complete&&!output.exclusive) && output.proposals.len()<=256 && output.proposals.iter().all(|p|
         !p.id.is_empty() && p.id.len()<=256 && !p.id.chars().any(char::is_control)
         && !p.label.is_empty() && p.label.len()<=512 && !p.label.chars().any(char::is_control)
         && !p.filter_text.is_empty() && p.filter_text.len()<=256 && !p.filter_text.chars().any(char::is_control)
@@ -128,7 +130,7 @@ impl ParserHost {
             let before=transaction.savepoint()?;
             let observations=transaction.isolate_editor_observations()?;
             let typed_enabled=self.components.iter().find(|component|component.manifest.component_id==owner)
-                .is_some_and(|component|component.manifest.capabilities.iter().any(|cap|cap.id==typed::CAPABILITY&&cap.minimum_version<=1));
+                .is_some_and(|component|component.manifest.capabilities.iter().any(|cap|cap.id==typed::CAPABILITY&&cap.minimum_version==2));
             let previous_capture=mem::replace(&mut self.editor_capture,typed_enabled.then(typed::Capture::new));
             let receipts=self.semantic_receipts.replace(semantic_proof::ReceiptRegistry::with_sequence(self.semantic_receipt_sequence.clone()));
             let dependencies=self.native_dependency_unavailable.replace(Vec::new());
@@ -188,7 +190,7 @@ impl ParserHost {
 mod tests {
     use super::*;
     #[test]fn editing_ranges_and_payload_limits_fail_closed(){
-        let mut output=Output {version:1,complete:true,exclusive:true,typed_inputs:Vec::new(),proposals:vec![Proposal{id:"m".into(),label:"name()".into(),filter_text:"name".into(),insert_text:"name()".into(),snippet:None,start:2,end:2,detail:String::new(),documentation:String::new()}]};
+        let mut output=Output {version:1,complete:true,exclusive:true,inferred:false,typed_inputs:Vec::new(),proposals:vec![Proposal{id:"m".into(),label:"name()".into(),filter_text:"name".into(),insert_text:"name()".into(),snippet:None,start:2,end:2,detail:String::new(),documentation:String::new()}]};
         assert!(valid_output(&output,"\u{e9}."));output.proposals[0].start=1;assert!(!valid_output(&output,"\u{e9}."));
         output.proposals[0].start=2;output.proposals[0].insert_text="x\ny".into();assert!(!valid_output(&output,"\u{e9}."));
     }
@@ -196,7 +198,7 @@ mod tests {
         let source=Arc::from("x");let fence=Arc::new(typed::Fence {project:"p".into(),document:"d".into(),revision:1,current:AtomicBool::new(true),providers:CompletionTypeCertificate(Arc::new(AtomicBool::new(true)))});
         let mut s=Session::new(source,Arc::new(MappedSource::identity("x")),fence);
         s.parents=BTreeMap::from([(1,None),(2,Some(1)),(3,Some(2)),(4,None)]);
-        for attempt in [1,2,3,4]{s.batches.push(Batch {owner:"owned".into(),inputs:Vec::new(),attempt,input:"x".into(),span:MappedSpan {virtual_range:WitTextRange {start:0,end:1},origins:Vec::new()},output:Output {version:1,complete:true,exclusive:true,typed_inputs:Vec::new(),proposals:Vec::new()}});}
+        for attempt in [1,2,3,4]{s.batches.push(Batch {owner:"owned".into(),inputs:Vec::new(),attempt,input:"x".into(),span:MappedSpan {virtual_range:WitTextRange {start:0,end:1},origins:Vec::new()},output:Output {version:1,complete:true,exclusive:true,inferred:false,typed_inputs:Vec::new(),proposals:Vec::new()}});}
         s.preparation(&skript_parser::StructurePreparationEvent::Invalidated {attempt_id:1,raw_node_id:skript_parser::RawNodeId::new(0),registration_id:"test",pattern_index:0});
         assert_eq!(s.batches.iter().map(|b|b.attempt).collect::<Vec<_>>(),vec![4]);assert_eq!(s.parents.len(),1);
     }

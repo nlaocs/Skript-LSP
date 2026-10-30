@@ -40,6 +40,8 @@ struct Operation {
     version: u32,
     operation: String,
     parameters: String,
+    #[serde(default)]
+    output_use: Option<String>,
 }
 
 /// A synchronous flow pass over this exact result. Upper bounds are supplied by
@@ -83,7 +85,7 @@ impl ParserHost {
             let owner = entry.owner_component_id.as_deref()?;
             if !witnesses.provider_valid(node, owner) && !witnesses.composed_metadata_valid(node, entry) { return None; }
             let operation: Operation = serde_json::from_str(&entry.value).ok()?;
-            if operation.version != 1 || operation.operation.is_empty() || operation.operation.len() > 256
+            if !matches!((operation.version,operation.output_use.as_deref()),(1,None)|(2,Some("flow"|"completion-candidate"))) || operation.operation.is_empty() || operation.operation.len() > 256
                 || operation.parameters.len() > 8192 || operation.operation.chars().any(char::is_control) { return None; }
             Some((owner.to_owned(), operation, entry.value.len()))
             })();

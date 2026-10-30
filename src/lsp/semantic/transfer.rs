@@ -30,8 +30,19 @@ pub(super) fn inferred(bound:&TypeBound)->Option<InferredType> {
             support:TypeSupport::from(Evidence::DeclaredTransfer)})
 }
 
+#[derive(Clone,Copy,PartialEq,Eq)]
+pub(super) enum Use {Flow,Completion}
+fn usage(node:&AstNode)->Option<Use> {
+    let data:serde_json::Value=serde_json::from_str(unique_metadata(node,parser_wasm::host::semantic_transfer::METADATA)?).ok()?;
+    match (data["version"].as_u64(),data["outputUse"].as_str()) {
+        (Some(1),None)|(Some(2),Some("flow"))=>Some(Use::Flow),
+        (Some(2),Some("completion-candidate"))=>Some(Use::Completion),
+        _=>None,
+    }
+}
 impl Engine<'_,'_> {
-    pub(super) fn transfer(&mut self,node:&AstNode,ty:&InferredType)->Result<Option<Output>,String> {
+    pub(super) fn transfer(&mut self,node:&AstNode,ty:&InferredType,expected:Use)->Result<Option<Output>,String> {
+        if usage(node)!=Some(expected){return Ok(None);}
         let Some(input)=bound(ty) else{return Ok(None);};
         if unique_metadata(node,parser_wasm::host::semantic_transfer::METADATA).is_none() {return Ok(None);}
         let Some(resolver)=self.transfer_resolver.as_deref_mut() else{return Ok(None);};
