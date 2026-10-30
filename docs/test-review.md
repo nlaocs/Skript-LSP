@@ -65,8 +65,30 @@ cover 18 cases plus six edit/reopen observations, and the isolated stock Neovim
 test has accepted both new external-addon insertions. Exact raw artifacts and
 source hashes are retained locally, outside version control.
 
-Final workspace/all-features/integration/doctest and external addon validation
-are required before closing this checkpoint. Run the former as:
+Final committed test sources (LSP 2b05a876 / reflect 30a9b250) passed:
+
+| Check | Result |
+|---|---|
+| Windows full workspace/all-features/integration/doctest | 2,152 passed / 0 failed / 24 ignored, exit 0 |
+| Explicit saved-snapshot copy | 1 passed / 0 failed / 0 ignored |
+| Core native | 484 passed / 0 failed / 4 ignored |
+| Checkpoint / incremental focus | 12 passed; 22 passed / 1 ignored; no failures |
+| External reflect native and doctest / Component integration | 23 passed / 27 passed; no failures |
+| Owned-fixture public RPC | 18 cases and six edit/reopen observations; exact current type and insertion edits |
+| Saved actual-data public RPC | Core-only 21 cases / mixed 25 cases; inferred globals remain uncertified |
+| Isolated real stock Neovim | Seven actual menu acceptances (two new reflect cases) and request summary; owned LSP/Neovim exit 0 |
+
+The full count differs from the previous 2,155/0/23 by two consolidated test
+functions and one explicit manual snapshot test moving from passed to ignored.
+That snapshot test was separately run above; this is not lost negative coverage.
+All ten protected normal/demo file hashes remained unchanged. The final
+independent source reviews found no must-fix or lost distinct behavior. Frozen
+matched artifacts retain their previously qualified product hashes; no new
+release build, deployment or runtime-compatibility claim is made. Linux and live
+server/oracle execution were not performed in this offline scope.
+
+The exact full command was:
+
 
 ```sh
 cargo test --offline --locked --workspace --all-features --no-fail-fast -- --test-threads=1

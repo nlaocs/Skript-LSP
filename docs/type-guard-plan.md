@@ -1,7 +1,9 @@
 # Fixed-name type guards: paused implementation plan
 
-Status: saved before implementation. Test review and repair take precedence;
-resume this phase only after a separately committed, verified test checkpoint.
+Status: saved before implementation. The separate test-repair source checkpoint
+2b05a876 / reflect 30a9b250 is now verified (Windows full 2,152/0/24). Resume
+from its documentation successor; do not restore the old baseline over those
+repairs. No guard implementation is included in that checkpoint.
 
 ## Baseline and preserved state
 
