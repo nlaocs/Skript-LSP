@@ -119,12 +119,23 @@ pub(crate) fn parse(
     end: u64,
 ) -> Option<ExpressionLeafCandidate> {
     payload.active_type.as_ref()?;
-    let mut candidate = if let Some(parser) = standard_parser(payload) {
+    let constructor = standard_parser(payload);
+    let mut candidate = if let Some(parser) = constructor {
         (parser.parse)(payload, text, end)
     } else {
         registered_literal::parse(payload, end)
     }?;
     annotate(payload, &mut candidate);
+    // Core's fixed Literal constructors read constant data at runtime. This
+    // common boundary excludes registered fallback parsers and nested evaluation;
+    // it does not certify parse/init context, clone, conversion or serialization.
+    if payload.active_type.as_ref().is_some_and(|active|
+        active.addon_name == "Skript" && active.addon_version == "2.15.4")
+        && crate::runtime::skript_version_is("2.15.4")
+        && fixed_literal_evaluation(&candidate, constructor.is_some())
+    {
+        candidate.metadata.push(crate::public_data::preserve_local_effects());
+    }
     Some(candidate)
 }
 
@@ -203,22 +214,14 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
     let Some(active) = &payload.active_type else {
         return;
     };
-    // These identify the parser's Type, not a ClassInfo value's target Type.
-    // Only the actual fixed primitive literal constructors are certified here;
-    // interpolated VariableString and arbitrary registered literal parsers stay unknown.
+    // These stronger witnesses still apply only to the audited primitive storage
+    // constructors, not to every side-effect-free literal (for example Timespan).
     if active.addon_name == "Skript"
         && active.addon_version == "2.15.4"
         && crate::runtime::skript_version_is("2.15.4")
-        && candidate.kind == crate::nlaocs::skript_parser_addon::types::ExpressionLeafKind::Literal
-        && candidate.children.is_empty()
-        && matches!(
-            candidate.parser_id.as_str(),
-            "core.literal.number" | "core.literal.boolean" | "core.literal.string"
-        )
-        && !candidate
-            .public_data
-            .iter()
-            .any(|data| data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
+        && fixed_literal_evaluation(candidate, standard_parser(payload).is_some())
+        && matches!(candidate.parser_id.as_str(),
+            "core.literal.number" | "core.literal.boolean" | "core.literal.string")
     {
         if crate::catalog::standard_primitive_parser(active)
             && candidate.return_type.as_ref().is_some_and(|class| {
@@ -230,9 +233,6 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
                 .metadata
                 .push(crate::public_data::preserve_evaluation_context());
         }
-        candidate
-            .metadata
-            .push(crate::public_data::preserve_local_effects());
         candidate
             .metadata
             .push(crate::public_data::non_empty_value_result());
@@ -248,4 +248,39 @@ pub(crate) fn annotate(payload: &ExpressionPayload, candidate: &mut ExpressionLe
         ),
         crate::expression_candidates::metadata("type-parser-code-name", &active.code_name),
     ]);
+}
+
+// The construction route, not the public parser ID or Literal tag alone,
+// identifies our fixed constructors. Registered fallback stays unproven.
+fn fixed_literal_evaluation(candidate: &ExpressionLeafCandidate, core_constructor: bool) -> bool {
+    core_constructor
+        && candidate.kind == crate::nlaocs::skript_parser_addon::types::ExpressionLeafKind::Literal
+        && candidate.children.is_empty()
+        && !candidate.public_data.iter().any(|data|
+            data.schema_id == crate::public_data::INTERPOLATION_SCHEMA_ID)
+}
+
+#[cfg(test)]
+mod literal_binding_evaluation_tests {
+    use super::*;
+    use crate::nlaocs::skript_parser_addon::types::{DynamicMultiplicity, ExpressionLeafKind};
+
+    #[test]
+    fn fixed_duration_evaluation_is_not_arbitrary_parser_or_storage_proof() {
+        let mut value=crate::expression_candidates::candidate("core.literal.timespan",
+            ExpressionLeafKind::Literal,0,6,"ch.njol.skript.util.Timespan",DynamicMultiplicity::Single);
+        assert!(fixed_literal_evaluation(&value,true));
+        assert!(value.metadata.is_empty(),"evaluation eligibility alone publishes no storage/context witness");
+        assert!(!fixed_literal_evaluation(&value,false),"a registered parser is not a fixed constructor");
+        value.parser_id="core.literal.time".into();
+        assert!(fixed_literal_evaluation(&value,true),"the contract is not a duration special case");
+        value.children.push(crate::nlaocs::skript_parser_addon::types::ParseResultReference {host_token:1,root_id:0});
+        assert!(!fixed_literal_evaluation(&value,true),"child evaluation requires its own contract");
+        value.children.clear();
+        value.public_data.push(crate::nlaocs::skript_parser_addon::types::ExpressionPublicData {
+            schema_id:crate::public_data::INTERPOLATION_SCHEMA_ID.into(),schema_version:1,json:"{}".into()});
+        assert!(!fixed_literal_evaluation(&value,true),"interpolation is evaluated separately");
+        value.public_data.clear();value.kind=ExpressionLeafKind::Variable;
+        assert!(!fixed_literal_evaluation(&value,true));
+    }
 }
