@@ -84,20 +84,6 @@ impl Model {
         let declarations=declarations.into_iter().map(|d|(d.name.clone(),d)).collect::<BTreeMap<_,_>>();
         (declarations.len()==count).then_some(Self {records,graph,declarations})
     }
-    /// Validate the entire inherited closure, not just the concrete class. The
-    /// caller supplies source-fenced declared-method metadata; None is unknown.
-    #[cfg(test)]
-    pub(super) fn default_before_change(&self, class:&str, mut declares:impl FnMut(&str)->Option<bool>) -> bool {
-        let mut pending=vec![class]; let mut seen=BTreeSet::new(); let mut found=false;
-        while let Some(c)=pending.pop() {
-            if !seen.insert(c) {continue;} if seen.len()>128 {return false;}
-            let Some(row)=self.declarations.get(c) else {return false;};
-            match declares(c) {Some(true) if c==EXPRESSION=>found=true,Some(false)=>{},_=>return false}
-            if let Some(parent)=&row.super_class {pending.push(parent);}
-            pending.extend(row.interfaces.iter().map(String::as_str));
-        }
-        found
-    }
     /// Exact runtime-class registrations have priority over the ordered scan.
     /// A later exact registration must remain a candidate, even beyond the first
     /// ordered entry that covers every value of the public input bound.

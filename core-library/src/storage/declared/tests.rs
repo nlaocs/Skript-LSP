@@ -21,17 +21,6 @@ fn previously_unknown_classes_use_public_bounds_without_native_producer_or_hashe
     assert_eq!(r.basis,BASIS);assert!(!serde_json::to_string(&r).unwrap().contains("native"));
 }
 #[test]
-fn inherited_hook_must_be_default_through_the_entire_known_closure() {
-    let mut m=model();
-    m.declarations.insert("custom.Getter".into(),d("custom.Getter",Some("custom.Parent"),&[]));
-    m.declarations.insert("custom.Parent".into(),d("custom.Parent",Some("java.lang.Object"),&[EXPRESSION]));
-    let mut expr=d(EXPRESSION,None,&[]);expr.kind="Interface".into();m.declarations.insert(EXPRESSION.into(),expr);
-    assert!(m.default_before_change("custom.Getter",|c|Some(c==EXPRESSION)));
-    assert!(!m.default_before_change("custom.Getter",|c|Some(c==EXPRESSION||c=="custom.Parent")));
-    assert!(!m.default_before_change("custom.Getter",|c|(c!="custom.Parent").then_some(c==EXPRESSION)));
-    m.declarations.remove("custom.Parent");assert!(!m.default_before_change("custom.Getter",|c|Some(c==EXPRESSION)));
-}
-#[test]
 fn cloner_widens_to_its_declared_class_then_dispatches_storage_again() {
     let mut m=model();m.records[0]["typeRuntime"]["clonerState"]="present".into();
     m.records.remove(4);
@@ -102,11 +91,14 @@ fn captured_standard_type_rows_work_without_pinned_native_environment() {
 
 #[test]
 fn complete_method_closure_has_one_standard_hook_and_no_unknown_override() {
-    let closure=["owned.Getter".into(),EXPRESSION.into(),"java.lang.Object".into()];
+    let closure=["owned.Getter".into(),"owned.Parent".into(),EXPRESSION.into(),"java.lang.Object".into()];
     assert!(default_hook(&closure,|c|Some(c==EXPRESSION)));
-    assert!(!default_hook(&closure,|c|Some(c==EXPRESSION||c=="owned.Getter")));
-    assert!(!default_hook(&closure,|c|(c!="owned.Getter").then_some(c==EXPRESSION)));
-    assert!(!default_hook(&closure[..1],|_|Some(false)));
+    for receiver in &closure {
+        if receiver==EXPRESSION {continue;}
+        assert!(!default_hook(&closure,|c|Some(c==EXPRESSION||c==receiver)),"override: {receiver}");
+        assert!(!default_hook(&closure,|c|(c!=receiver).then_some(c==EXPRESSION)),"unknown: {receiver}");
+    }
+    assert!(!default_hook(&closure[..2],|_|Some(false)));
 }
 
 #[test]

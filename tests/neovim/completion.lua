@@ -149,6 +149,21 @@ local function run()
   assert(#report.requests > before_trigger)
   assert(report.requests[before_trigger + 1].params.context.triggerKind == 2)
   assert(report.requests[before_trigger + 1].params.context.triggerCharacter == "{")
+  -- Optional external-addon qualification; the caller supplies matched data.
+  -- Default Core-only smoke remains independent of any specific addon binary.
+  if vim.env.SKRIPT_LSP_REFLECT_SMOKE == "1" then
+    update({ "on load:", '    set {_name} to "hello"', "    set {_copy} to {_name}", "    set {_part} to {_copy}.sub" })
+    local line = api.nvim_buf_get_lines(buffer, 3, 4, false)[1]
+    menu("reflect copied receiver snippet", 4, #line - 1,
+      function(_, item) return item.filterText == "substring" and item.label == "substring(int)" end,
+      function(accepted) return accepted:match("^    set {_part} to {_copy}%.substring%([^%)]*%)$") and not accepted:find("${", 1, true) end)
+    update({ "on load:", '    set {_😀} to "hello"', "    set {_part} to ({_😀}).sub(" })
+    line = api.nvim_buf_get_lines(buffer, 2, 3, false)[1]
+    -- Cursor is before the existing parenthesis; Neovim converts byte to UTF-16.
+    menu("reflect Unicode existing parenthesis", 3, #line - 2,
+      function(_, item) return item.filterText == "substring" and item.label == "substring(int)" end,
+      function(accepted) return accepted == "    set {_part} to ({_😀}).substring(" end)
+  end
   check("request observations", { count = #report.requests, timings = #report.timings })
   assert(#report.requests >= 4)
   client:stop(false)

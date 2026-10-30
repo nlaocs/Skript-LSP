@@ -179,7 +179,7 @@ fn property_source_rejects_nonmatching_registration_before_method_queries() {
 }
 
 #[test]
-fn property_source_missing_facts_and_overrides_never_certify_storage() {
+fn property_source_missing_or_malformed_facts_never_certify_storage() {
     for field in ["kind", "definitionId", "registrationId", "elementClass", "superClass", "patterns", "addon"] {
         let mut changed = record();
         changed.as_object_mut().unwrap().remove(field);
@@ -188,24 +188,7 @@ fn property_source_missing_facts_and_overrides_never_certify_storage() {
     let mut malformed = records(record());
     malformed[0].bytes = b"not JSON".to_vec();
     assert_eq!(from_records(&key(), &malformed, |_| panic!("malformed record queried")), None);
-    for missing_or_override in [None, Some(true)] {
-        for target in 0..3 {
-            let calls = Cell::new(0);
-            let result = from_records(&key(), &records(record()), |_| {
-                let current = calls.get();
-                calls.set(current + 1);
-                if current == target { missing_or_override } else { Some(false) }
-            });
-            assert_eq!(result, missing_or_override.map(|_| false));
-            assert_eq!(calls.get(), target + 1);
-        }
-    }
-    let mut queried = Vec::new();
-    assert_eq!(from_records(&key(), &records(record()), |class| {
-        queried.push(class.to_owned());
-        Some(false)
-    }), Some(true));
-    assert_eq!(queried, [key().class, PROPERTY_BASE.into(), "ch.njol.skript.lang.util.SimpleExpression".into()]);
+
 }
 
 #[test]
@@ -223,9 +206,15 @@ fn both_property_families_require_the_complete_override_free_storage_path() {
         let mut queried=Vec::new();
         assert_eq!(from_records(&key(),&records,|class|{queried.push(class.to_owned());Some(false)}),Some(true));
         assert_eq!(queried,expected);
-        for rejected in &expected {
+        for (index,rejected) in expected.iter().enumerate() {
             for outcome in [None,Some(true)] {
-                assert_eq!(from_records(&key(),&records,|class|if class==rejected {outcome}else{Some(false)}),outcome.map(|_|false),"{base}: {rejected}");
+                let mut queried=Vec::new();
+                let actual=from_records(&key(),&records,|class|{
+                    queried.push(class.to_owned());
+                    if class==rejected {outcome}else{Some(false)}
+                });
+                assert_eq!(actual,outcome.map(|_|false),"{base}: {rejected}");
+                assert_eq!(queried,expected[..=index],"stop at the first unknown/override: {base}: {rejected}");
             }
         }
     }

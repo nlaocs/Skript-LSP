@@ -205,8 +205,9 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires an explicitly supplied saved SSG snapshot; set SKRIPT_TRANSFER_SNAPSHOT and run this test offline"]
     fn saved_actual_snapshot_can_compute_both_copy_domains_offline() {
-        let Ok(root)=std::env::var("SKRIPT_TRANSFER_SNAPSHOT") else{return;};
+        let root=std::env::var("SKRIPT_TRANSFER_SNAPSHOT").expect("set SKRIPT_TRANSFER_SNAPSHOT to the saved snapshot directory");
         let rows=serde_json::from_slice(&std::fs::read(std::path::Path::new(&root).join("Types.json")).unwrap()).unwrap();
         let m=Model::from_records(rows).unwrap();
         for types in [vec!["org.bukkit.Location",REFRESH_DOMAIN,"org.bukkit.inventory.ItemStack","org.joml.Quaternionf"],

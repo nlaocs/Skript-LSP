@@ -18,49 +18,6 @@ fn update(value: &str) -> ContextUpdate {
 }
 
 #[test]
-fn checkpoints_restore_selected_calls_after_shorter_equal_and_longer_branches() {
-    for other_count in 0..=3 {
-        let mut effects = Arc::new(empty_effects());
-        Arc::make_mut(&mut effects)
-            .context_updates
-            .push(update("base"));
-        let mut calls = HookCallLog::from(vec![call("base")]);
-        let mut failures = Vec::new();
-        let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
-
-        Arc::make_mut(&mut effects)
-            .context_updates
-            .push(update("selected"));
-        extend_hook_calls(&mut calls, vec![call("selected-1"), call("selected-2")]);
-        let selected = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
-        let selected_clone = selected.clone();
-        assert!(calls.shares_tail(&selected.calls));
-
-        base.restore(&mut effects, &mut calls, &mut failures);
-        assert_eq!(calls.suffix(0), vec![call("base")]);
-        Arc::make_mut(&mut effects)
-            .context_updates
-            .push(update("other"));
-        extend_hook_calls(&mut calls, vec![call("other"); other_count]);
-
-        selected.restore(&mut effects, &mut calls, &mut failures);
-        assert_eq!(
-            calls.suffix(0),
-            vec![call("base"), call("selected-1"), call("selected-2")]
-        );
-        assert_eq!(effects.context_updates.len(), 2);
-        assert_eq!(effects.context_updates[1].value, Some(b"selected".to_vec()));
-        extend_hook_calls(&mut calls, vec![call("later")]);
-        selected_clone.restore(&mut effects, &mut calls, &mut failures);
-        assert_eq!(
-            calls.suffix(0),
-            vec![call("base"), call("selected-1"), call("selected-2")]
-        );
-        assert_eq!(base.calls.suffix(0), vec![call("base")]);
-    }
-}
-
-#[test]
 fn empty_dispatch_keeps_shared_calls_and_nonempty_dispatch_detaches_in_order() {
     let mut calls = HookCallLog::from(vec![call("first")]);
     let saved = calls.clone();
@@ -624,20 +581,30 @@ fn empty_effect_merge_keeps_shared_prefix_and_each_nonempty_field_detaches() {
 }
 
 #[test]
-fn complete_effect_snapshots_restore_selected_arenas_after_other_branch_lengths() {
+fn checkpoints_restore_calls_and_complete_arenas_after_other_branch_lengths() {
     for count in 0..=3 {
         let mut effects = Arc::new(all_effects("base", 64));
-        let mut calls = HookCallLog::default();
+        let mut calls = HookCallLog::from(vec![call("base")]);
         let mut failures = Vec::new();
         let base = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
         merge_shared_effects(&mut effects, all_effects("selected", 48));
+        extend_hook_calls(&mut calls, vec![call("selected-1"), call("selected-2")]);
         let selected = HookEffectsCheckpoint::capture(&effects, &calls, &failures);
         let saved = selected.clone();
+        assert!(calls.shares_tail(&selected.calls));
         base.restore(&mut effects, &mut calls, &mut failures);
+        assert_eq!(calls.suffix(0),vec![call("base")]);
         for _ in 0..count {
             merge_shared_effects(&mut effects, all_effects("other", 80));
+            extend_hook_calls(&mut calls,vec![call("other")]);
         }
         selected.restore(&mut effects, &mut calls, &mut failures);
+        let selected_calls=vec![call("base"),call("selected-1"),call("selected-2")];
+        assert_eq!(calls.suffix(0),selected_calls);
+        extend_hook_calls(&mut calls,vec![call("later")]);
+        saved.clone().restore(&mut effects,&mut calls,&mut failures);
+        assert_eq!(calls.suffix(0),selected_calls);
+        assert_eq!(base.calls.suffix(0),vec![call("base")]);
         assert_eq!(effect_lengths(&effects), [2; 4]);
         assert_eq!(effects.diagnostics[1].code, "selected");
         assert_eq!(effects.context_updates[1].value, Some(b"selected".to_vec()));

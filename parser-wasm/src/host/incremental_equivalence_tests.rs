@@ -252,6 +252,14 @@ fn real_body_hit_exit_rejection_and_failure_roll_back_and_recover() {
     }
 }
 
+/// Disable both public body promises when isolating invocation/header reuse.
+fn disable_body_reuse(host:&mut ParserHost) {
+    for component in &mut host.components {
+        component.manifest.incremental_body_subscriptions.clear();
+        component.manifest.incremental_body_handler_subscriptions.clear();
+    }
+}
+
 fn compare_case(
     name: &str,
     before: &str,
@@ -261,7 +269,7 @@ fn compare_case(
     let mut warm_host = actual_host();
     // These cases isolate invocation/header reuse. Body reuse has a separate
     // cold differential below and must not distort its guest-call accounting.
-    warm_host.components[0].manifest.incremental_body_subscriptions.clear();
+    disable_body_reuse(&mut warm_host);
     assert!(
         !warm_host.components[0]
             .manifest
@@ -276,7 +284,7 @@ fn compare_case(
     let actual_calls = guest_calls(&warm_host) - before_calls;
     let metrics = warm_host.incremental_metrics();
     let mut clean_host = actual_host();
-    clean_host.components[0].manifest.incremental_body_subscriptions.clear();
+    disable_body_reuse(&mut clean_host);
     // Host policy may decline reuse. The guest, native matcher, registry, ABI,
     // source and revision are otherwise the same as the tested warm request.
     clean_host.components[0]
@@ -290,7 +298,12 @@ fn compare_case(
     let clean_before = guest_calls(&clean_host);
     let clean = run(&mut clean_host, current, 2);
     let clean_calls = guest_calls(&clean_host) - clean_before;
-    assert_eq!(clean_host.incremental_metrics().hits, 0);
+    let clean_metrics=clean_host.incremental_metrics();
+    assert_eq!(clean_metrics.hits, 0);
+    for observed in [&metrics,&clean_metrics] {
+        assert_eq!(observed.body_hits,0,"{name}: body reuse must be disabled");
+        assert_eq!(observed.body_stored,0,"{name}: invocation-only test must not store bodies");
+    }
     assert_equivalent(&warm, &clean);
     assert_eq!(
         actual_calls + metrics.hits,
@@ -678,7 +691,7 @@ fn real_core_body_unlisted_registered_resolver_keeps_typed_assignments_cold() {
         let mut cold_host=actual_host();
         cold_host.components[0].manifest.incremental_local_subscriptions.clear();
         cold_host.components[0].manifest.incremental_header_handlers.clear();
-        cold_host.components[0].manifest.incremental_body_subscriptions.clear();
+        disable_body_reuse(&mut cold_host);
         let before=guest_calls(&cold_host);
         let cold=run(&mut cold_host,&current,revision);
         let cold_calls=guest_calls(&cold_host)-before;
