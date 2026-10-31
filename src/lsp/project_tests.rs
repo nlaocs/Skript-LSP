@@ -6,7 +6,7 @@ fn unknown_component_project_stability_refuses_cross_document_facts() {
     assert!(require_stable_project(1, false).is_ok());
     assert!(require_stable_project(2, true).is_ok());
     let error = require_stable_project(2, false).unwrap_err().to_string();
-    assert!(error.contains("parser.project-stable-semantics v1"));
+    assert!(error.contains("parser.project-stable-semantics contract (v1 or v2)"));
 }
 
 fn view(path: &Path, source: &str, generation: u64, source_epoch: u64) -> ProjectSource {
