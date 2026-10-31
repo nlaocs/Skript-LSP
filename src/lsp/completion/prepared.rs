@@ -130,6 +130,7 @@ impl PreparedDocument {
         Ok(Self {
             document: Document {
                 provider_completions: super::providers::Snapshot::default(),
+                dynamic_patterns: super::dynamic_patterns::View::default(),
                 editor_queries: Vec::new(),
                 source,
                 lines,

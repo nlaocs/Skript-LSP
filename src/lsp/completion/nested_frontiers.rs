@@ -32,7 +32,7 @@ impl Document {
                 !(depth <= d && outer_fixed >= f && outer_slots <= s));
             states.push((depth, outer_fixed, outer_slots));
             let text = &committed[start..];
-            for (order, pattern) in self.index.patterns.iter().enumerate() {
+            for (order, pattern) in self.all_patterns().enumerate() {
                 if !budget.scan(1) {
                     limited = true;
                     break;

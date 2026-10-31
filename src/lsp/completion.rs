@@ -20,6 +20,7 @@ use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::{Catalog, Syntax, SyntaxKind};
 
 mod continuation;
+mod dynamic_patterns;
 mod cursor;
 mod finite;
 mod nested_frontiers;
@@ -425,6 +426,7 @@ struct Variable {
     canonical_name: Option<String>,
 }
 pub(super) struct Document {
+    dynamic_patterns: dynamic_patterns::View,
     provider_completions: providers::Snapshot,
     editor_queries: Vec<parser_wasm::host::EditorCompletionBatch>,
     source: Arc<str>,
@@ -463,6 +465,12 @@ fn exact_node(node: &AstNode, source: &str) -> Option<TextRange> {
     (source.get(range.start..range.end)? == node.text).then_some(range)
 }
 impl Document {
+    fn all_templates(&self) -> impl Iterator<Item = &Template> {
+        self.index.templates.iter().chain(self.dynamic_patterns.templates.iter())
+    }
+    fn all_patterns(&self) -> impl Iterator<Item = &Pattern> {
+        self.index.patterns.iter().chain(self.dynamic_patterns.patterns.iter())
+    }
     /// Lexical syntax suggestions only. No old AST, scope, or reference data is reused.
     pub fn from_source(source: Arc<str>, index: Arc<CatalogIndex>) -> Result<Self, String> {
         if source.len() > MAX_SYNTAX_SOURCE_BYTES {
@@ -473,6 +481,7 @@ impl Document {
         let lines = LineIndex::new(&source);
         let context = raw_context(&tree, &source, &lines, false)?;
         Ok(Self {
+            dynamic_patterns: dynamic_patterns::View::default(),
             provider_completions: providers::Snapshot::default(),
             editor_queries: Vec::new(),
             source,
@@ -667,6 +676,7 @@ impl Document {
             }
         }
         Ok(Self {
+            dynamic_patterns: dynamic_patterns::View::from_snapshot(&result.dynamic_syntax),
             source,
             lines,
             context,
@@ -793,7 +803,7 @@ impl Document {
                 && (!prefix.is_empty()
                     && (prefix.ends_with(char::is_whitespace)
                         || prefix.split_whitespace().count() > 1
-                        || !self.index.templates.iter().any(|t| {
+                        || !self.all_templates().any(|t| {
                             matches!(
                                 t.kind,
                                 SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
@@ -893,7 +903,7 @@ impl Document {
             && variable_start.is_none()
             && !matches!(line.scope, Scope::Expressions)
         {
-            for template in &self.index.templates {
+            for template in self.all_templates() {
                 if matches!(
                     template.kind,
                     SyntaxKind::Effect | SyntaxKind::Section | SyntaxKind::Condition
@@ -1199,7 +1209,8 @@ impl Document {
             } else {
                 line.code_start
             };
-            for template in &self.index.templates {
+            for template in self.all_templates() {
+                if self.dynamic_patterns.owns(&template.identity) { continue; }
                 let allowed = if line.root {
                     matches!(template.kind, SyntaxKind::Structure | SyntaxKind::Event)
                 } else if expression {
@@ -1239,9 +1250,21 @@ impl Document {
                 }
                 items.push_matching(item, &template.leading);
             }
+            if expression && !line.root {
+                // A literal document pattern can already have several words
+                // before the cursor. Keep that prefix in its native edit range
+                // instead of comparing only the last word with the full name.
+                for template in &self.dynamic_patterns.templates {
+                    let Some((relative, query)) = dynamic_patterns::literal_prefix(prefix, &template.folded) else { continue; };
+                    let start = line.code_start + relative;
+                    if !items.may_accept_matching(&template.leading, &preview(&template.parts), start) { continue; }
+                    let (item, _) = self.template_item(template, query, start, word_end, line, snippets)?;
+                    items.push_matching(item, &template.leading);
+                }
+            }
         }
         let (mut items, result_limited) = items.finish();
-        let mut is_incomplete = result_limited || self.index.limited || frontier_limited || !references;
+        let mut is_incomplete = result_limited || self.index.limited || self.dynamic_patterns.limited || frontier_limited || !references;
         if let Some((extra,false))=editing {
             is_incomplete|=extra.is_incomplete;
             let mut seen=HashSet::new();
@@ -1561,6 +1584,7 @@ impl Document {
             .collect();
         let label = source.to_string();
         Self {
+            dynamic_patterns: dynamic_patterns::View::default(),
             provider_completions: providers::Snapshot::default(),
             editor_queries: Vec::new(),
             source,

@@ -1178,7 +1178,7 @@ impl ProjectIndex {
 fn require_stable_project(documents: usize, stable: bool) -> Result<(), ProjectError> {
     if documents > 1 && !stable {
         return Err(failure(
-            "cross-document analysis requires every enabled component to declare parser.project-stable-semantics v1; current component state has no project stability contract",
+            "cross-document analysis requires every enabled component to declare a supported parser.project-stable-semantics contract (v1 or v2); current component state has no project stability contract",
         ));
     }
     Ok(())

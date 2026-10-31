@@ -195,6 +195,39 @@ local function run()
       "    if {_name} is an instance of JavaString:", "        set {_copy} to {_name}", "        set {_part} to {_copy}.sub",
     }, 8)
   end
+  if vim.env.SKRIPT_LSP_CUSTOM_EXPRESSION_SMOKE == "1" then
+    local lines = { "# 雪😀", "local expression review greeting:", "    return type: string",
+      "    get:", '        return "hello"', "on load:", "    set {_message} to review gr" }
+    update(lines)
+    menu("custom expression multiword insertion", 7, #lines[7] - 1,
+      function(label) return label == "review greeting" end,
+      function(accepted) return accepted == "    set {_message} to review greeting" end)
+    wait("custom expression accepted revision", function()
+      local tick = api.nvim_buf_get_changedtick(buffer)
+      for _, publication in ipairs(report.publications) do if publication.version == tick then return true end end
+    end)
+    local hints = assert(client:request_sync("textDocument/inlayHint", {
+      textDocument = { uri = vim.uri_from_bufnr(buffer) },
+      range = { start = { line = 0, character = 0 }, ["end"] = { line = 6,
+        character = #api.nvim_buf_get_lines(buffer, 6, 7, false)[1] } },
+    }, 30000, buffer))
+    assert(not hints.err, vim.inspect(hints.err))
+    local found = false
+    for _, hint in ipairs(hints.result or {}) do
+      if hint.position.line == 6 then
+        assert(hint.label == ": string?", "declared getter type must retain possible empty return: " .. vim.inspect(hint))
+        found = true
+      end
+    end
+    assert(found, "custom expression stored type hint missing")
+    check("custom expression nullable stored type", { hints = hints.result })
+    lines[7] = "    set {_message} to review greeting"
+    lines[8] = "    set {_part} to {_message}.sub"
+    update(lines)
+    menu("custom expression stored receiver insertion", 8, #lines[8] - 1,
+      function(_, item) return item.filterText == "substring" and item.label:match("^substring%(int%)") end,
+      function(accepted) return accepted:match("^    set {_part} to {_message}%.substring%([^%)]*%)$") and not accepted:find("${", 1, true) end)
+  end
   check("request observations", { count = #report.requests, timings = #report.timings })
   assert(#report.requests >= 4)
   client:stop(false)

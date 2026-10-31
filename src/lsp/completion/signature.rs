@@ -231,7 +231,7 @@ impl Document {
         let mut selected = Vec::new();
         for depth in 0..16 {
             let mut matches = Vec::new();
-            for (order, pattern) in self.index.patterns.iter().enumerate() {
+            for (order, pattern) in self.all_patterns().enumerate() {
                 if !budget.scan(1) {
                     break;
                 }
@@ -386,7 +386,7 @@ impl Document {
             },
         );
         let mut output = Vec::new();
-        for pattern in &self.index.patterns {
+        for pattern in self.all_patterns() {
             if !budget.scan(1) || output.len() == MAX_SIGNATURES {
                 break;
             }
