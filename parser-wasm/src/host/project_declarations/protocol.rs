@@ -84,7 +84,8 @@ impl Binding {
 }
 
 struct ExportData { source: SourceLease, view: Arc<SourceView>, provider: ProviderStamp,
-    complete: bool, bindings: Vec<Arc<Binding>>, key: String }
+    complete: bool, imports_complete: bool, provider_current: bool, bindings: Vec<Arc<Binding>>,
+    selected: BTreeMap<String, Arc<Binding>>, import_bytes: usize, key: String }
 
 /// Immutable, host-authenticated header data. It contains no foreign AST,
 /// receipt or getter body. Current authority must still be checked when consumed.
@@ -104,10 +105,43 @@ impl DeclarationExports {
     pub fn source(&self) -> &DeclarationSource { &self.0.source.stamp }
     /// Whether all expected declaration hooks reported complete collection.
     pub fn complete(&self) -> bool { self.0.complete }
+    /// Whether every requested foreign header could be materialized within bounds.
+    /// Separate from completeness of this source's own exported headers.
+    pub fn imports_complete(&self) -> bool { self.0.imports_complete }
+    /// Maximum encoded import-option bytes actually sent to a declaration hook.
+    /// Resource observation only; never semantic, type or completeness authority.
+    pub fn import_bytes(&self) -> usize { self.0.import_bytes }
+    pub(in crate::host) fn locations(&self, consumer: Arc<editor_completion::typed::Fence>) -> DeclarationLocations {
+        DeclarationLocations { data: Arc::clone(&self.0), consumer }
+    }
 
-    fn current(&self, project: &str, authority: &SourceAuthority, provider: &ProviderStamp) -> bool {
+    pub(in crate::host) fn current(&self, project: &str, authority: &SourceAuthority, provider: &ProviderStamp) -> bool {
         self.0.provider.matches(provider) && self.0.view.view_is_current(authority, project)
             && authority.is_current(project, &self.0.source)
+    }
+}
+
+/// Current-result editing locations backed by native registration provenance.
+/// This is not a type, callback, purity or executable-body certificate.
+#[derive(Clone)]
+pub struct DeclarationLocations { data: Arc<ExportData>, consumer: Arc<editor_completion::typed::Fence> }
+impl std::fmt::Debug for DeclarationLocations {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DeclarationLocations").field("bindings", &self.data.selected.len()).finish()
+    }
+}
+impl DeclarationLocations {
+    /// Both the consumer revision and the complete source/provider view must live.
+    pub fn is_current(&self) -> bool {
+        self.consumer.current.load(Ordering::Acquire) && self.consumer.providers.is_current()
+            && self.data.provider_current && self.data.provider.epoch.load(Ordering::Acquire)
+            && self.data.view.view.live.load(Ordering::Acquire) && self.data.source.is_live()
+    }
+    /// Returns original source identity/header, without executing or moving a getter.
+    pub fn site(&self, registration: &str) -> Option<(&DeclarationSource, &MappedSpan)> {
+        if !self.is_current() {return None;}
+        let binding=self.data.selected.get(registration)?;
+        binding.origin.source.is_live().then_some((&binding.origin.source.stamp, &binding.origin.header))
     }
 }
 
@@ -116,7 +150,7 @@ pub(in crate::host) struct Arena {
     pub(in crate::host) view: Arc<SourceView>,
     pub(in crate::host) provider: ProviderStamp,
     pub(in crate::host) expected: BTreeSet<(String, String)>,
-    pub(in crate::host) input_key: String,
+    import_bytes: usize,
     pub(in crate::host) body_key: String,
     pub(in crate::host) imports_complete: bool,
     pub(in crate::host) project_mode: bool,
@@ -131,7 +165,7 @@ impl Arena {
     pub(in crate::host) fn new(project: String, view: SourceView, provider: ProviderStamp,
         inputs: &DeclarationInputs, expected: BTreeSet<(String, String)>) -> Self
     {
-        Self { project, view: Arc::new(view), provider, expected, input_key: inputs.fingerprint(),
+        Self { project, view: Arc::new(view), provider, expected, import_bytes: 0,
             body_key: String::new(), imports_complete: true, project_mode: inputs.current.is_some(), body_inputs: BTreeMap::new(),
             inputs: inputs.exports.clone(), bindings: BTreeMap::new(), allocations: 0, bytes: 0, violated: false }
     }
@@ -154,18 +188,21 @@ impl Arena {
         let complete = header_execution_complete && !self.violated && self.provider.matches(provider)
             && self.expected.iter().all(|hook| annotations.completeness.get(hook) == Some(&true));
         let mut bindings = Vec::new();
+        let mut selected = BTreeMap::new();
         for (id, annotation) in annotations.definitions {
             let binding = self.bindings.get(&annotation.token).ok_or("native project binding is not in its arena")?;
             if id.component_id != binding.owner || id.local_id != binding.input.local_id {
                 return Err("native project binding differs from its final definition".into());
             }
+            if annotation.callable { selected.insert(id.qualified(), Arc::clone(binding)); }
             if !binding.imported && !binding.origin.local { bindings.push(Arc::clone(binding)); }
         }
         bindings.sort_by_key(|binding| (binding.owner.clone(), binding.input.local_id.clone()));
         let key = format!("{:x}", Sha256::digest(format!("{:?}|{}|{:?}", self.view.current.stamp, complete,
             bindings.iter().map(|b| b.semantic_key()).collect::<Vec<_>>()).as_bytes()));
         Ok(DeclarationExports(Arc::new(ExportData { source: self.view.current.clone(), view: Arc::clone(&self.view),
-            provider: self.provider.clone(), complete, bindings, key })))
+            provider: self.provider.clone(), complete, imports_complete: self.imports_complete,
+            provider_current: self.provider.matches(provider), bindings, selected, import_bytes: self.import_bytes, key })))
     }
 }
 
@@ -234,6 +271,7 @@ impl Invocation {
             complete = false; imports.clear(); descriptors.clear(); body_bindings.clear();
             value = encode(false, &descriptors)?;
         }
+        frame.import_bytes = frame.import_bytes.max(value.len());
         frame.imports_complete &= complete;
         let body_key = format!("{:x}", Sha256::digest(format!("{}|{}|{:?}", frame.project_mode, complete, body_bindings).as_bytes()));
         frame.body_inputs.insert((owner.into(), hook.into()), body_key);
@@ -267,6 +305,10 @@ impl Invocation {
         let status: Complete = serde_json::from_str(&status.value).map_err(|e|e.to_string())?;
         if status.version != 1 { return Err("unsupported project completeness version".into()); }
         Ok(Some(status.complete))
+    }
+
+    pub(in crate::host) fn invalidate(&self) {
+        if let Ok(mut frame) = self.arena.lock() { frame.violated = true; }
     }
 
     pub(in crate::host) fn bind(&self, input: &DynamicSyntaxInput, entry: &WitMetadataEntry,

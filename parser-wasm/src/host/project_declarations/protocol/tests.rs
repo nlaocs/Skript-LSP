@@ -221,3 +221,26 @@ fn excessive_or_repeated_publications_are_bounded_and_not_complete() {
     assert!(count > 0);
     assert!(!finish(&arena,vec![]).complete());
 }
+
+#[test]
+fn editing_locations_keep_native_headers_and_expire_with_consumer_or_source_view() {
+    for local in [false,true] {
+        let mut authority=SourceAuthority::default();let a=source("a");
+        let (arena,mut lease,invocation,root)=setup(&mut authority,provider(),a.clone(),vec![a],vec![],true);
+        let binding=invocation.bind(&input("header"),&export_entry(&invocation,root,local,true),&mut lease).unwrap();
+        let exports=finish(&arena,vec![("header",binding)]);
+        let consumer=Arc::new(editor_completion::typed::Fence {project:PROJECT.into(),document:"consumer".into(),revision:1,
+            current:AtomicBool::new(true),providers:CompletionTypeCertificate(Arc::new(AtomicBool::new(true)))});
+        let locations=exports.locations(Arc::clone(&consumer));let id=DynamicSyntaxId::new(OWNER,"header").qualified();
+        let (source,span)=locations.site(&id).unwrap();
+        assert_eq!(source.uri(),"file:///project/a.sk");assert_eq!(span.origins.len(),1);
+        assert_eq!(exports.0.bindings.len(),usize::from(!local),"local editing sites do not become global exports");
+        assert!(locations.site("dynamic:foreign/header").is_none());
+        consumer.current.store(false,Ordering::Release);
+        assert!(locations.site(&id).is_none(),"old consumer revisions never serve navigation");
+        let fresh=Arc::new(editor_completion::typed::Fence {project:PROJECT.into(),document:"consumer".into(),revision:2,
+            current:AtomicBool::new(true),providers:CompletionTypeCertificate(Arc::new(AtomicBool::new(true)))});
+        let locations=exports.locations(fresh);
+        authority.release(PROJECT,"a");assert!(!locations.is_current());assert!(locations.site(&id).is_none());
+    }
+}

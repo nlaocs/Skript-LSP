@@ -25,6 +25,7 @@ pub use host::{
     AstMacroCall, AstMacroRequest, AstMacroResult, DependencyUnavailableRegion,
     DocumentCancellationToken, DocumentExecutionStatus, DocumentParseError, DocumentParseRequest,
     DocumentParseResult, DocumentParseStage, DocumentParserConfig, ExtensionFaultRegion,
+    DeclarationInputs, DeclarationSource, DeclarationExports, DeclarationLocations,
     HostConfig, HostError, ParserHost, RuntimeAliasCapabilities, RuntimePlugin, RuntimeProfile,
     RuntimeSnapshotCapabilities, RuntimeSyntaxKindCapabilities, TreeMacroCall, TreeMacroRequest,
     TreeMacroResult, WasmConditionParseResult, WasmEffectParseResult, WasmExpressionParseResult,
@@ -81,6 +82,11 @@ pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-sem
 /// Providers must require project-stable-semantics v2. A declaration prototype
 /// does not certify an executable, pure or error-free implementation body.
 pub const CAPABILITY_DOCUMENT_DECLARATIONS: &str = "parser.document-declarations";
+
+/// Opt-in native project header export/import with owner, source and provider fences.
+/// Version 1 extends only the document-declarations carrier; it does not certify
+/// executable getter bodies, purity or runtime values. Old hosts reject this requirement.
+pub const CAPABILITY_PROJECT_DECLARATIONS: &str = "parser.project-declarations";
 
 /// Opt-in v1 stability of authenticated ASCII identifier leaves edited together
 /// at Function declaration/call names or static scalar local Variable names.

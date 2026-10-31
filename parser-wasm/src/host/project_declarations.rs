@@ -5,7 +5,8 @@ use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 mod protocol;
-pub use protocol::DeclarationExports;
+mod integration;
+pub use protocol::{DeclarationExports, DeclarationLocations};
 pub(super) use protocol::{Arena, Invocation};
 
 pub(super) const MAX_SOURCES: usize = 512;
@@ -38,6 +39,8 @@ impl DeclarationSource {
     pub fn uri(&self) -> &str { &self.uri }
     /// Document identity used by the native document transaction.
     pub fn document_id(&self) -> &str { &self.document_id }
+    /// Digest of original source bytes for exact editor location validation.
+    pub fn digest(&self) -> &str { &self.digest }
 
     fn bytes(&self) -> usize { self.uri.len().saturating_add(self.document_id.len()).saturating_add(self.digest.len()) }
     fn valid(&self) -> bool {
@@ -127,7 +130,7 @@ pub(super) struct SourceAuthority {
     next_lifetime: u64,
 }
 
-fn invalid(message: impl Into<String>) -> HostError {
+pub(super) fn invalid(message: impl Into<String>) -> HostError {
     StateError::InvalidInput { message: message.into() }.into()
 }
 
@@ -218,6 +221,9 @@ impl SourceAuthority {
     pub(super) fn release(&mut self, project: &str, document: &str) {
         if let Some(source) = self.sources.remove(&(project.into(), document.into())) {
             source.live.store(false, Ordering::Release);
+            // Consumers depend on the complete membership, not only their own
+            // lease. Same-stamp recreation cannot revive an old input view.
+            if let Some(view) = self.views.get(project) { view.live.store(false, Ordering::Release); }
         }
         if !self.sources.keys().any(|(known, _)| known == project) {
             self.epochs.remove(project);
@@ -308,6 +314,25 @@ mod tests {
         assert!(authority.is_current(PROJECT, &recreated.membership["a"]));
         assert_ne!(first.authority_key(), recreated.authority_key());
         assert!(!Arc::ptr_eq(&old.live, &recreated.membership["a"].live));
+    }
+
+    #[test]
+    fn released_foreign_source_revokes_consumers_even_when_recreated_in_the_same_batch() {
+        let mut authority = SourceAuthority::default();
+        let a=stamp("a",1,1,"a");let b=stamp("b",1,1,"b");
+        let input=DeclarationInputs::new(b.clone(),vec![a.clone(),b.clone()],true).with_epoch(1);
+        let consumer=authority.prepare(&request("b",1,"b"),&input).unwrap();
+        let old_a=consumer.membership["a"].clone();
+        authority.release(PROJECT,"a");
+        assert!(authority.is_current(PROJECT,&consumer.current),"unaffected own source lease survives");
+        assert!(!consumer.view_is_current(&authority,PROJECT),"consumer input view expires");
+        let fresh=authority.prepare(&request("b",2,"b"),&input).unwrap();
+        assert!(!consumer.view_is_current(&authority,PROJECT),"identical stamps never revive the old view");
+        assert!(!authority.is_current(PROJECT,&old_a));
+        assert!(!Arc::ptr_eq(&old_a.live,&fresh.membership["a"].live));
+        assert!(Arc::ptr_eq(&consumer.current.live,&fresh.current.live));
+        let repeated=authority.prepare(&request("b",3,"b"),&input).unwrap();
+        assert!(Arc::ptr_eq(&fresh.view.live,&repeated.view.live),"ordinary same-batch reparses still converge");
     }
 
     #[test]

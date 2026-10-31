@@ -1265,3 +1265,78 @@ writers do not retroactively erase these facts; foreign header/ancestor/global
 effects still deny them. It grants no whole-body issuer or purity certificate.
 See [accepted header entry facts](../docs/wasm-value-facts.md#accepted-header-entry-facts)
 for the producer promise, exact-source/receipt checks, bounds and cache limits.
+
+## Project header declarations (opt-in v1)
+
+`parser.document-declarations` v1 runs a bounded, read-only native RawTree view
+before the document registry freezes. It requires project-stable-semantics v2,
+ParseStage/Document/Transform, an empty selector and an explicit required v1
+capability. Header discovery allows diagnostics, private Parse state and dynamic
+registrations; it cannot replace source, change context, request nested parsing
+or return terminal Handled. An ordinary provider receives one invocation-owned
+`native.tree-view.v1` option. Missing or old providers do not gain new authority.
+
+Required `parser.project-declarations` v1 extends only that carrier. WIT 0.49 /
+ABI31 layouts remain unchanged; an older host rejects the new requirement. The
+native coordinator supplies `DocumentParserConfig.declarations` with the actual
+source set, monotone batch epoch and prior immutable `DeclarationExports`. Call
+`synchronize_declaration_sources` before lending cached project results, and
+revalidate them with `declaration_exports_are_current`. A default config has a
+document-only domain with unknown external membership.
+
+An opted-in hook also receives `native.project-declarations.v1`, an exact JSON
+object containing `version:1`, `project`, `complete` and `declarations`. Each
+descriptor has a fresh opaque decimal `reference`, the complete native dynamic
+`definition`, and `origin` (`uri`, `namespace`, `key`). Imports are bounded and
+source/provider-owned; a reference alone grants no access outside this hook.
+
+A dynamic registration publishes one of these metadata drafts:
+
+- `parser.project-export.v1`: version, original tree reference, decimal root ID,
+  namespace, exact key, visibility (`document` or `project`) and callable flag.
+  The host supplies source identity and original header position. Export-only
+  headers remain available for other files without entering local ranking.
+- `parser.project-import.v1`: version and fresh decimal reference. The full
+  supplied signature must match the native descriptor, including its canonical
+  source-qualified local ID. An import is never re-exported. Foreign ASTs,
+  getters, scopes and receipts are not imported.
+
+These drafts are accepted only from the current dedicated declaration invocation
+and tree lease. Owner fields cannot name another component. V1 export ordering
+may reference current static catalog entries, not foreign dynamic lifetimes.
+Headers are deterministic functions of their own source, catalog and prepared
+immutable addon inputs; incoming imports resolve uses rather than silently
+changing exported header semantics.
+
+Completeness is an unchanged Parser echo with one trailing
+`parser.project-completeness.v1` option (`{"version":1,"complete":true|false}`).
+Only ContinueProcessing can report it. The host charges the full output before
+consuming the status, validates every actual sent field, and stages the report
+in the same registration transaction. Other replacements remain forbidden.
+Missing, skipped, failed or rejected hooks do not establish an empty namespace;
+all expected opted-in hooks must report complete.
+
+Bounds are 512 sources per view, 64 KiB encoded import option, 256 KiB staged
+prototype data, 1,024 staged allocations and the existing 256 dynamic items per
+component/document. Overflow withdraws imports without truncation. The normal
+20M per-call fuel and other host limits remain enforced. `complete()` describes
+own header collection; `imports_complete()` separately reports whether foreign
+inputs were materialized. `import_bytes()` is a nonsemantic resource observation.
+Only settled complete inputs may publish a project result/body cache.
+
+Any changed/partial source view or source release revokes old consumer input
+fences. Same-stamp recreation cannot revive them; identical reparses within one
+batch converge without per-attempt tokens in semantic fingerprints. This first
+coordinator recollects headers after a whole project-view change. Body cache
+worlds retain actual candidate/override order and signatures, canonicalize
+absolute registration counters, and bind incoming prototype source lifetimes.
+Providers still need their separate incremental-body contract; declarations alone
+do not grant replayability or purity.
+
+`DocumentParseResult.declaration_locations` exposes only current-result native
+editing locations. It validates the consumer revision, provider/source lifetimes
+and original header identity; frontends must additionally match the original
+document URI/digest/identity and an Exact source projection. These locations and
+public return bounds are not runtime-class, presence, callback, storage or type
+proof certificates. Close returns an open document to saved disk state, rather
+than simulating Skript unload.

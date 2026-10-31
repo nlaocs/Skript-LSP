@@ -220,14 +220,13 @@ impl WasmExpressionEnvironment<'_> {
             pending.extend(node.children.iter().rev().copied());
             nodes.push(node);
         }
+        let project_key=self.hooks.host.project_declaration_body_key();
         let active=self.hooks.host.incremental.active.as_mut().ok_or("body_admission.prepare.reject.active_document_missing")?;
         if active.world.is_none() {
-            let dynamic=self.hooks.dynamic_snapshot.cloned().map(|mut value| {
-                value.document_revision=0;value.registry_revision=0;format!("{value:?}")
-            });
+            let dynamic=self.hooks.dynamic_snapshot.cloned().map(super::dynamic_world);
             let components=self.hooks.host.components.iter().map(|entry|
                 format!("{:?}|{:?}|{}|{}",entry.manifest,entry.registered_handler_bindings,entry.load_order,entry.preparation_generation)).collect::<Vec<_>>();
-            active.world=Some(format!("{dynamic:?}|{components:?}"));
+            active.world=Some(format!("{dynamic:?}|{components:?}|{project_key}"));
         }
         let availability=self.hooks.host.components.iter().map(|e|(e.disabled,e.unloaded)).collect::<Vec<_>>();
         // Stream into the digest; never retain full source in keys or traces.

@@ -210,6 +210,8 @@ pub struct DocumentParserConfig {
     pub structure: StructureParserConfig,
     /// Accepted global definitions from other current project document revisions.
     pub imported_functions: Vec<skript_parser::ImportedFunction>,
+    /// Native project source membership and immutable foreign header records.
+    pub declarations: super::DeclarationInputs,
     /// Cooperative cancellation checked at stage boundaries and native syntax probes.
     pub cancellation: DocumentCancellationToken,
 }
@@ -220,6 +222,7 @@ impl Default for DocumentParserConfig {
             raw_tree: None,
             structure: StructureParserConfig::default(),
             imported_functions: Vec::new(),
+            declarations: super::DeclarationInputs::default(),
             cancellation: DocumentCancellationToken::new(),
         }
     }
@@ -263,6 +266,10 @@ pub struct DocumentParseResult {
     pub dynamic_syntax: Arc<DynamicSyntaxSnapshot>,
     /// Source-discovery calls are separate from selected syntax semantic issuers.
     pub declaration_calls: Vec<HookCall>,
+    /// Authenticated header data and its complete input fence, never foreign AST.
+    pub declaration_exports: Option<super::DeclarationExports>,
+    /// Editing-only original header locations for the current consumer revision.
+    pub declaration_locations: Option<super::DeclarationLocations>,
     pub source: MappedSource,
     pub raw_tree: RawTree,
     /// Native parser trace including unknown and recovered nodes.
@@ -447,9 +454,11 @@ impl ParserHost {
         // A document fence exists even without an editing provider. Editing
         // observations and semantic transfers share lifetime, not authority.
         let session = self.new_editor_session(&request);
+        let declaration_fence = Arc::clone(&session.fence);
         let transfer_fence = self.transfer_fence(Arc::clone(&session.fence));
         let editor_session=if self.editor_routes().is_empty(){None}else{Some(session)};
         let previous_editor=std::mem::replace(&mut self.editor_session,editor_session);
+        let previous_project = self.project_declarations.take();
         let parsed = match structure_preparation {
             Some(observer) => self.parse_document_uncommitted_observed(
                 &transaction,
@@ -469,6 +478,8 @@ impl ParserHost {
             previous_dependencies,
         )
         .unwrap_or_default();
+        let project_frame = self.project_declarations.take();
+        self.project_declarations = previous_project;
         let parsed = match parsed {
             Ok(parsed) => parsed,
             Err(error) => {
@@ -496,6 +507,27 @@ impl ParserHost {
             return Err(error);
         }
 
+        // Validate native records while the final frozen registry is still live.
+        // Do not publish any record if the document commit later fails.
+        let gathered = (|| -> Result<Option<super::DeclarationExports>, HostError> {
+            let Some(frame) = &project_frame else { return Ok(None); };
+            let annotations = self.dynamic_syntax_registry.as_ref().ok_or(HostError::DynamicSyntaxUnavailable)?
+                .native_bindings(&request.context.document_id, request.context.document_revision)?;
+            let frame = frame.lock().map_err(|_| super::project_declarations::invalid("project declaration arena poisoned"))?;
+            frame.finish(annotations, &super::project_declarations::ProviderStamp::capture(self),
+                parsed.component_failures.is_empty() && parsed.fault_regions.is_empty())
+                .map(Some).map_err(super::project_declarations::invalid)
+        })();
+        let declaration_exports = match gathered {
+            Ok(exports) => exports,
+            Err(error) => {
+                self.finish_incremental_document(&request.context.document_id, request.context.document_revision, false);
+                self.rollback_document(&transaction, dynamic_savepoint.as_ref())?;
+                return Err(error.into());
+            }
+        };
+        let project_cache_ready = project_frame.as_ref().is_none_or(|frame| frame.lock().ok()
+            .is_some_and(|frame| !frame.project_mode || frame.imports_complete));
         let state = match transaction.commit() {
             Ok(state) => state,
             Err(error) => {
@@ -513,7 +545,7 @@ impl ParserHost {
         self.finish_incremental_document(
             &request.context.document_id,
             request.context.document_revision,
-            parsed.component_failures.is_empty()
+            project_cache_ready && parsed.component_failures.is_empty()
                 && parsed.fault_regions.is_empty()
                 && dependency_unavailable.is_empty(),
         );
@@ -521,6 +553,8 @@ impl ParserHost {
         Ok(DocumentParseResult {
             dynamic_syntax: parsed.dynamic_syntax,
             declaration_calls: parsed.declaration_calls,
+            declaration_locations: declaration_exports.as_ref().map(|exports| exports.locations(declaration_fence)),
+            declaration_exports,
             transfer_fence,
             editor_completions,
             static_name_rename: self.static_name_rename_certificate(),
@@ -700,6 +734,10 @@ impl ParserHost {
         let mut declaration_effects = empty_effects();
         let mut declaration_calls = Vec::new();
         let mut declaration_failures = Vec::new();
+        if !global_macro_fault {
+            self.begin_project_declarations(request, &config.declarations).map_err(|error|
+                document_host_error(error, &request.context, DocumentParseStage::DocumentDeclarations))?;
+        }
         if !global_macro_fault
             && let Some(prepared) = self.prepare_document_declarations(
                 transaction, &request.context, &source, Arc::clone(&syntax_tree),

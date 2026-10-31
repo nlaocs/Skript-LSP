@@ -8,7 +8,7 @@ mod ast_macro;
 mod addon_data;
 mod source_preparation;
 mod project_declarations;
-pub use project_declarations::{DeclarationInputs, DeclarationSource};
+pub use project_declarations::{DeclarationInputs, DeclarationSource, DeclarationExports, DeclarationLocations};
 pub mod semantic_transfer;
 pub use source_preparation::{SourcePreparationReport,SourcePreparationStep};
 mod editor_completion;
@@ -1089,6 +1089,7 @@ struct StoreData {
     addon_data_sources: Vec<AddonDataSource>,
     addon_data_owner: Option<(String, String)>,
     tree_view: Option<tree_view::Lease>,
+    project_declaration: Option<project_declarations::Invocation>,
     limits: HostResourceLimiter,
     invocation: Option<InvocationTransaction>,
     #[cfg(test)]
@@ -2043,9 +2044,15 @@ impl wit_state_store::Host for StoreData {
 impl wit_dynamic_registry::Host for StoreData {
     fn register(
         &mut self,
-        definition: WitDynamicSyntaxDefinition,
+        mut definition: WitDynamicSyntaxDefinition,
     ) -> Result<(), WitDynamicRegistryError> {
         self.note_initialization_host_call();
+        let result = (|| {
+        let semantic = definition.metadata.iter().filter(|entry| matches!(entry.key.as_str(),
+            "parser.project-export.v1" | "parser.project-import.v1")).cloned().collect::<Vec<_>>();
+        if semantic.len() > 1 { return Err(WitDynamicRegistryError { kind: WitDynamicRegistryErrorKind::InvalidInput,
+            message: "multiple project declaration drafts".into() }); }
+        definition.metadata.retain(|entry| !matches!(entry.key.as_str(), "parser.project-export.v1" | "parser.project-import.v1"));
         let component_id = self.dynamic_update()?.component_id().to_owned();
         let metadata = dynamic_metadata(definition.metadata)?;
         let before = definition
@@ -2084,9 +2091,20 @@ impl wit_dynamic_registry::Host for StoreData {
             handler: definition.handler,
             metadata,
         };
-        self.dynamic_update()?
-            .register(input)
+        let binding = if let Some(draft) = semantic.first() {
+            let invocation = self.project_declaration.as_ref().ok_or_else(|| WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::InvalidInput, message: "project declaration outside its dedicated invocation".into() })?;
+            let lease = self.tree_view.as_mut().ok_or_else(|| WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::InvalidInput, message: "project declaration has no current tree lease".into() })?;
+            Some(invocation.bind(&input, draft, lease).map_err(|message| WitDynamicRegistryError {
+                kind: WitDynamicRegistryErrorKind::InvalidInput, message })?)
+        } else { None };
+        let update = self.dynamic_update()?;
+        match binding { Some(binding) => update.register_bound(input, binding), None => update.register(input) }
             .map_err(wit_dynamic_registry_error)
+        })();
+        if result.is_err() && let Some(invocation) = &self.project_declaration { invocation.invalidate(); }
+        result
     }
 
     fn register_override(
@@ -9461,6 +9479,8 @@ pub struct ParserHost {
     legacy_type_expected: bool,
     completion_types: CompletionTypeCertificate,
     transfer_authority: semantic_transfer::Authority,
+    project_sources: project_declarations::SourceAuthority,
+    project_declarations: Option<Arc<Mutex<project_declarations::Arena>>>,
     source_preparation_reports: Vec<SourcePreparationReport>,
     source_preparation_clock: source_preparation::Clock,
     source_preparation_reports_dropped: u64,
@@ -9904,6 +9924,8 @@ impl ParserHost {
             legacy_type_expected: false,
             completion_types: CompletionTypeCertificate(Arc::new(AtomicBool::new(true))),
             transfer_authority: semantic_transfer::Authority::default(),
+            project_sources: project_declarations::SourceAuthority::default(),
+            project_declarations: None,
             source_preparation_reports: Vec::new(),
             source_preparation_clock: source_preparation::Clock::default(),
             source_preparation_reports_dropped: 0,
@@ -9991,6 +10013,7 @@ impl ParserHost {
             .map(|registry| registry.release_document(document_id, through_revision))
             .transpose()?
             .unwrap_or(false);
+        if state_released || syntax_released { self.project_sources.release(project_uri, document_id); }
         Ok(state_released || syntax_released)
     }
 
@@ -12834,7 +12857,7 @@ impl ParserHost {
                 drop(prepared);
                 let call = if let Some(output) = cached_output {
                     if let Some(call)=calls.last_mut() {call.origin=HookCallOrigin::ReusedInvocation;}
-                    (Ok(Ok(output)), state_invocation, dynamic_update)
+                    (Ok(Ok(output)), state_invocation, dynamic_update, None)
                 } else {
                     // ensure_component_ready has completed before this fresh
                     // lease is created. Each provider gets its own token/budget.
@@ -12845,11 +12868,19 @@ impl ParserHost {
                         declaration_prepass::bind_tree_reference(&mut invocation.payload, lease.reference())?;
                         Some(lease)
                     } else { None };
+                    let project_invocation = if component_promises(&self.components[candidate.component_index].manifest.capabilities, crate::CAPABILITY_PROJECT_DECLARATIONS) {
+                        if let (Some(frame), Some(view)) = (&self.project_declarations, &declaration_view) {
+                            Some(project_declarations::Invocation::prepare(Arc::clone(frame), &self.project_sources,
+                                &component_id, &subscription_id, view.reference(), &mut invocation.payload)
+                                .map_err(|message| StateError::InvalidInput { message })?)
+                        } else { None }
+                    } else { None };
                     let entry = &mut self.components[candidate.component_index];
                     entry.store.data_mut().editor_readonly = self.editor_context.is_some();
                     entry.store.data_mut().incremental_impure_call = false;
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
+                        || entry.store.data().project_declaration.is_some()
                         || declaration_view.is_some() && entry.store.data().tree_view.is_some()
                     {
                         return Err(StateError::Internal {
@@ -12861,6 +12892,7 @@ impl ParserHost {
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
+                    entry.store.data_mut().project_declaration = project_invocation;
                     if let Some(view) = declaration_view { entry.store.data_mut().tree_view = Some(view); }
                     entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     // Test-only observer work precedes the live guest deadline;
@@ -12889,6 +12921,7 @@ impl ParserHost {
                             .expect("the invocation was just installed")
                             .rollback();
                         entry.store.data_mut().dynamic_syntax_update.take();
+                        entry.store.data_mut().project_declaration.take();
                         if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
                         return Err(error);
                     }
@@ -12915,6 +12948,7 @@ impl ParserHost {
                     // Revoke on every return/trap, before cancellation and
                     // output handling can take another path.
                     if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
+                    let project_invocation = entry.store.data_mut().project_declaration.take();
                     #[cfg(test)]
                     if let Some(measurement) = binding_measurement {
                         measurement.finish(call.as_ref().ok().and_then(|output|output.as_ref().ok()));
@@ -12934,7 +12968,7 @@ impl ParserHost {
                             "the invocation remains installed for the duration of the call",
                         );
                     let dynamic_update = entry.store.data_mut().dynamic_syntax_update.take();
-                    (call, state_invocation, dynamic_update)
+                    (call, state_invocation, dynamic_update, project_invocation)
                 };
                 // The immutable request is borrowed by WASM lowering; recover its ownership.
                 #[cfg(test)]
@@ -12956,7 +12990,7 @@ impl ParserHost {
                         outcome, !cache_hit && self.components[candidate.component_index].store.data().incremental_impure_call);
                 }
                 payload = invocation.payload;
-                let (call, state_invocation, dynamic_update) = call;
+                let (call, state_invocation, mut dynamic_update, project_invocation) = call;
                 if call.is_ok()
                     && self
                         .native_cancellation
@@ -13053,8 +13087,15 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
+                let declaration_validation = if capability_id != crate::CAPABILITY_DOCUMENT_DECLARATIONS {
+                    Ok(())
+                } else if let Some(invocation) = &project_invocation {
+                    dynamic_update.as_mut().ok_or_else(|| "project declaration has no registry transaction".to_owned())
+                        .and_then(|update| invocation.consume_status(&mut output, update))
+                        .and_then(|()| declaration_prepass::validate_output(&output))
+                } else { declaration_prepass::validate_output(&output) };
                 if capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS
-                    && let Err(message) = declaration_prepass::validate_output(&output)
+                    && let Err(message) = declaration_validation
                 {
                     state_invocation.rollback();
                     drop(dynamic_update);
@@ -13869,6 +13910,7 @@ fn configured_host_capabilities(
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
         capabilities.push(Capability::new(crate::CAPABILITY_DOCUMENT_DECLARATIONS, 1));
+        capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_DECLARATIONS, 1));
     }
     capabilities
 }
@@ -14123,6 +14165,12 @@ fn validate_manifest(
         .iter()
         .map(|capability| (capability.id.as_str(), capability.minimum_version))
         .collect::<BTreeMap<_, _>>();
+    if manifest.capabilities.iter().any(|claim| claim.id == crate::CAPABILITY_PROJECT_DECLARATIONS) {
+        if !manifest.capabilities.iter().any(|claim| claim.id == crate::CAPABILITY_PROJECT_DECLARATIONS && claim.required && claim.minimum_version == 1)
+            || !manifest.subscriptions.iter().any(|route| route.capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS) {
+            return Err(HostError::InvalidManifest { message: "project declarations require the v1 capability and a document declaration route".into() });
+        }
+    }
     let mut subscription_ids = BTreeSet::new();
     for subscription in &manifest.subscriptions {
         if subscription.id.trim().is_empty() {
@@ -14962,6 +15010,7 @@ fn create_store(
             addon_data_sources: config.addon_data_sources.clone(),
             addon_data_owner: None,
             tree_view: None,
+            project_declaration: None,
             limits: HostResourceLimiter {
                 requested_memory_high_water: 0,
                 preparation_memory_bytes: None,

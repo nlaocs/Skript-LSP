@@ -7,6 +7,22 @@ mod header;
 pub(super) mod body;
 mod body_source;
 
+/// Cache identity preserves the fully resolved candidate/override order and
+/// every signature. Absolute registration counters vary on identical fresh
+/// collection; retain only their relative order, without mutating the registry.
+pub(super) fn dynamic_world(mut snapshot: DynamicSyntaxSnapshot) -> String {
+    snapshot.document_revision=0;snapshot.registry_revision=0;
+    let orders=snapshot.definitions.values().map(|d|d.declaration_order)
+        .chain(snapshot.overrides.values().map(|d|d.declaration_order))
+        .chain(snapshot.candidates.iter().flat_map(|c|c.overrides.iter().map(|h|h.declaration_order)))
+        .collect::<BTreeSet<_>>();
+    let ranks=orders.into_iter().enumerate().map(|(rank,order)|(order,rank as u64)).collect::<BTreeMap<_,_>>();
+    for definition in snapshot.definitions.values_mut() {definition.declaration_order=ranks[&definition.declaration_order];}
+    for replacement in snapshot.overrides.values_mut() {replacement.declaration_order=ranks[&replacement.declaration_order];}
+    for candidate in &mut snapshot.candidates {for handler in &mut candidate.overrides {handler.declaration_order=ranks[&handler.declaration_order];}}
+    format!("{snapshot:?}")
+}
+
 const MAX_ENTRIES: usize = 4_096;
 const MAX_BYTES: usize = 32 * 1024 * 1024;
 const MAX_DOCUMENTS: usize = 4;
@@ -294,11 +310,7 @@ impl ParserHost {
                     )
                 })
                 .transpose()?;
-            let dynamic = dynamic.map(|mut snapshot| {
-                snapshot.document_revision = 0;
-                snapshot.registry_revision = 0;
-                format!("{snapshot:?}")
-            });
+            let dynamic = dynamic.map(dynamic_world);
             let components = self
                 .components
                 .iter()
@@ -310,7 +322,7 @@ impl ParserHost {
                 })
                 .collect::<Vec<_>>();
             self.incremental.active.as_mut().unwrap().world =
-                Some(format!("{dynamic:?}|{components:?}"));
+                Some(format!("{dynamic:?}|{components:?}|{}", self.project_declaration_body_key()));
         }
         // Availability may change on an earlier component fault in this parse.
         let availability = self
@@ -714,6 +726,31 @@ mod tests {
         state.rollback();
         key
     }
+    #[test]
+    fn dynamic_world_ignores_attempt_counters_but_keeps_actual_order_and_signatures() {
+        use syntaxes::{AliasRegistry,CatalogParts};
+        let plural_rules=syntax_pattern_parser::syntax::PluralRules::from_json(r#"{"algorithm":"singular-aware","pluralOverrideSupported":false,"rules":[{"ruleOrder":0,"singular":"","plural":"s","completeWord":false,"origin":"built-in","addon":{"name":"Skript","version":"fixture"}}]}"#).unwrap();
+        let registry=DynamicSyntaxRegistry::new(Arc::new(Catalog::new(CatalogParts {
+            syntaxes:vec![],converters:vec![],comparators:vec![],event_values:vec![],properties:vec![],operators:vec![],
+            operations:BTreeMap::new(),differences:vec![],classes:vec![],aliases:AliasRegistry {aliases:BTreeMap::new(),targets:vec![]},
+            plural_rules,language:BTreeMap::new(),
+        })));
+        let mut snapshots=Vec::new();
+        for (revision,ids,handler) in [(1,["a","b"],"same"),(2,["a","b"],"same"),(3,["b","a"],"same"),(4,["a","b"],"different")] {
+            registry.begin_document(DOCUMENT,revision).unwrap();
+            let mut update=registry.begin_document_update("test.project",0,DOCUMENT,revision).unwrap();
+            for id in ids {update.register(DynamicSyntaxInput {local_id:id.into(),kind:CatalogSyntaxKind::Effect,
+                patterns:vec![format!("project {id}")],priority:0,before:vec![],after:vec![],return_type:None,
+                return_multiplicity:None,structure_node_type:None,structure_body_mode:None,entry_validator:None,
+                handler:handler.into(),metadata:BTreeMap::new()}).unwrap();}
+            update.commit().unwrap();snapshots.push(registry.freeze(DOCUMENT,revision).unwrap());
+        }
+        assert_ne!(snapshots[0].definitions,snapshots[1].definitions,"real registration counters advance");
+        assert_eq!(dynamic_world(snapshots[0].clone()),dynamic_world(snapshots[1].clone()));
+        assert_ne!(dynamic_world(snapshots[1].clone()),dynamic_world(snapshots[2].clone()),"actual candidate order remains a dependency");
+        assert_ne!(dynamic_world(snapshots[1].clone()),dynamic_world(snapshots[3].clone()),"handler/signature changes invalidate");
+    }
+
     #[test]
     fn line_local_key_reuses_only_current_complete_context_and_rebinds_input_echo() {
         let mut host = host();
