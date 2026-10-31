@@ -182,6 +182,22 @@ pub struct RankedSyntaxCandidate {
     pub overrides: Vec<DynamicHandler>,
 }
 
+/// Native transaction annotation. A token is only an index into the owning
+/// host's bounded arena; it grants no authority by itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NativeSyntaxBinding {
+    pub token: u64,
+    pub callable: bool,
+}
+
+/// Final native sidecars for a frozen document. No guest metadata is read back
+/// as provenance, and export-only definitions never enter the candidate view.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct NativeSyntaxBindings {
+    pub definitions: BTreeMap<DynamicSyntaxId, NativeSyntaxBinding>,
+    pub completeness: BTreeMap<(String, String), bool>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// Immutable candidate view frozen for one document revision.
 pub struct DynamicSyntaxSnapshot {
@@ -240,6 +256,8 @@ enum StoredItem {
 struct ComponentLayer {
     load_order: usize,
     items: BTreeMap<String, StoredItem>,
+    native_bindings: BTreeMap<String, NativeSyntaxBinding>,
+    native_completeness: BTreeMap<String, bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -349,6 +367,29 @@ impl DynamicSyntaxRegistry {
                     StoredItem::Override(_) => true,
                 }
             }))
+    }
+
+    /// Reads final native annotations only after the candidate graph froze.
+    pub fn native_bindings(&self, document_id: &str, document_revision: u64)
+        -> Result<NativeSyntaxBindings, DynamicRegistryError>
+    {
+        let inner = self.lock()?;
+        let layer = document(&inner, document_id, document_revision)?;
+        if layer.frozen.is_none() {
+            return Err(DynamicRegistryError::InvalidInput {
+                message: "native bindings require a frozen document".into(),
+            });
+        }
+        let mut result = NativeSyntaxBindings::default();
+        for (owner, component) in &layer.components {
+            for (local, binding) in &component.native_bindings {
+                result.definitions.insert(DynamicSyntaxId::new(owner, local), *binding);
+            }
+            for (hook, complete) in &component.native_completeness {
+                result.completeness.insert((owner.clone(), hook.clone()), *complete);
+            }
+        }
+        Ok(result)
     }
 
     /// Starts a transactional update to the component initialization baseline.
@@ -633,7 +674,8 @@ enum UpdateTarget {
 
 #[derive(Debug, Clone)]
 enum StagedOperation {
-    Register(DynamicSyntaxInput, Vec<DynamicPattern>),
+    Register(DynamicSyntaxInput, Vec<DynamicPattern>, Option<NativeSyntaxBinding>),
+    Completeness(String, bool),
     Override(DynamicSyntaxOverrideInput),
     Remove(String),
 }
@@ -719,7 +761,45 @@ impl DynamicSyntaxUpdate {
         }
         self.insert_id(&input.local_id)?;
         self.operations
-            .push(StagedOperation::Register(input, patterns));
+            .push(StagedOperation::Register(input, patterns, None));
+        Ok(())
+    }
+
+    /// Registers a validated header with a native-only sidecar. Noncallable
+    /// headers count against the same quotas but cannot participate in ranking.
+    pub fn register_bound(&mut self, input: DynamicSyntaxInput, binding: NativeSyntaxBinding)
+        -> Result<(), DynamicRegistryError>
+    {
+        self.validate_native_operation()?;
+        if binding.token == 0 {
+            return Err(DynamicRegistryError::InvalidInput { message: "zero native binding token".into() });
+        }
+        self.register(input)?;
+        let Some(StagedOperation::Register(_, _, annotation)) = self.operations.last_mut() else {
+            unreachable!("register staged its validated definition");
+        };
+        *annotation = Some(binding);
+        Ok(())
+    }
+
+    /// Records one native-identified declaration hook's completeness. Repeated
+    /// reports are ANDed; a later success cannot erase an earlier incomplete run.
+    /// The host separately requires reports from every expected opt-in hook.
+    pub fn report_native_completeness(&mut self, hook: &str, complete: bool)
+        -> Result<(), DynamicRegistryError>
+    {
+        self.validate_native_operation()?;
+        validate_identifier("declaration hook", hook)?;
+        self.operations.push(StagedOperation::Completeness(hook.into(), complete));
+        Ok(())
+    }
+
+    fn validate_native_operation(&self) -> Result<(), DynamicRegistryError> {
+        if !matches!(self.target, UpdateTarget::Document { .. }) || self.operations.len() >= 1024 {
+            return Err(DynamicRegistryError::InvalidInput {
+                message: "native bindings require a bounded document transaction".into(),
+            });
+        }
         Ok(())
     }
 
@@ -759,11 +839,11 @@ impl DynamicSyntaxUpdate {
     /// Atomically publishes every staged change.
     pub fn commit(self) -> Result<(), DynamicRegistryError> {
         let mut inner = self.registry.lock()?;
-        let current_items = match &self.target {
+        let current_layer = match &self.target {
             UpdateTarget::Initial => inner
                 .initial
                 .get(&self.component_id)
-                .map(|layer| layer.items.clone())
+                .cloned()
                 .unwrap_or_default(),
             UpdateTarget::Document {
                 document_id,
@@ -779,14 +859,16 @@ impl DynamicSyntaxUpdate {
                 document
                     .components
                     .get(&self.component_id)
-                    .map(|layer| layer.items.clone())
+                    .cloned()
                     .unwrap_or_default()
             }
         };
-        let mut items = current_items;
+        let ComponentLayer { mut items, mut native_bindings, mut native_completeness, .. } = current_layer;
         for operation in self.operations {
             match operation {
-                StagedOperation::Register(input, patterns) => {
+                StagedOperation::Register(input, patterns, binding) => {
+                    native_bindings.remove(&input.local_id);
+                    if let Some(binding) = binding { native_bindings.insert(input.local_id.clone(), binding); }
                     let declaration_order = inner.next_declaration_order;
                     inner.next_declaration_order = inner.next_declaration_order.saturating_add(1);
                     let id = DynamicSyntaxId::new(&self.component_id, &input.local_id);
@@ -811,7 +893,11 @@ impl DynamicSyntaxUpdate {
                         }),
                     );
                 }
+                StagedOperation::Completeness(hook, complete) => {
+                    native_completeness.entry(hook).and_modify(|prior| *prior &= complete).or_insert(complete);
+                }
                 StagedOperation::Override(input) => {
+                    native_bindings.remove(&input.local_id);
                     let declaration_order = inner.next_declaration_order;
                     inner.next_declaration_order = inner.next_declaration_order.saturating_add(1);
                     let id = DynamicSyntaxId::new(&self.component_id, &input.local_id);
@@ -829,6 +915,7 @@ impl DynamicSyntaxUpdate {
                     );
                 }
                 StagedOperation::Remove(local_id) => {
+                    native_bindings.remove(&local_id);
                     items.remove(&local_id);
                 }
             }
@@ -842,9 +929,14 @@ impl DynamicSyntaxUpdate {
                 ),
             });
         }
+        if native_completeness.len() > 64 {
+            return Err(DynamicRegistryError::InvalidInput { message: "too many native declaration hook reports".into() });
+        }
         let layer = ComponentLayer {
             load_order: self.component_load_order,
             items,
+            native_bindings,
+            native_completeness,
         };
         match self.target {
             UpdateTarget::Initial => {
@@ -923,7 +1015,9 @@ fn build_snapshot(
         for item in layer.items.values() {
             match item {
                 StoredItem::Definition(value) => {
-                    definitions.insert(value.id.clone(), value.clone());
+                    if layer.native_bindings.get(&value.id.local_id).is_none_or(|binding| binding.callable) {
+                        definitions.insert(value.id.clone(), value.clone());
+                    }
                 }
                 StoredItem::Override(value) => {
                     overrides.insert(value.id.clone(), value.clone());
@@ -1478,6 +1572,100 @@ mod release_tests {
             handler: format!("handle-{local_id}"),
             metadata: BTreeMap::new(),
         }
+    }
+
+    #[test]
+    fn native_export_only_sidecars_survive_empty_freeze_and_rollback() {
+        let registry = registry();
+        registry.begin_document(DOCUMENT, 1).unwrap();
+        assert!(registry.native_bindings(DOCUMENT, 1).is_err());
+        let mut update = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+        update.register_bound(effect("hidden"), NativeSyntaxBinding { token: 17, callable: false }).unwrap();
+        update.report_native_completeness("header", true).unwrap();
+        update.commit().unwrap();
+        let savepoint = registry.savepoint(DOCUMENT, 1).unwrap();
+        let mut changed = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+        changed.remove("hidden").unwrap();
+        changed.report_native_completeness("header", false).unwrap();
+        changed.commit().unwrap();
+        registry.rollback_to(&savepoint).unwrap();
+        let snapshot = registry.freeze(DOCUMENT, 1).unwrap();
+        assert!(snapshot.definitions.is_empty());
+        assert!(snapshot.candidates.iter().all(|c| !matches!(c.source, SyntaxCandidateSource::Dynamic(_))));
+        let bindings = registry.native_bindings(DOCUMENT, 1).unwrap();
+        assert_eq!(bindings.definitions[&DynamicSyntaxId::new(OWNER, "hidden")], NativeSyntaxBinding { token: 17, callable: false });
+        assert_eq!(bindings.completeness.get(&(OWNER.into(), "header".into())), Some(&true));
+        registry.release_document(DOCUMENT, 1).unwrap();
+        assert!(registry.native_bindings(DOCUMENT, 1).is_err());
+        registry.begin_document(DOCUMENT, 2).unwrap();
+        registry.freeze(DOCUMENT, 2).unwrap();
+        assert!(registry.native_bindings(DOCUMENT, 2).unwrap().definitions.is_empty());
+    }
+
+    #[test]
+    fn native_sidecars_follow_remove_replacement_override_and_all_reports() {
+        for replacement in ["plain", "bound", "override", "remove"] {
+            let registry = registry();
+            registry.begin_document(DOCUMENT, 1).unwrap();
+            let mut first = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+            first.register_bound(effect("owned"), NativeSyntaxBinding { token: 1, callable: false }).unwrap();
+            first.report_native_completeness("one", true).unwrap();
+            first.commit().unwrap();
+            let mut next = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+            next.remove("owned").unwrap();
+            match replacement {
+                "plain" => next.register(effect("owned")).unwrap(),
+                "bound" => next.register_bound(effect("owned"), NativeSyntaxBinding { token: 2, callable: true }).unwrap(),
+                "override" => next.register_override(DynamicSyntaxOverrideInput { local_id: "owned".into(), target: SyntaxOverrideTarget::Definition(DefinitionId("target".into())), priority: 0, handler: "handler".into(), metadata: BTreeMap::new() }).unwrap(),
+                _ => {},
+            }
+            next.report_native_completeness("one", false).unwrap();
+            next.report_native_completeness("one", true).unwrap();
+            next.report_native_completeness("two", true).unwrap();
+            next.commit().unwrap();
+            let inner = registry.lock().unwrap();
+            let component = &document(&inner, DOCUMENT, 1).unwrap().components[OWNER];
+            assert_eq!(component.native_bindings.get("owned").map(|b| b.token), (replacement == "bound").then_some(2));
+            assert_eq!(component.native_completeness.get("one"), Some(&false));
+            assert_eq!(component.native_completeness.get("two"), Some(&true));
+        }
+    }
+
+    #[test]
+    fn rejected_native_sidecar_commit_preserves_the_previous_layer() {
+        let registry = registry();
+        registry.begin_document(DOCUMENT, 1).unwrap();
+        let mut first = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+        first.register_bound(effect("kept"), NativeSyntaxBinding { token: 71, callable: false }).unwrap();
+        first.report_native_completeness("kept", true).unwrap();
+        first.commit().unwrap();
+        let mut rejected = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+        rejected.remove("kept").unwrap();
+        for index in 0..65 { rejected.report_native_completeness(&format!("hook-{index}"), false).unwrap(); }
+        assert!(rejected.commit().is_err());
+        registry.freeze(DOCUMENT, 1).unwrap();
+        let final_bindings = registry.native_bindings(DOCUMENT, 1).unwrap();
+        assert_eq!(final_bindings.definitions[&DynamicSyntaxId::new(OWNER, "kept")].token, 71);
+        assert_eq!(final_bindings.completeness, BTreeMap::from([((OWNER.into(), "kept".into()), true)]));
+    }
+
+    #[test]
+    fn export_only_headers_do_not_become_priority_targets_or_bypass_validation() {
+        let registry = registry();
+        let mut initial = registry.begin_initial_update(OWNER, 1).unwrap();
+        assert!(initial.register_bound(effect("bad"), NativeSyntaxBinding { token: 1, callable: false }).is_err());
+        registry.begin_document(DOCUMENT, 1).unwrap();
+        let mut update = registry.begin_document_update(OWNER, 1, DOCUMENT, 1).unwrap();
+        assert!(update.register_bound(effect("bad"), NativeSyntaxBinding { token: 0, callable: false }).is_err());
+        let mut invalid = effect("bad"); invalid.patterns.clear();
+        assert!(update.register_bound(invalid, NativeSyntaxBinding { token: 1, callable: false }).is_err());
+        update.register_bound(effect("hidden"), NativeSyntaxBinding { token: 1, callable: false }).unwrap();
+        let mut caller = effect("caller");
+        caller.before.push(SyntaxReference::Dynamic(DynamicSyntaxId::new(OWNER, "hidden")));
+        update.register(caller).unwrap();
+        update.commit().unwrap();
+        assert!(matches!(registry.freeze(DOCUMENT, 1), Err(DynamicRegistryError::UnknownReference { .. })));
+        assert!(registry.native_bindings(DOCUMENT, 1).is_err());
     }
 
     #[test]
