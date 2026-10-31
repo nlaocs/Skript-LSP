@@ -301,10 +301,19 @@ impl Descriptions {
         }
         // A syntax implementation class is distinct from a Type's Java value
         // representation. Functions do not expose an implementation class here.
+        // Native dynamic candidates use their component-qualified identity as
+        // element_class. That placeholder is not a Java implementation class.
+        // Match both immutable IDs; keep genuine implementation classes intact.
+        let dynamic_placeholder = summary.definition_id.as_deref()
+            .filter(|id| summary.registration_id.as_deref() == Some(*id)
+                && summary.element_class.as_deref() == Some(*id))
+            .and_then(|id| id.strip_prefix("dynamic:"))
+            .and_then(|id| id.split_once('/'))
+            .is_some_and(|(component, local)| !component.is_empty() && !local.is_empty());
         let implementation = common
             .map(|common| common.element_class.as_str())
             .or_else(|| {
-                (!matches!(
+                (!dynamic_placeholder && !matches!(
                     node.kind,
                     parser_wasm::host::SyntaxKind::Type | parser_wasm::host::SyntaxKind::Function
                 ))
@@ -902,6 +911,38 @@ mod tests {
         );
         assert!(!text.contains("Scope: local"));
         assert!(!text.contains("Return type:"));
+    }
+
+    #[test]
+    fn dynamic_identity_placeholder_is_not_a_java_implementation_class() {
+        for (definition, registration, implementation, java) in [
+            ("dynamic:unseen.provider/header", "dynamic:unseen.provider/header", "dynamic:unseen.provider/header", false),
+            ("dynamic:another.provider/value", "dynamic:another.provider/value", "dynamic:another.provider/value", false),
+            ("catalog-definition", "catalog-registration", "org.example.ActualExpression", true),
+            ("dynamic:unseen.provider/header", "dynamic:unseen.provider/header", "org.example.ActualExpression", true),
+            ("dynamic:unseen.provider/header", "dynamic:another.provider/header", "dynamic:unseen.provider/header", true),
+            ("dynamic:/header", "dynamic:/header", "dynamic:/header", true),
+            ("dynamic:unseen.provider/", "dynamic:unseen.provider/", "dynamic:unseen.provider/", true),
+        ] {
+            let source = "review greeting";
+            let mut value = node(41, definition, (0, source.len()));
+            value.text = source.into();
+            let summary = value.summary.as_mut().unwrap();
+            summary.kind = "registered-expression".into();
+            summary.definition_id = Some(definition.into());
+            summary.registration_id = Some(registration.into());
+            summary.element_class = Some(implementation.into());
+            summary.possible_return_types = vec!["java.lang.String".into()];
+            let document = document(source, vec![41], vec![value]);
+            let (text, range) = contents(document.at(Position::new(0, 4)).unwrap());
+            assert_eq!(text.contains("Java class:"), java, "{definition}: {text}");
+            assert_eq!(text.contains("Qualified Java class:"), java, "{definition}: {text}");
+            assert!(text.starts_with(&format!("Expression: {definition}\n")));
+            assert!(text.contains("Return type: java.lang.String"));
+            assert!(text.contains("Possible return types (complete): java.lang.String"));
+            assert!(text.contains("Multiplicity: single"));
+            assert_eq!(range, Range::new(Position::new(0, 0), Position::new(0, source.len() as u32)));
+        }
     }
 
     #[test]
