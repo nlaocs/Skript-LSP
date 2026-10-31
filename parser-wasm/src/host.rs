@@ -19150,6 +19150,7 @@ mod tests {
 
     #[test]
     fn host_only_advertises_capabilities_implemented_by_this_pipeline() {
+        assert!(host_capabilities().iter().any(|c|c.id==crate::CAPABILITY_TYPE_GUARDS && c.version==1));
         let ids = host_capabilities()
             .into_iter()
             .map(|capability| capability.id)
@@ -19160,6 +19161,7 @@ mod tests {
                 crate::CAPABILITY_ADDON_DATA,
                 crate::CAPABILITY_SOURCE_PREPARATION,
                 crate::CAPABILITY_SEMANTIC_TRANSFER,
+                crate::CAPABILITY_TYPE_GUARDS,
                 CAPABILITY_HOOKS,
                 CAPABILITY_STATE_STORE,
                 CAPABILITY_TEXT_MACRO,
