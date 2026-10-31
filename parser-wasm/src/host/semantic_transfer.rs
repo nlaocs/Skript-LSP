@@ -26,6 +26,7 @@ pub(super) struct Fence {
 pub(super) struct Authority(Arc<AtomicBool>);
 impl Default for Authority {fn default()->Self {Self(Arc::new(AtomicBool::new(true)))}}
 impl Authority {pub(super) fn revoke(&mut self){self.0.store(false,Ordering::Release);self.0=Arc::new(AtomicBool::new(true));}}
+impl Authority {pub(super) fn identity(&self)->Arc<AtomicBool>{Arc::clone(&self.0)}}
 impl Drop for Authority {fn drop(&mut self){self.0.store(false,Ordering::Release);}}
 /// Revocable lifetime for frontend facts computed by these data-only queries.
 #[derive(Clone,Debug)]

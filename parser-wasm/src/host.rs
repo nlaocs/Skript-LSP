@@ -7,6 +7,8 @@
 mod ast_macro;
 mod addon_data;
 mod source_preparation;
+mod project_declarations;
+pub use project_declarations::{DeclarationInputs, DeclarationSource};
 pub mod semantic_transfer;
 pub use source_preparation::{SourcePreparationReport,SourcePreparationStep};
 mod editor_completion;
