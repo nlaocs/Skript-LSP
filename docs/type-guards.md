@@ -1,7 +1,8 @@
 # Fixed-name simple type guards
 
-Status: implementation in progress after the separately verified test repair
-(LSP 21ea157 / reflect 30a9b25; full Windows 2,152 passed, 0 failed, 24 ignored).
+Status: verified bounded offline candidate. Product source 8cd5883; final
+capability-test correction 5d2f09d3 / reflect 9e8bda96.
+The separate test-repair checkpoint remains 2b05a876 / reflect 30a9b250.
 The original pause/resume boundary remains in type-guard-plan.md. No deployment.
 
 ## Provider and flow responsibilities
@@ -91,3 +92,32 @@ Official source anchors used: Skript 2.15.4 CondIsSet, CondIsOfType, SecConditio
 skript-reflect 5eb024bcc7f3d0d5b0714bfe5485c66f916f58da CondIsInstanceOf and
 SkriptMirrorUtil.getClass. CondIsOfType is item/entity-specific and is not a
 generic Java-type guard. No live server/oracle/capture was run for this phase.
+
+## Final offline verification
+
+The final committed test source passed the complete Windows command
+
+```text
+cargo test --offline --locked --workspace --all-features --no-fail-fast -- --test-threads=1
+```
+
+2163 passed, 0 failed, 24 ignored across 90 result groups.
+The first full run is retained as 2,161/2/24: its only failures were stale
+capability count/list expectations. The correction retains exact count/list
+checks and adds required-version/uniqueness assertions; it changes no product
+code. The second full run is the final outcome, not stitched focused coverage.
+
+Focused checks: native host 57, LSP guards 6, reflect native 23, ordinary SDK 27
+and explicit guard SDK 2. Public RPC: 27 cases, 12 edit/reopen observations and
+2 additional edge/proof-boundary cases. Saved actual metadata: 4 Core-only and
+5 mixed guard cases, plus 21/25 shared-state regressions. The separately ignored
+actual-copy test was run explicitly using an existing current test binary.
+Isolated Neovim completed 9 menu insertions, including both new guards.
+The old host rejects the new component with the expected missing capability.
+Independent review found no remaining must-fix.
+
+Linux, live server/oracle and fresh capture were not run in this phase. No normal
+executable, distributed demo, user editor, remote branch or PR was changed.
+The 20M fuel, 22 GiB build-start and 10 GiB sampled floor remain unchanged.
+Guard-specific body reuse and the non-guard mixed-section limit above are
+explicit remaining constraints; no speed improvement is claimed.
