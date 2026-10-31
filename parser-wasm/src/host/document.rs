@@ -408,6 +408,38 @@ impl ParserHost {
             &config.cancellation,
             DocumentParseStage::Start,
         )?;
+        // Recovery changes provider/preparation authority and can clear the
+        // incremental session. Stabilize it before creating document fences,
+        // never by refreshing an already computed result after the fact.
+        let previous_cancellation = self.native_cancellation.replace(config.cancellation.clone());
+        let recovery = (|| -> Result<(), HostError> {
+            for index in 0..self.components.len() {
+                let entry = &self.components[index];
+                if entry.disabled || entry.unloaded
+                    || !(entry.restart_pending || entry.store.data().epoch_cancelled) {
+                    continue;
+                }
+                if let Err(error) = self.ensure_component_ready(index)
+                    && (matches!(&error, HostError::Cancelled(_)) || !self.components[index].disabled) {
+                    return Err(error);
+                }
+                // A failed recovery that disabled its provider keeps the
+                // existing target-matched unavailable/partial-result path.
+            }
+            Ok(())
+        })();
+        self.native_cancellation = previous_cancellation;
+        if let Err(error) = recovery {
+            return Err(match error {
+                HostError::Cancelled(_) => DocumentParseError::Cancelled {
+                    document_id: request.context.document_id.clone(),
+                    document_revision: request.context.document_revision,
+                    stage: DocumentParseStage::Start,
+                },
+                error => error.into(),
+            });
+        }
+        check_cancelled(&request.context, &config.cancellation, DocumentParseStage::Start)?;
         let transaction = self.begin_parse(
             &request.project_uri,
             &request.context.document_id,

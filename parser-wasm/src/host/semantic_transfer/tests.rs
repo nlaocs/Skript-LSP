@@ -346,3 +346,86 @@ fn unknown_or_incomplete_value_relation_descriptors_are_not_identity_promises() 
         let op:Operation=serde_json::from_value(value).unwrap();assert!(!op.supported());
     }
 }
+
+
+
+fn host_with_restartable_text() -> (ParserHost, usize) {
+    let mut host = host("good");
+    host.load_addon(include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../artifacts/text-macro-addon.wasm"))).unwrap();
+    let index = host.components.iter().position(|entry|
+        entry.manifest.component_id == "nlaocs.test.text-macro").unwrap();
+    assert!(component_promises(&host.components[index].manifest.capabilities,
+        crate::CAPABILITY_EPOCH_CANCELLATION_RESTART_SAFE));
+    (host, index)
+}
+
+#[test]
+fn document_recovery_creates_a_current_transfer_fence() {
+    let (mut host, recovering) = host_with_restartable_text();
+    let old = parse(&mut host, 1, SOURCE);
+    let old_node = selected(&old);
+    let old_certificate = host.semantic_transfer_session(&old, None).certificate().unwrap();
+    let generation = host.components[recovering].preparation_generation;
+    // Actual marker creation and rollback are covered by the in-guest
+    // cancellation tests. This test covers the next ordinary document.
+    host.components[recovering].store.data_mut().epoch_cancelled = true;
+    let fresh = parse(&mut host, 2, SOURCE);
+    let fresh_node = selected(&fresh);
+    assert!(!host.components[recovering].store.data().epoch_cancelled);
+    assert!(host.components[recovering].preparation_generation > generation);
+    assert!(!old_certificate.is_current(), "restart cannot rebase an old certificate");
+    assert!(host.semantic_transfer_session(&old, None).evaluate(old_node, bound()).unwrap().is_none());
+    let mut session = host.semantic_transfer_session(&fresh, None);
+    assert!(session.current(), "the new result captured its transfer fence before recovery");
+    assert!(session.evaluate(fresh_node, bound()).unwrap().is_some());
+    assert!(session.certificate().unwrap().is_current());
+}
+
+#[test]
+fn document_recovery_cancellation_restores_the_caller_token_and_allows_retry() {
+    let (mut host, recovering) = host_with_restartable_text();
+    let old = parse(&mut host, 1, SOURCE);
+    let old_certificate = host.semantic_transfer_session(&old, None).certificate().unwrap();
+    let previous = DocumentCancellationToken::new();
+    host.native_cancellation = Some(previous.clone());
+    let cancellation = DocumentCancellationToken::new();
+    host.components[recovering].restart_pending = true;
+    host.components[recovering].cancel_during_restart_initialize = Some(cancellation.clone());
+    let error = host.parse_document(DocumentParseRequest::new(PROJECT, DOCUMENT, 2, SOURCE.to_owned()),
+        DocumentParserConfig {cancellation:cancellation.clone(),..Default::default()}).unwrap_err();
+    assert!(matches!(error, super::super::document::DocumentParseError::Cancelled {
+        stage:super::super::document::DocumentParseStage::Start,..}), "{error:?}");
+    assert!(cancellation.is_cancelled());
+    assert!(!previous.is_cancelled());
+    assert!(host.components[recovering].restart_pending && !host.components[recovering].disabled);
+    assert!(!old_certificate.is_current(), "recovery revocation survives a cancelled new document");
+    previous.cancel();
+    assert!(host.native_cancellation.as_ref().unwrap().is_cancelled(), "the exact caller token must be restored");
+    host.native_cancellation = None;
+    let fresh = parse(&mut host, 3, SOURCE);
+    let node = selected(&fresh);
+    let mut session = host.semantic_transfer_session(&fresh, None);
+    assert!(session.evaluate(node, bound()).unwrap().is_some());
+    assert!(session.certificate().unwrap().is_current());
+}
+
+#[test]
+fn document_recovery_failure_keeps_the_existing_scoped_fault_path() {
+    let (mut host, recovering) = host_with_restartable_text();
+    let old = parse(&mut host, 1, SOURCE);
+    let old_certificate = host.semantic_transfer_session(&old, None).certificate().unwrap();
+    // Same retained-manifest incompatibility used by the restart handshake
+    // tests: preflight must disable it, not add a new fatal Start failure.
+    host.components[recovering].manifest.component_version.push_str("-incompatible");
+    host.components[recovering].restart_pending = true;
+    let fresh = host.parse_document(DocumentParseRequest::new(PROJECT, DOCUMENT, 2, SOURCE.to_owned()),
+        DocumentParserConfig::default()).expect("disabled-provider effects remain ordinary scoped fault data");
+    assert!(host.components[recovering].disabled);
+    assert!(fresh.component_failures.iter().any(|failure|
+        failure.component_id == "nlaocs.test.text-macro"));
+    assert_eq!(fresh.execution_status, super::super::document::DocumentExecutionStatus::Partial);
+    assert!(!fresh.fault_regions.is_empty(), "failed preprocessing keeps its unresolved region");
+    assert!(!old_certificate.is_current());
+    assert!(host.semantic_transfer_session(&fresh, None).certificate().is_some(),
+        "the fresh result must use the actual disabled-provider universe, without certifying its effects");
+}

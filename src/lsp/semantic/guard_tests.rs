@@ -156,3 +156,56 @@ fn intervening_operand_needs_value_preservation_not_only_equal_type_facts() {
         assert_eq!(matches!(observed(&d,3),InferredType::Values {support,..}if support.evidence.contains(&Evidence::TypeGuard)),pure);
     }
 }
+
+// Uses the same owned snapshot/data as the dedicated editor failure. It does
+// not claim that an API declaration is captured runtime behavior.
+#[test]
+#[ignore = "requires the explicit reflect snapshot, matching candidate and owned collector fixture"]
+fn reflect_guard_copy_remains_narrowed_in_the_project_capable_component() {
+    use sha2::{Digest, Sha256};
+    use parser_wasm::host::{AddonDataPin, AddonDataSource};
+    let snapshot = std::env::var("SKRIPT_REFLECT_SNAPSHOT").unwrap();
+    let candidate = std::fs::read(std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").unwrap()).unwrap();
+    let bytes = std::fs::read(std::env::var("SKRIPT_REFLECT_OWNED_DATA").unwrap()).unwrap();
+    let envelope: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let data = AddonDataSource::from_json(AddonDataPin {
+        component_id: "nlaocs.skript-reflect".into(),
+        component_sha256: format!("{:x}", Sha256::digest(&candidate)),
+        id: envelope["id"].as_str().unwrap().into(),
+        schema_id: envelope["schemaId"].as_str().unwrap().into(),
+        schema_version: envelope["schemaVersion"].as_u64().unwrap() as u32,
+        sha256: format!("{:x}", Sha256::digest(&bytes)),
+        bindings: serde_json::from_value(envelope["bindings"].clone()).unwrap(),
+    }, &bytes).unwrap();
+    let catalog = Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+    let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+        syntax_catalog: Some(Arc::clone(&catalog)), addon_data_sources: vec![data],
+        ..Default::default()
+    }).unwrap();
+    host.load_addon(&candidate).unwrap();
+    assert!(host.project_declarations_enabled());
+    let body = "import:\n    java.lang.String as JavaString\non load:\n    set {_name} to \"hello\"\n    if chance of 50%:\n        set {_name} to 123\n    if {_name} is an instance of JavaString:\n        set {_copy} to {_name}\n        set {_part} to {_copy}.sub\n";
+    let uri: Uri = "file:///guards/reflect-project.sk".parse().unwrap();
+    for (revision, prefix) in [(1, ""), (2, "# Unicode \u{1F980}\n"), (4, "")] {
+        if revision == 4 {
+            let token = parser_wasm::DocumentCancellationToken::new();
+            token.cancel();
+            let cancelled = host.parse_document(parser_wasm::DocumentParseRequest::new(
+                "file:///guards", uri.as_str(), 3, body), parser_wasm::DocumentParserConfig {
+                    cancellation: token, ..Default::default()
+                });
+            assert!(matches!(cancelled, Err(parser_wasm::DocumentParseError::Cancelled { .. })));
+        }
+        let source: Arc<str> = Arc::from(format!("{prefix}{body}"));
+        let result = host.parse_document(parser_wasm::DocumentParseRequest::new(
+            "file:///guards", uri.as_str(), revision, source.as_ref()), Default::default()).unwrap();
+        assert!(result.component_failures.is_empty(), "{:?}", result.component_failures);
+        let document = Document::from_result_with_host(&result, Arc::clone(&source),
+            uri.clone(), Arc::clone(&catalog), &mut host, None).unwrap();
+        let line = 7 + u32::from(!prefix.is_empty());
+        let hints = document.write_type_hints();
+        assert!(hints.iter().any(|hint| hint.position.line == line && matches!(
+            &hint.label, lsp_types::InlayHintLabel::String(label) if label == ": string")),
+            "revision {revision}: {hints:?}");
+    }
+}
