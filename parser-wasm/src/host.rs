@@ -6661,8 +6661,17 @@ fn condition_hook_payload(
                 .node
                 .expressions
                 .iter()
-                .map(|child| expression_child_to_wit(child, input, Some(catalog)))
-                .collect(),
+                .map(|child| {
+                    // Child local_range belongs to its nested matcher frame;
+                    // this input is the trimmed condition, not that frame.
+                    let base=candidate.node.span.mapped.virtual_range.start;
+                    let range=child.span.mapped.virtual_range;
+                    let start=range.start.checked_sub(base).ok_or("Condition child starts before its source")?;
+                    let end=range.end.checked_sub(base).ok_or("Condition child ends before its source")?;
+                    let text=ParserTextRange::new(start,end).slice(input).ok_or("Condition child source range is invalid")?;
+                    Ok(expression_child_with_text_to_wit(child,text,Some(catalog)))
+                })
+                .collect::<Result<Vec<_>,String>>()?,
             expression_bindings: candidate
                 .node
                 .expression_bindings
@@ -8626,15 +8635,15 @@ fn expression_child_to_wit(
     input: &str,
     catalog: Option<&Catalog>,
 ) -> WitRegisteredExpressionChild {
+    let text=child.span.local_range.slice(input).unwrap_or_default();
+    expression_child_with_text_to_wit(child,text,catalog)
+}
+
+fn expression_child_with_text_to_wit(child:&ExpressionNode,text:&str,catalog:Option<&Catalog>)->WitRegisteredExpressionChild {
     let (kind, parser_id) = expression_node_identity(child);
     let (definition_id, registration_id, pattern_index) = expression_node_registration(child);
     WitRegisteredExpressionChild {
-        text: child
-            .span
-            .local_range
-            .slice(input)
-            .unwrap_or_default()
-            .to_owned(),
+        text: text.to_owned(),
         kind: kind.to_owned(),
         parser_id: parser_id.map(str::to_owned),
         definition_id,
@@ -12408,13 +12417,11 @@ impl ParserHost {
                 calls: parsed.calls,
             });
         };
+        let wire=condition_parse_result(request,&selected.node,self.config.syntax_catalog.as_deref());
+        if let Some(registry)=self.semantic_receipts.as_mut() {registry.rebase_intrinsics(request,&parsed.calls);}
         Ok(ExecutedParseResult {
             editor_tree: None,
-            wire: condition_parse_result(
-                request,
-                &selected.node,
-                self.config.syntax_catalog.as_deref(),
-            ),
+            wire,
             expression_roots: BTreeMap::new(),
             calls: parsed.calls,
         })
@@ -13187,6 +13194,10 @@ impl ParserHost {
                             && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::entry_facts::CAPABILITY && c.minimum_version==1) {
                             registry.entry_facts.record(token, &next_payload, &component_id);
                         }
+                        if let Some(token)=receipt
+                            && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_TYPE_GUARDS&&c.minimum_version==1) {
+                            registry.record_intrinsic(token,&next_payload,&component_id);
+                        }
                         if let Some(call) = calls.last_mut() {
                             call.semantic_receipt = receipt;
                         }
@@ -13722,6 +13733,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_ADDON_DATA,
         crate::CAPABILITY_SOURCE_PREPARATION,
         crate::CAPABILITY_SEMANTIC_TRANSFER,
+        crate::CAPABILITY_TYPE_GUARDS,
         CAPABILITY_HOOKS,
         CAPABILITY_STATE_STORE,
         CAPABILITY_TEXT_MACRO,

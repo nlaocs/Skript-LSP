@@ -24,8 +24,10 @@ fn operation(id:&str,parameters:String)->MetadataEntry {
 }
 pub(crate) fn read_operation(requested:&[String],local:bool)->Option<MetadataEntry> {
     (local && crate::runtime::skript_version_is("2.15.4") && requested==["java.lang.Object"])
-        .then(||operation(READ,serde_json::to_string(&Read {version:1,lookup:"local-scalar-empty".into(),requested_types:requested.to_vec(),
-            no_refresh_types:crate::catalog::identity_delta_classes()}).expect("read contract serializes")))
+        .then(||MetadataEntry {key:KEY.into(),owner_component_id:None,value:serde_json::json!({"version":3,"outputUse":"flow",
+            "valueRelation":"same-source-when-unchanged","bindingValues":"preserve","operation":READ,
+            "parameters":serde_json::to_string(&Read {version:1,lookup:"local-scalar-empty".into(),requested_types:requested.to_vec(),
+                no_refresh_types:crate::catalog::identity_delta_classes()}).expect("read contract serializes")}).to_string()})
 }
 /// beforeChange belongs to the evaluated delta, not to EffChange. An arbitrary
 /// addon override must not inherit the default clone/Slot/storage model.

@@ -184,6 +184,13 @@ pub(crate) fn publish_metadata(
     });
     metadata.push(entry);
 }
+/// Intrinsic binding values are unchanged; this is stronger than retaining type bounds.
+pub const BINDING_VALUES_METADATA_KEY:&str="skript.semantic.binding-values";
+pub(crate) fn preserve_binding_values()->crate::nlaocs::skript_parser_addon::types::MetadataEntry {
+    crate::nlaocs::skript_parser_addon::types::MetadataEntry {key:BINDING_VALUES_METADATA_KEY.into(),
+        value:r#"{"version":1,"kind":"preserve"}"#.into(),owner_component_id:None}
+}
+
 /// Ordered early capture evaluations. Unknown/unlisted operands remain isolated.
 pub const OPERAND_EVALUATION_METADATA_KEY: &str = "skript.semantic.operand-evaluation";
 pub(crate) fn operand_evaluation(

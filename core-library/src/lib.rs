@@ -223,6 +223,7 @@ impl addon::Guest for CoreLibrary {
                 CapabilityRequirement { id: "parser.semantic-value-facts".into(), minimum_version: 1, required: false },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_ENTRY_FACTS.into(), minimum_version: 1, required: false },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_TRANSFER.into(), minimum_version: 1, required: false },
+                CapabilityRequirement { id: parser_wasm::CAPABILITY_TYPE_GUARDS.into(), minimum_version: 1, required: true },
             ],
             subscriptions: vec![
                 HookSubscription {

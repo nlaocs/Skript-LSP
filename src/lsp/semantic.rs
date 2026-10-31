@@ -24,6 +24,7 @@ mod document_symbols;
 #[cfg(test)]
 mod geometry_measurement;
 mod history;
+mod guards;
 mod editor_types;
 mod navigation;
 mod type_knowledge;
@@ -622,6 +623,7 @@ impl Document {
             editor_inputs,
             transfer_resolver,
             shared_isolated:false,
+            guards:guards::State::default(),
         };
         for root in &ast.roots {
             let mut facts = Facts::new();
@@ -771,6 +773,7 @@ impl Document {
                     Evidence::StorageResult => "provider-certified post-storage type",
                     Evidence::DeclaredTransfer => "declared bounds after standard storage transfer",
                     Evidence::ControlFlowJoin => "merged current control-flow paths",
+                    Evidence::TypeGuard => "condition-checked branch bound",
                 })
                 .collect::<Vec<_>>()
                 .join("; ");
@@ -1154,9 +1157,12 @@ enum MissingVariableValue { Empty }
 struct Flow {
     version: u32,
     kind: String,
+    #[serde(default,rename="conditionCapture")] condition_capture:Option<u64>,
+    #[serde(default,rename="bodyWhen")] body_when:Option<bool>,
 }
 
 struct Engine<'a,'r> {
+    guards:guards::State,
     shared_isolated:bool,
     document: &'a mut Document,
     mapped_source: Option<&'a skript_parser::MappedSource>,
@@ -1179,8 +1185,10 @@ impl Engine<'_,'_> {
             return Err("cyclic semantic AST".into());
         }
         let node = *self.nodes.get(&id).ok_or("missing semantic AST node")?;
+        self.guards.reset(id);
         let completion_owner = self.pending_completion_owner.take();
         let previous_shared_scope=self.shared_isolated;
+        if node.kind==SyntaxKind::Structure {self.guards.changed();}
         if node.kind == SyntaxKind::Structure {
             self.shared_isolated=shared::isolated(node);
             self.evaluation_context = unique_metadata(node, EVALUATION_CONTEXT)
@@ -1335,14 +1343,19 @@ impl Engine<'_,'_> {
                     .dependencies
                     .insert(Dependency::UnknownVariableAlias);
             }
+            let identity_read=transferred.as_ref().is_some_and(|o|matches!(&o.source,transfer::SourceUpdate::Unchanged)
+                && matches!(o.effects,transfer::BindingEffects::Preserve)&&o.source_writeback.is_none())
+                && self.transfer_resolver.as_deref().is_some_and(|r|r.binding_identity(node.id));
+            let returned=if identity_read {ty.clone()}else{transferred.as_ref().and_then(|o|transfer::inferred(&o.value)).unwrap_or_else(||ty.clone())};
             self.document.occurrences.push(Occurrence {
                 range,
                 reference: Reference::Variable { identity:identity.clone(), reaching },
                 node: node.id,
-                ty: transferred.as_ref().and_then(|o|transfer::inferred(&o.value)).unwrap_or_else(||ty.clone()),
+                ty: returned.clone(),
                 history,
             });
             if !identity.key.local && !shared::shared_preserved(node) {shared::expire(facts,Some(range));}
+            if !identity_read {self.guards.changed();}
             if let Some(output)=&transferred {
                 self.apply_read_transfer(&identity,output,previous,range,facts);
             } else if !safe {
@@ -1352,8 +1365,8 @@ impl Engine<'_,'_> {
             for child in &node.children {
                 self.node(*child, scope, &mut Facts::new())?;
             }
-            return Ok(transferred.as_ref().and_then(|o|transfer::inferred(&o.value))
-                .unwrap_or_else(||if safe {ty}else{InferredType::Unknown}));
+            if identity_read&&!shared::local_invalidated(node) {self.guards.read(node.id,identity,ty.clone());}
+            return Ok(if transferred.is_some() {returned}else if safe {ty}else{InferredType::Unknown});
         }
         if node
             .summary
@@ -1486,6 +1499,8 @@ impl Engine<'_,'_> {
             child_types.insert(*child, self.node(*child, scope, &mut historical)?);
         }
         shared::after_operation(node,facts,range);
+        if !transparent&&(!guards::preserves_values(node)||change.is_some()||!unlisted.is_empty()||shared::local_invalidated(node)) {self.guards.changed();}
+        self.remember_guard(node,scope);
         let transferred_storage=if let Some(change)=change.as_ref().filter(|c|c.version==6&&c.mode=="set"&&c.binding_role=="binding") {
             let value=change.value_capture.and_then(|index|capture_node(node,index,&self.nodes)).and_then(|id|child_types.get(&id));
             if metadata_owner(node,CHANGE)==metadata_owner(node,parser_wasm::host::semantic_transfer::METADATA) {
@@ -1529,12 +1544,20 @@ impl Engine<'_,'_> {
             } else {
                 let flow = unique_metadata(node, FLOW)
                     .and_then(|json| serde_json::from_str::<Flow>(json).ok())
-                    .filter(|flow| flow.version == 1);
+                    .filter(|flow| matches!(flow.version,1|2));
                 if flow.as_ref().is_some_and(|flow| flow.kind == "branch") {
                     let before = facts.clone();
                     let mut branch = before.clone();
+                    let mut bypass=before.clone();
+                    if let Some(flow)=flow.as_ref().filter(|f|f.version==2)
+                        && let (Some(capture),Some(truth))=(flow.condition_capture,flow.body_when)
+                        && let Some(condition)=capture_node(node,capture,&self.nodes)
+                        && nonbody==[condition]&&self.nodes[&condition].kind==SyntaxKind::Condition {
+                        self.guard_edge(condition,truth,&mut branch);
+                        self.guard_edge(condition,!truth,&mut bypass);
+                    }
                     self.body(node, &body, scope, &mut branch)?;
-                    *facts = join_facts(&before, &branch);
+                    *facts = join_facts(&bypass, &branch);
                 } else {
                     // Loops may re-enter; other extension control flow is opaque.
                     let mut nested = Facts::new();
@@ -1556,6 +1579,7 @@ impl Engine<'_,'_> {
             ),
             _ => known_type(node),
         };
+        if transparent&&node.children.len()==1 {self.guards.group(node.id,node.children[0]);}
         Ok(ty)
     }
     fn completion_owner(&self, parent: &AstNode, child: u64) -> Option<CompletionOwner> {
@@ -2197,6 +2221,9 @@ fn retain_semantic_contracts_with_composition(node: &mut AstNode, issuer: Option
                 | FLOW
                 | PARAMETERS
                 | LOCAL_EFFECTS
+                | guards::GUARD
+                | guards::VALUES
+                | guards::EVIDENCE
                 | shared::BINDINGS
                 | shared::SCOPE
                 | OPERANDS

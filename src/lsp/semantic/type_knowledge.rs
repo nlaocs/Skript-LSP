@@ -21,6 +21,7 @@ pub(in crate::lsp) enum Evidence {
     /// this is not a native-origin or effect/identity certificate.
     DeclaredTransfer,
     ControlFlowJoin,
+    TypeGuard,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

@@ -164,6 +164,37 @@ local function run()
       function(_, item) return item.filterText == "substring" and item.label == "substring(int)" end,
       function(accepted) return accepted == "    set {_part} to ({_😀}).substring(" end)
   end
+  if vim.env.SKRIPT_LSP_GUARD_SMOKE == "1" then
+    local function guarded_menu(name, lines, copy_row)
+      update(lines)
+      local response = assert(client:request_sync("textDocument/inlayHint", {
+        textDocument = { uri = vim.uri_from_bufnr(buffer) },
+        range = { start = { line = 0, character = 0 }, ["end"] = { line = #lines - 1, character = #lines[#lines] } },
+      }, 30000, buffer))
+      assert(not response.err, vim.inspect(response.err))
+      local found = false
+      for _, hint in ipairs(response.result or {}) do
+        if hint.position.line == copy_row - 1 then
+          assert(hint.label == ": string", "guard must remove nullable only inside checked branch: " .. vim.inspect(hint))
+          found = true
+        end
+      end
+      assert(found, "guarded copy inlay missing")
+      check(name .. " type", { hints = response.result })
+      menu(name, #lines, #lines[#lines] - 1,
+        function(_, item) return item.filterText == "substring" and item.label == "substring(int)" end,
+        function(accepted) return accepted:match("^        set {_part} to {_copy}%.substring%([^%)]*%)$") and not accepted:find("$" .. "{", 1, true) end)
+    end
+    guarded_menu("presence guard actual insertion", {
+      "function guarded(name: text):", "    if {_name} is set:",
+      "        set {_copy} to {_name}", "        set {_part} to {_copy}.sub",
+    }, 3)
+    guarded_menu("mixed instanceof actual insertion", {
+      "import:", "    java.lang.String as JavaString", "on load:",
+      '    set {_name} to "hello"', "    if chance of 50%:", "        set {_name} to 123",
+      "    if {_name} is an instance of JavaString:", "        set {_copy} to {_name}", "        set {_part} to {_copy}.sub",
+    }, 8)
+  end
   check("request observations", { count = #report.requests, timings = #report.timings })
   assert(#report.requests >= 4)
   client:stop(false)

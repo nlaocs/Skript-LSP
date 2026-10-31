@@ -42,6 +42,21 @@ struct Operation {
     parameters: String,
     #[serde(default)]
     output_use: Option<String>,
+    #[serde(default)]
+    value_relation: Option<String>,
+    #[serde(default)]
+    binding_values: Option<String>,
+}
+impl Operation {
+    fn identity_read(&self)->bool {
+        self.version==3 && self.output_use.as_deref()==Some("flow")
+            && self.value_relation.as_deref()==Some("same-source-when-unchanged")
+            && self.binding_values.as_deref()==Some("preserve")
+    }
+    fn supported(&self)->bool {
+        self.identity_read() || self.value_relation.is_none()&&self.binding_values.is_none()
+            && matches!((self.version,self.output_use.as_deref()),(1,None)|(2,Some("flow"|"completion-candidate")))
+    }
 }
 
 /// A synchronous flow pass over this exact result. Upper bounds are supplied by
@@ -54,6 +69,7 @@ pub struct Session<'a> {
     calls: usize,
     bytes: usize,
     used: Duration,
+    last_identity: Option<u64>,
 }
 
 fn valid_bound(bound: &TypeBound) -> bool {
@@ -85,7 +101,7 @@ impl ParserHost {
             let owner = entry.owner_component_id.as_deref()?;
             if !witnesses.provider_valid(node, owner) && !witnesses.composed_metadata_valid(node, entry) { return None; }
             let operation: Operation = serde_json::from_str(&entry.value).ok()?;
-            if !matches!((operation.version,operation.output_use.as_deref()),(1,None)|(2,Some("flow"|"completion-candidate"))) || operation.operation.is_empty() || operation.operation.len() > 256
+            if !operation.supported() || operation.operation.is_empty() || operation.operation.len() > 256
                 || operation.parameters.len() > 8192 || operation.operation.chars().any(char::is_control) { return None; }
             Some((owner.to_owned(), operation, entry.value.len()))
             })();
@@ -98,11 +114,13 @@ impl ParserHost {
                 operations.insert(node.id, (owner, operation,node.syntax_context));
             }
         }
-        Session { host: self, result, operations, cancellation, calls: 0, bytes: 0, used: Duration::ZERO }
+        Session { host: self, result, operations, cancellation, calls: 0, bytes: 0, used: Duration::ZERO, last_identity: None }
     }
 }
 
 impl Session<'_> {
+    /// Only the immediately successful, current evaluation can establish read identity.
+    pub fn binding_identity(&self,node:u64)->bool {self.last_identity==Some(node)&&self.current()}
     pub fn certificate(&self)->Option<Certificate> {
         self.current().then(|| {let fence=self.result.transfer_fence.as_ref().expect("current fence");
             Certificate {document:Arc::clone(&fence.document),epoch:Arc::clone(&fence.epoch)}})
@@ -122,6 +140,7 @@ impl Session<'_> {
 
     /// None means unsupported/stale/bounded-out, never an empty-value result.
     pub fn evaluate(&mut self, node_id: u64, input: TypeBound) -> Result<Option<Output>, HostError> {
+        self.last_identity=None;
         if self.cancellation.as_ref().is_some_and(DocumentCancellationToken::is_cancelled) {
             return Err(skript_parser::ParseCancelled.into());
         }
@@ -133,6 +152,7 @@ impl Session<'_> {
         if !component_promises(&self.host.components[index].manifest.capabilities, crate::CAPABILITY_SEMANTIC_TRANSFER) { return Ok(None); }
         let owner = owner.clone();
         let syntax_context=*syntax_context;
+        let identity_declared=operation.identity_read();
         let operation = (operation.operation.clone(), operation.parameters.clone());
         // A restart changes preparation authority; do not silently rebase an old result.
         self.host.ensure_component_ready(index)?;
@@ -188,6 +208,14 @@ impl Session<'_> {
             + if let SourceUpdate::Known(bound) = &output.source { bound_bytes(bound) } else { 0 };
         if bytes > MAX_CALL_BYTES || self.bytes.saturating_add(bytes) > MAX_BYTES { return Ok(None); }
         self.bytes += bytes;
+        if identity_declared && matches!(output.source,SourceUpdate::Unchanged) && matches!(output.effects,BindingEffects::Preserve) {
+            if output.source_writeback.is_some() || output.value.types!=request.input.types
+                || output.value.complete!=request.input.complete || output.value.multiple!=request.input.multiple
+                || output.value.maybe_unset!=request.input.maybe_unset {
+                return Err(invalid("identity read changed its input bound or declared a writeback"));
+            }
+            self.last_identity=Some(node_id);
+        }
         Ok(Some(output))
     }
 }

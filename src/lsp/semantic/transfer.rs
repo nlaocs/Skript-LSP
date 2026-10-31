@@ -4,6 +4,8 @@ use super::*;
 pub(super) use parser_wasm::host::semantic_transfer::{BindingEffects,Output,SourceUpdate,TypeBound};
 
 pub(super) trait Resolver {
+    /// Legacy transfers confer no checked-value/binding identity.
+    fn binding_identity(&self,_node:u64)->bool {false}
     fn evaluate(&mut self,node:u64,input:TypeBound)->Result<Option<Output>,String>;
     fn certificate(&self)->Option<parser_wasm::host::semantic_transfer::Certificate> {None}
 }
@@ -12,6 +14,7 @@ impl<F> Resolver for F where F:FnMut(u64,TypeBound)->Result<Option<Output>,Strin
     fn evaluate(&mut self,node:u64,input:TypeBound)->Result<Option<Output>,String> {self(node,input)}
 }
 impl Resolver for parser_wasm::host::semantic_transfer::Session<'_> {
+    fn binding_identity(&self,node:u64)->bool {self.binding_identity(node)}
     fn evaluate(&mut self,node:u64,input:TypeBound)->Result<Option<Output>,String> {
         self.evaluate(node,input).map_err(|e|e.to_string())
     }
@@ -35,7 +38,7 @@ pub(super) enum Use {Flow,Completion}
 fn usage(node:&AstNode)->Option<Use> {
     let data:serde_json::Value=serde_json::from_str(unique_metadata(node,parser_wasm::host::semantic_transfer::METADATA)?).ok()?;
     match (data["version"].as_u64(),data["outputUse"].as_str()) {
-        (Some(1),None)|(Some(2),Some("flow"))=>Some(Use::Flow),
+        (Some(1),None)|(Some(2)|Some(3),Some("flow"))=>Some(Use::Flow),
         (Some(2),Some("completion-candidate"))=>Some(Use::Completion),
         _=>None,
     }

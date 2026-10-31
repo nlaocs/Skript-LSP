@@ -39,6 +39,9 @@ pub const ABI_VERSION: AbiVersion = AbiVersion::new(31, 0);
 /// Owner-authenticated, data-only transfers of current public type bounds.
 pub const CAPABILITY_SEMANTIC_TRANSFER: &str = "parser.semantic-transfer";
 
+/// Authenticated guard predicates, conditional read identity and binding-value effects.
+pub const CAPABILITY_TYPE_GUARDS: &str = "parser.semantic-type-guards";
+
 /// Bounded owner-private source preparation, independent of document revision.
 pub const CAPABILITY_SOURCE_PREPARATION: &str = "parser.source-preparation";
 

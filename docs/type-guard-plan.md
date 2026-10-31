@@ -1,9 +1,13 @@
-# Fixed-name type guards: paused implementation plan
+# Fixed-name type guards: saved pause and resume plan
 
-Status: saved before implementation. The separate test-repair source checkpoint
+Historical pause record: saved before implementation. The separate test-repair source checkpoint
 2b05a876 / reflect 30a9b250 is now verified (Windows full 2,152/0/24). Resume
 from its documentation successor; do not restore the old baseline over those
 repairs. No guard implementation is included in that checkpoint.
+
+Current continuation: implementation resumed from 21ea157 / reflect 30a9b25.
+See [type-guard contracts and verification](type-guards.md). The baseline and
+initial work-state below describe the original pause, not the current candidate.
 
 ## Baseline and preserved state
 

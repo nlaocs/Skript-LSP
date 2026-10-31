@@ -17,6 +17,7 @@ const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
 mod body;
 pub(super) mod value_facts;
 pub(super) mod entry_facts;
+pub(super) mod intrinsic_facts;
 #[cfg(test)]
 mod local_state_tests;
 pub(super) use body::BodyReceiptBundle;
@@ -41,12 +42,14 @@ struct Receipt {
     admitted_nested: BTreeSet<u64>,
     valid: bool,
     unbound: bool,
+    payload_writer: bool,
 }
 
 #[derive(Debug, Default)]
 pub(super) struct ReceiptRegistry {
     pub(super) value_facts: value_facts::Registry,
     pub(super) entry_facts: entry_facts::Registry,
+    pub(super) intrinsic_facts: intrinsic_facts::Registry,
     receipts: BTreeMap<u64, Receipt>,
     sequence: Arc<AtomicU64>,
     exhausted: bool,
@@ -102,6 +105,12 @@ fn visit_metadata_mut(
 }
 
 impl ReceiptRegistry {
+    pub(super) fn rebase_intrinsics(&mut self,request:&super::ParseRequest,calls:&[HookCall]) {
+        self.intrinsic_facts.rebase(request,calls);
+    }
+    pub(super) fn record_intrinsic(&mut self,token:u64,payload:&HookPayload,issuer:&str) {
+        self.intrinsic_facts.record(token,payload,issuer,&self.receipts);
+    }
     pub(super) fn with_sequence(sequence: Arc<AtomicU64>) -> Self {
         Self { sequence, ..Self::default() }
     }
@@ -177,6 +186,7 @@ impl ReceiptRegistry {
                 admitted_nested: writers.admitted_nested.clone(),
                 valid: !writers.invalid,
                 unbound: semantic_effects == SemanticEffects::Unbound,
+                payload_writer: !matches!(mode,HookMode::Observe),
             },
         );
         writers.parents.insert(token);
@@ -655,6 +665,11 @@ impl SemanticProofRegistry {
         if let Some(registry) = receipts {
             for (id, entry) in registry.entry_facts.certify(tree, registry, &retained, &global, &own) {
                 fact_claims.entry(id).or_default().metadata.extend(entry.metadata);
+            }
+        }
+        if let Some(registry)=receipts {
+            for (id,entry) in registry.intrinsic_facts.certify(tree,registry,&retained) {
+                let claim=fact_claims.entry(id).or_default();claim.metadata.extend(entry.metadata);claim.public_data.extend(entry.public_data);
             }
         }
         let index: BTreeMap<_, _> = tree.nodes.iter().map(|node| (node.id, node)).collect();

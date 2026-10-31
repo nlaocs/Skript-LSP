@@ -316,3 +316,33 @@ fn dropping_the_host_revokes_materialized_transfer_results() {
     };
     assert!(!certificate.is_current());
 }
+
+#[test]
+fn checked_value_identity_requires_explicit_current_v3_and_rejects_contradictory_outputs() {
+    for mode in ["good","identity","identity-known-source","identity-changed-bound","identity-writeback"] {
+        let mut host=host(mode);let result=parse(&mut host,1,SOURCE);let node=selected(&result);
+        let mut session=host.semantic_transfer_session(&result,None);
+        assert!(!session.binding_identity(node));
+        let answer=session.evaluate(node,bound());
+        if matches!(mode,"identity-changed-bound"|"identity-writeback") {
+            assert!(matches!(answer,Err(HostError::InvalidHookOutput {..})),"{mode}: {answer:?}");
+            assert!(!session.binding_identity(node));
+        }else{
+            assert!(answer.unwrap().is_some());
+            assert_eq!(session.binding_identity(node),mode=="identity","{mode}");
+            // A failed/unsupported follow-up cannot leave a previous identity.
+            assert!(session.evaluate(u64::MAX,bound()).unwrap().is_none());
+            assert!(!session.binding_identity(node));
+        }
+    }
+}
+#[test]
+fn unknown_or_incomplete_value_relation_descriptors_are_not_identity_promises() {
+    for bad in [serde_json::json!({"version":2,"outputUse":"flow","valueRelation":"same-source-when-unchanged"}),
+        serde_json::json!({"version":3,"outputUse":"flow","valueRelation":"same-source-when-unchanged"}),
+        serde_json::json!({"version":3,"outputUse":"completion-candidate","valueRelation":"same-source-when-unchanged","bindingValues":"preserve"}),
+        serde_json::json!({"version":3,"outputUse":"flow","valueRelation":"same-type","bindingValues":"preserve"})] {
+        let mut value=bad;value["operation"]="fixture".into();value["parameters"]="{}".into();
+        let op:Operation=serde_json::from_value(value).unwrap();assert!(!op.supported());
+    }
+}

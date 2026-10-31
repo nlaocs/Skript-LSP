@@ -197,6 +197,7 @@ pub(super) fn resolve(
             &mut payload.candidate.metadata,
             crate::public_data::preserve_local_effects(),
         );
+        crate::public_data::publish_metadata(&mut payload.candidate.metadata,crate::public_data::preserve_binding_values());
         let prefix: &[u64] = if semantics.expected_conditions == 1 {
             &[0]
         } else {
@@ -267,11 +268,22 @@ pub(super) fn resolve(
         });
     }
 
+    let flow=if semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
+        && semantics.expected_conditions==1&&payload.candidate.regex_captures.len()==1
+        && crate::catalog::standard_section_source(&payload.candidate,"ch.njol.skript.sections.SecConditional") {
+        serde_json::json!({"version":2,"kind":"branch","conditionCapture":condition_binding().capture_index,"bodyWhen":true}).to_string()
+    }else{r#"{"version":1,"kind":"branch"}"#.to_owned()};
+    if entering&&semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
+        &&payload.candidate.parsed_captures.iter().any(|c|c.capture_index==condition_binding().capture_index
+            &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard"))) {
+        let mut keys=vec!["skript.semantic.control-flow"];
+        for key in ["skript.semantic.binding-values","skript.semantic.local-effects","skript.semantic.operand-evaluation","skript.semantic.evaluation-context"] {
+            if payload.candidate.metadata.iter().filter(|m|m.key==key).count()==1 {keys.push(key);}
+        }
+        payload.candidate.metadata.push(metadata_entry("parser.semantic.intrinsic-facts.v1",&serde_json::json!({"version":1,"metadataKeys":keys,"inputs":[]}).to_string()));
+    }
     let metadata = [
-        (
-            "skript.semantic.control-flow",
-            r#"{"version":1,"kind":"branch"}"#.to_owned(),
-        ),
+        ("skript.semantic.control-flow",flow),
         ("semantic-mode", "conditional".to_owned()),
         ("conditional-kind", kind_name(semantics.kind).to_owned()),
         ("conditional-parse-if", semantics.parse_if.to_string()),

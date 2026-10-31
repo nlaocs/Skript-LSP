@@ -63,6 +63,8 @@ struct Fixture {
 mod transfer_tests;
 #[path="semantic/shared_flow_tests.rs"]
 mod shared_flow_tests;
+#[path="semantic/guard_tests.rs"]
+mod guard_tests;
 
 #[test]
 fn post_storage_type_is_independent_from_rhs_type_and_other_binding_effects() {

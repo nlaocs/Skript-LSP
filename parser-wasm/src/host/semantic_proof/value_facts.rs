@@ -259,7 +259,7 @@ pub(super) fn volatile(payload:&HookPayload)->bool {
     let header_entry = matches!(payload, HookPayload::Structure(p)
         if matches!(p.timing, super::super::WitStructureTiming::EnterBody));
     let mut found=false;
-    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE)
+    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE|super::intrinsic_facts::DRAFT)
         || e.key==super::entry_facts::DRAFT && !header_entry));
     found
 }

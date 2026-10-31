@@ -97,18 +97,18 @@ impl ReceiptRegistry {
         calls: &[HookCall],
         metadata: &[(String,String)],
     ) -> Option<BodyReceiptBundle> {
-        if self.exhausted || metadata.iter().any(|(key,_)| matches!(key.as_str(),value_facts::DRAFT|value_facts::INPUT|value_facts::COMPOSE|entry_facts::DRAFT)) { return None; }
+        if self.exhausted || metadata.iter().any(|(key,_)| matches!(key.as_str(),value_facts::DRAFT|value_facts::INPUT|value_facts::COMPOSE|entry_facts::DRAFT|intrinsic_facts::DRAFT)) { return None; }
         let mut admitted = BTreeSet::new();
         for call in calls {
             let Some(token) = call.semantic_receipt else { continue; };
             let receipt = self.receipts.get(&token)?;
-            if !receipt.valid || receipt.issuer != call.component_id || self.value_facts.has_receipt(token) || self.entry_facts.has_receipt(token) { return None; }
+            if !receipt.valid || receipt.issuer != call.component_id || self.value_facts.has_receipt(token) || self.entry_facts.has_receipt(token) || self.intrinsic_facts.has_receipt(token) { return None; }
             admitted.insert(token);
         }
         let mut pending = admitted.iter().copied().collect::<Vec<_>>();
         while let Some(token) = pending.pop() {
             let receipt = self.receipts.get(&token)?;
-            if !receipt.valid || self.value_facts.has_receipt(token) || self.entry_facts.has_receipt(token) { return None; }
+            if !receipt.valid || self.value_facts.has_receipt(token) || self.entry_facts.has_receipt(token) || self.intrinsic_facts.has_receipt(token) { return None; }
             for child in &receipt.admitted_nested {
                 if admitted.insert(*child) { pending.push(*child); }
             }
@@ -148,7 +148,7 @@ impl ReceiptRegistry {
 fn shadow_receipt_export_bounds_graph_edges_and_metadata_before_cloning() {
     let mut registry=ReceiptRegistry::default();
     registry.receipts.insert(1,Receipt {issuer:"public.fixture".into(),writers:BTreeSet::new(),parents:BTreeSet::new(),
-        admitted_nested:(2..5002).collect(),valid:true,unbound:false});
+        admitted_nested:(2..5002).collect(),valid:true,unbound:false,payload_writer:false});
     let calls=vec![HookCall {origin:HookCallOrigin::Executed,component_id:"public.fixture".into(),subscription_id:"fixture".into(),semantic_receipt:Some(1)}];
     let result=registry.body_shadow_export(&calls,&[]);
     assert_eq!(result["overflow"],true);assert_eq!(result["exported"],false);

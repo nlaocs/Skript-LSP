@@ -119,6 +119,9 @@ impl semantic_transfer::Guest for TypeParserAddon {
             }
             5 => { let _ = record_state("semantic-transfer-forbidden"); }
             6 => loop { core::hint::spin_loop(); },
+            8 => output.value.maybe_unset = !output.value.maybe_unset,
+            9 => output.source_writeback = Some(output.value.clone()),
+            10 => output.source = semantic_transfer::SourceUpdate::Known(output.value.clone()),
             _ => {}
         }
         Ok(Some(output))
@@ -226,6 +229,10 @@ impl addon::Guest for TypeParserAddon {
             Some("test.semantic-transfer/oversized") => 4,
             Some("test.semantic-transfer/forbidden-state") => 5,
             Some("test.semantic-transfer/fuel") => 6,
+            Some("test.semantic-transfer/identity") => 7,
+            Some("test.semantic-transfer/identity-changed-bound") => 8,
+            Some("test.semantic-transfer/identity-writeback") => 9,
+            Some("test.semantic-transfer/identity-known-source") => 10,
             _ => 0,
         }, Ordering::Relaxed);
         let capabilities = profile
@@ -285,9 +292,10 @@ impl hooks::Guest for TypeParserAddon {
             };
             if payload.candidate.registration_id != TRANSFER_REGISTRATION
                 || payload.timing != StructureTiming::EnterBody { return Ok(noop()); }
-            payload.candidate.metadata.push(metadata("parser.semantic-transfer.v1", &format!(
-                "{{\"version\":1,\"operation\":\"{TRANSFER_OPERATION}\",\"parameters\":\"{case}\"}}"
-            )));
+            let descriptor=if case>=7 {format!(
+                "{{\"version\":3,\"outputUse\":\"flow\",\"valueRelation\":\"same-source-when-unchanged\",\"bindingValues\":\"preserve\",\"operation\":\"{TRANSFER_OPERATION}\",\"parameters\":\"{case}\"}}")}
+                else{format!("{{\"version\":1,\"operation\":\"{TRANSFER_OPERATION}\",\"parameters\":\"{case}\"}}")};
+            payload.candidate.metadata.push(metadata("parser.semantic-transfer.v1", &descriptor));
             return Ok(HookOutput {decision: HookDecision::ContinueProcessing,
                 replacement: Some(HookPayload::Structure(payload)), effects: empty_effects()});
         }
