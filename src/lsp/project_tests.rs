@@ -1705,3 +1705,87 @@ fn document_symbols_core_metadata_survives_partial_bodies_and_tracks_current_rev
     );
     assert_eq!(previous.as_ref(), source, "analysis does not edit input");
 }
+
+// Explicit authored offline Component fixture, not a live runtime claim.
+
+fn custom_project_host() -> (ParserHost, Arc<Catalog>) {
+    let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit authored profile required");
+    let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit project candidate required");
+    let catalog=Arc::new(ssg::load(Path::new(&snapshot)).unwrap().into_catalog());
+    let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(Arc::clone(&catalog)),..Default::default()}).unwrap();
+    host.load_addon(&fs::read(candidate).unwrap()).unwrap();
+    (host,catalog)
+}
+fn analyze(index:&mut ProjectIndex,host:&mut ParserHost,catalog:&Arc<Catalog>,snapshot:&ProjectSnapshot)->ProjectAnalysis {
+    index.analyze(host,Arc::clone(catalog),"file:///custom-project",snapshot,&snapshot.open[0].uri,
+        Default::default(),&mut |_|{}).unwrap()
+}
+fn declared(analysis:&ProjectAnalysis)->Option<&str> {
+    analysis.result.ast.nodes.iter().find(|n|n.text=="review shared"&&n.summary.as_ref().is_some_and(|summary|
+        summary.registration_id.as_deref().is_some_and(|id|id.starts_with("dynamic:nlaocs.skript-reflect/"))))
+        .and_then(|n|n.summary.as_ref()).and_then(|s|s.return_type.as_deref())
+}
+fn jump(analysis:&ProjectAnalysis)->Vec<lsp_types::Location> {
+    let documents=analysis.documents.iter().map(Arc::as_ref).collect::<Vec<_>>();
+    analysis.current_semantic.definitions_at(lsp_types::Position::new(2,22),&documents)
+}
+
+#[test]
+#[ignore="requires the explicit authored custom-expression profile and project-capable addon"]
+fn custom_project_cross_file_edits_visibility_close_reopen_and_delete_use_current_headers() {
+    let root=tempfile::tempdir().unwrap();let producer=root.path().join("producer.sk");let consumer=root.path().join("consumer.sk");
+    let global="# 日本語 🦀\nexpression review shared:\n    return type: string\n    get:\n        return\nlocal expression review shared:\n    return type: number\n    get:\n        return\n";
+    let local="local expression review shared:\n    return type: number\n    get:\n        return\n";
+    fs::write(&producer,global).unwrap();
+    let text="# Unicode 🦀\non load:\n    set {_value} to review shared\n";
+    let mut snapshot=ProjectSnapshot {epoch:1,root:root.path().into(),open:vec![view(&consumer,text,1,1)]};
+    let (mut host,catalog)=custom_project_host();let mut index=ProjectIndex::new();
+    let first=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(first.incomplete_reason.is_none(),"{:?}",first.incomplete_reason);
+    assert!(first.result.syntax.diagnostics.is_empty(),"{:?}",first.result.syntax.diagnostics);
+    assert_eq!(declared(&first),Some("java.lang.String"));
+    let target=jump(&first);assert_eq!(target.len(),1);assert_eq!(target[0].uri,path_uri(&producer).unwrap());
+    assert_eq!(target[0].range.start.line,1,"native original header after Unicode comment");
+    let unchanged=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert_eq!(declared(&unchanged),Some("java.lang.String"));
+    assert_eq!(jump(&unchanged),target);
+    assert!(unchanged.parsed_documents<=1,"same batch must converge and retain qualified side results");
+
+    fs::write(&producer,global.replacen("return type: string","return type: number",1)).unwrap();snapshot.epoch+=1;
+    let changed=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert_eq!(declared(&changed),Some("java.lang.Number"));
+    assert!(!first.current_semantic.is_current(),"old consumer input source/provider view is revoked");
+
+    // Open overlay removes the global; closing returns to the saved disk global.
+    snapshot.epoch+=1;snapshot.open.push(view(&producer,local,1,1));
+    let shadowed=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(declared(&shadowed).is_none());assert!(jump(&shadowed).is_empty());
+    snapshot.epoch+=1;snapshot.open.pop();
+    let closed=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert_eq!(declared(&closed),Some("java.lang.Number"));assert_eq!(jump(&closed).len(),1);
+    snapshot.epoch+=1;snapshot.open.push(view(&producer,local,2,1));
+    let reopened=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(declared(&reopened).is_none());assert!(jump(&reopened).is_empty());
+    snapshot.epoch+=1;snapshot.open.pop();fs::remove_file(&producer).unwrap();
+    let removed=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(declared(&removed).is_none());assert!(jump(&removed).is_empty());
+    assert!(!closed.current_semantic.is_current());
+}
+
+#[test]
+#[ignore="requires the explicit authored custom-expression profile and project-capable addon"]
+fn custom_project_unsupported_namespace_falls_back_and_later_complete_scan_recovers() {
+    let root=tempfile::tempdir().unwrap();let producer=root.path().join("producer.sk");let consumer=root.path().join("consumer.sk");
+    let valid="expression review shared:\n    return type: string\n    get:\n        return\n";
+    fs::write(&producer,format!("{valid}expression:\n    patterns:\n        opaque syntax\n")).unwrap();
+    let text="# 🦀\non load:\n    set {_value} to review shared\n";
+    let mut snapshot=ProjectSnapshot {epoch:1,root:root.path().into(),open:vec![view(&consumer,text,1,1)]};
+    let (mut host,catalog)=custom_project_host();let mut index=ProjectIndex::new();
+    let partial=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(partial.incomplete_reason.as_ref().is_some_and(|reason|reason.contains("namespace is incomplete")));
+    assert!(!partial.current_semantic.project_complete);assert!(declared(&partial).is_none());
+    fs::write(&producer,valid).unwrap();snapshot.epoch+=1;
+    let complete=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(complete.incomplete_reason.is_none());assert_eq!(declared(&complete),Some("java.lang.String"));
+    assert_eq!(jump(&complete).len(),1);
+}

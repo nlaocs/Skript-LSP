@@ -4,6 +4,7 @@ use super::semantic;
 use lsp_types::Uri;
 use parser_wasm::{
     DocumentParseError, DocumentParseRequest, DocumentParseResult, DocumentParserConfig, ParserHost,
+    DeclarationExports, DeclarationInputs, DeclarationSource,
 };
 use sha2::{Digest, Sha256};
 use skript_parser::{ImportedFunction, StructurePreparationEvent};
@@ -147,6 +148,8 @@ struct Cached {
     exports: Vec<ImportedFunction>,
     export_key: String,
     imported_key: String,
+    prototype_inputs: String,
+    prototypes: Option<DeclarationExports>,
     lookup_names: BTreeSet<String>,
     semantic: Arc<semantic::Document>,
 }
@@ -156,6 +159,7 @@ struct ParsedResult {
     result: DocumentParseResult,
     source: Source,
     import_key: String,
+    prototype_key: String,
     revision: u64,
 }
 struct ResultHandoff {
@@ -530,6 +534,26 @@ pub(super) fn verify_source_set(
     Ok(())
 }
 
+fn declaration_source(source: &Source) -> DeclarationSource {
+    DeclarationSource::new(source.key(), document_key(source.key()), source.view.generation,
+        source.view.source_epoch, &source.view.source)
+}
+fn declaration_inputs(host: &ParserHost, project: &str, sources: &BTreeMap<String, DeclarationSource>,
+    current: &Source, epoch: u64, records: &BTreeMap<String, Cached>) -> DeclarationInputs
+{
+    if !host.project_declarations_enabled() { return DeclarationInputs::default(); }
+    let Some(current) = sources.get(current.key()) else { return DeclarationInputs::default(); };
+    DeclarationInputs::new(current.clone(), sources.values().cloned().collect(), true)
+        .with_epoch(epoch).with_exports(records.values().filter_map(|record| record.prototypes.as_ref())
+            .filter(|record| host.declaration_exports_are_current(project, record)).cloned().collect())
+}
+fn prototype_current(host: &ParserHost, project: &str, record: &Cached) -> bool {
+    record.prototypes.as_ref().is_none_or(|record| host.declaration_exports_are_current(project, record))
+}
+fn prototype_export_key(record: &Cached) -> &str {
+    record.prototypes.as_ref().map_or("", DeclarationExports::fingerprint)
+}
+
 fn definitions_key(functions: &[ImportedFunction]) -> String {
     functions
         .iter()
@@ -620,6 +644,7 @@ impl ProjectIndex {
                 stage: PreparationStage::Started,
             });
         }
+        let prototype_inputs = config.declarations.fingerprint();
         let semantic_cancellation=config.cancellation.clone();
         let parsed = match observer.as_mut() {
             Some(observer) => host.parse_document_with_preparation(request, config, &mut |event| {
@@ -686,6 +711,7 @@ impl ProjectIndex {
             });
         }
         let export_key = definitions_key(&exports);
+        let prototypes = result.declaration_exports.clone();
         Ok((
             result,
             Cached {
@@ -693,6 +719,8 @@ impl ProjectIndex {
                 exports,
                 export_key,
                 imported_key,
+                prototype_inputs,
+                prototypes,
                 lookup_names,
                 semantic,
             },
@@ -758,6 +786,11 @@ impl ProjectIndex {
         let scan_root = fs::canonicalize(&snapshot.root)
             .map_err(|error| incomplete(format!("cannot resolve project root: {error}")))?;
         let discovered = sources(snapshot, &config.cancellation)?;
+        // Hash actual bytes once per immutable discovery batch, rather than
+        // rehashing all source text for every fixed-point comparison/attempt.
+        let declaration_sources = if host.project_declarations_enabled() {
+            discovered.iter().map(|(uri, source)| (uri.clone(), declaration_source(source))).collect()
+        } else { BTreeMap::new() };
         require_stable_project(discovered.len(), host.project_semantics_are_stable())?;
         let participants = host.components();
         let batch_open = open_key(snapshot);
@@ -796,6 +829,10 @@ impl ProjectIndex {
                     .map(|item| item.definition.name.clone())
             })
             .collect::<BTreeSet<_>>();
+        // Revoke stale source views before lending any cached header or result.
+        let source_inputs = declaration_inputs(host, project_uri, &declaration_sources, current, snapshot.epoch, &BTreeMap::new());
+        host.synchronize_declaration_sources(&DocumentParseRequest::new(project_uri, document_key(current.key()),
+            0, Arc::clone(&current.view.source)), &source_inputs).map_err(|error| failure(error.to_string()))?;
         let before = self
             .documents
             .iter()
@@ -808,7 +845,7 @@ impl ProjectIndex {
             .filter_map(|(uri, record)| {
                 discovered
                     .get(uri)
-                    .filter(|source| source.same(&record.source)&&record.semantic.is_current())
+                    .filter(|source| source.same(&record.source)&&record.semantic.is_current()&&prototype_current(host, project_uri, record))
                     .map(|_| (uri.clone(), record.clone()))
             })
             .collect::<BTreeMap<_, _>>();
@@ -826,12 +863,14 @@ impl ProjectIndex {
         }
         let mut parsed_documents = 0usize;
         if discovered.len() == 1 {
+            let mut single_config = config;
+            single_config.declarations = declaration_inputs(host, project_uri, &declaration_sources, current, snapshot.epoch, &working);
             let (result, record, revision) = self.parse(
                 host,
                 Arc::clone(&catalog),
                 project_uri,
                 current,
-                config,
+                single_config,
                 Vec::new(),
                 snapshot.epoch,
                 Some(observer),
@@ -864,7 +903,8 @@ impl ProjectIndex {
         // still run before it is consumed. Only one side result is staged.
         let mut current_result = previous
             .map(|handoff| handoff.parsed)
-            .filter(|parsed| parsed.source.key() == current_uri.as_str());
+            .filter(|parsed| parsed.source.key() == current_uri.as_str()
+                && parsed.result.declaration_exports.as_ref().is_none_or(|exports| host.declaration_exports_are_current(project_uri, exports)));
         let mut staged = None;
         let mut stable = false;
         let max_rounds = discovered.len().saturating_add(1);
@@ -876,12 +916,15 @@ impl ProjectIndex {
             for uri in &order {
                 let source = &discovered[uri];
                 let imported = imports(&working, uri);
+                let prototypes = declaration_inputs(host, project_uri, &declaration_sources, source, snapshot.epoch, &working);
+                let prototype_key = prototypes.fingerprint();
                 let key = working
                     .get(uri)
                     .map(|record| relevant_key(&imported, &record.lookup_names));
                 let needs = working
                     .get(uri)
-                    .is_none_or(|record| Some(&record.imported_key) != key.as_ref());
+                    .is_none_or(|record| Some(&record.imported_key) != key.as_ref()
+                        || record.prototype_inputs != prototype_key || !prototype_current(host, project_uri, record));
                 if !needs {
                     continue;
                 }
@@ -891,12 +934,14 @@ impl ProjectIndex {
                     ));
                 }
                 let import_key = definitions_key(&imported);
+                let mut parse_config = config.clone();
+                parse_config.declarations = prototypes;
                 let (result, record, revision) = self.parse(
                     host,
                     Arc::clone(&catalog),
                     project_uri,
                     source,
-                    config.clone(),
+                    parse_config,
                     imported,
                     snapshot.epoch,
                     Some(observer),
@@ -905,6 +950,7 @@ impl ProjectIndex {
                     result,
                     source: source.clone(),
                     import_key,
+                    prototype_key,
                     revision,
                 };
                 if uri == current_uri.as_str() {
@@ -924,6 +970,8 @@ impl ProjectIndex {
                 working.get(uri).is_some_and(|record| {
                     record.imported_key
                         == relevant_key(&imports(&working, uri), &record.lookup_names)
+                        && record.prototype_inputs == declaration_inputs(host, project_uri, &declaration_sources, &discovered[uri], snapshot.epoch, &working).fingerprint()
+                        && prototype_current(host, project_uri, record)
                 })
             });
             if matched {
@@ -943,9 +991,14 @@ impl ProjectIndex {
             .get(current_uri.as_str())
             .map(|record| record.export_key.clone())
             .unwrap_or_default();
+        let expected_prototype = working.get(current_uri.as_str()).map(|record| prototype_export_key(record).to_owned()).unwrap_or_default();
         let imported = imports(&working, current_uri.as_str());
+        let final_prototypes = declaration_inputs(host, project_uri, &declaration_sources, current, snapshot.epoch, &working);
+        let final_prototype_key = final_prototypes.fingerprint();
         let retained = current_result.filter(|parsed| {
             parsed.import_key == definitions_key(&imported)
+                && parsed.prototype_key == final_prototype_key
+                && parsed.result.declaration_exports.as_ref().is_none_or(|exports| host.declaration_exports_are_current(project_uri, exports))
                 && parsed.source.same(current)
                 && self.revisions.get(current_uri.as_str()) == Some(&parsed.revision)
                 && working
@@ -959,12 +1012,14 @@ impl ProjectIndex {
                 .ok_or_else(|| failure("retained current project record is absent"))?;
             (parsed.result, record, parsed.revision)
         } else {
+            let mut final_config = config;
+            final_config.declarations = final_prototypes;
             let parsed = self.parse(
                 host,
                 Arc::clone(&catalog),
                 project_uri,
                 current,
-                config,
+                final_config,
                 imported,
                 snapshot.epoch,
                 Some(observer),
@@ -980,13 +1035,20 @@ impl ProjectIndex {
                 "project component environment changed during analysis",
             ));
         }
-        if record.export_key != expected {
+        if record.export_key != expected || prototype_export_key(&record) != expected_prototype {
             return Err(failure(
                 "current function declarations changed after project stabilization; extension state is not a stable project input",
             ));
         }
         let current_semantic = Arc::clone(&record.semantic);
         working.insert(current_uri.as_str().to_owned(), record);
+        if working.values().any(|record| !prototype_current(host, project_uri, record)) {
+            return Err(incomplete("project declaration source/provider inputs changed during analysis"));
+        }
+        if host.project_declarations_enabled() && working.values().any(|record| record.prototypes.as_ref().is_none_or(|record| !record.complete() || !record.imports_complete())) {
+            return Err(incomplete("project declaration namespace is incomplete; using document-only analysis"));
+        }
+        // The compact declaration source stamps remain available after finish.
         let analysis = self.finish(
             discovered,
             working,
@@ -1011,6 +1073,8 @@ impl ProjectIndex {
                 && parsed.result.component_failures.is_empty()
                 && parsed.import_key
                     == definitions_key(&imports(&self.documents, parsed.source.key()))
+                && parsed.prototype_key == declaration_inputs(host, project_uri, &declaration_sources, &parsed.source, snapshot.epoch, &self.documents).fingerprint()
+                && parsed.result.declaration_exports.as_ref().is_none_or(|exports| host.declaration_exports_are_current(project_uri, exports))
                 && self.revisions.get(parsed.source.key()) == Some(&parsed.revision)
                 && self
                     .documents
@@ -1078,6 +1142,7 @@ impl ProjectIndex {
             path: None,
         };
         config.structure.expression.function_namespace_complete = false;
+        config.declarations = DeclarationInputs::default();
         let (result, record, revision) = self.parse(
             host,
             catalog,

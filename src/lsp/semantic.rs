@@ -308,6 +308,8 @@ pub(super) struct Document {
     lines: LineIndex,
     catalog: Arc<Catalog>,
     occurrences: Vec<Occurrence>,
+    declaration_locations: Option<parser_wasm::DeclarationLocations>,
+    declaration_uses: Vec<(TextRange, String)>,
     calls: Vec<call_hierarchy::CallSite>,
     symbols: Vec<lsp_types::DocumentSymbol>,
     // Lexical declaration information, never a replacement for current flow facts.
@@ -483,6 +485,17 @@ impl Document {
             result.editor_completions.iter().flat_map(|batch|batch.inputs.iter()).filter(|input|input.is_current()).cloned().collect(),
             transfer_resolver,
         )?;
+        document.declaration_locations = result.declaration_locations.clone();
+        if let Some(locations) = &document.declaration_locations {
+            for node in &ast.nodes {
+                let Some(summary) = &node.summary else {continue;};
+                let Some(id) = summary.registration_id.as_deref().filter(|id| summary.definition_id.as_deref()==Some(*id)) else {continue;};
+                if locations.site(id).is_none() {continue;}
+                if let Some(range) = exact_projection(&result.source, node) {
+                    document.declaration_uses.push((range.original, id.into()));
+                }
+            }
+        }
         document.symbols = document_symbols::collect(result, &document.lines, |node, entry| {
             // An outline is an authored presentation record, not a claim about
             // every child expression's semantics. Keep the sealed current
@@ -583,6 +596,8 @@ impl Document {
             lines,
             catalog,
             occurrences: Vec::new(),
+            declaration_locations: None,
+            declaration_uses: Vec::new(),
             calls: Vec::new(),
             symbols: Vec::new(),
             declared_parameters: HashMap::new(),
@@ -637,7 +652,8 @@ impl Document {
             .sort_by_key(|point| (point.range.start, point.range.end));
         Ok(document)
     }
-    pub fn is_current(&self)->bool {self.transfer_certificate.as_ref().is_none_or(|c|c.is_current())}
+    pub fn is_current(&self)->bool {self.transfer_certificate.as_ref().is_none_or(|c|c.is_current())
+        && self.declaration_locations.as_ref().is_none_or(|locations| locations.is_current())}
     pub fn transfer_certificate(&self)->Option<parser_wasm::host::semantic_transfer::Certificate> {self.transfer_certificate.clone()}
     pub fn editor_type_facts(&self) -> &[parser_wasm::host::EditorCompletionTypeFact] {if self.is_current(){&self.editor_type_facts}else{&[]}}
 
@@ -833,9 +849,25 @@ impl Document {
         declarations.all(|range| range == first).then_some(first)
     }
 
+    fn declaration_definition_at(&self, position: Position, project: &[&Document]) -> Option<Location> {
+        if !self.is_current() {return None;}
+        let offset=self.lines.offset(&self.source,position)?;
+        let (_,id)=self.declaration_uses.iter().filter(|(range,_)|range.start<=offset && offset<range.end)
+            .min_by_key(|(range,_)|range.end-range.start)?;
+        if self.declaration_uses.iter().any(|(range,other)|range.start<=offset && offset<range.end && other!=id) {return None;}
+        let (source,header)=self.declaration_locations.as_ref()?.site(id)?;
+        let owner=std::iter::once(self).chain(project.iter().copied().filter(|d|d.uri!=self.uri))
+            .find(|document|document.uri.as_str()==source.uri() && document.source_witness==source.digest()
+                && document.native_owner.as_deref()==Some(source.document_id()) && document.is_current())?;
+        let [origin]=header.origins.as_slice() else {return None;};
+        if !matches!(origin.kind, parser_wasm::bindings::nlaocs::skript_parser_addon::types::OriginKind::Exact) {return None;}
+        let range=TextRange::new(usize::try_from(origin.original_range.start).ok()?,usize::try_from(origin.original_range.end).ok()?);
+        Some(Location::new(owner.uri.clone(),owner.lines.range(&owner.source,range).ok()?))
+    }
+
     pub fn definitions_at(&self, position: Position, project: &[&Document]) -> Vec<Location> {
         let Some(occurrence) = self.at(position) else {
-            return Vec::new();
+            return self.declaration_definition_at(position, project).into_iter().collect();
         };
         let mut locations = Vec::new();
         match &occurrence.reference {
