@@ -4,6 +4,10 @@ use super::*;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+mod protocol;
+pub use protocol::DeclarationExports;
+pub(super) use protocol::{Arena, Invocation};
+
 pub(super) const MAX_SOURCES: usize = 512;
 const MAX_SOURCE_ID_BYTES: usize = 64 * 1024;
 const MAX_SOURCE_SET_BYTES: usize = 2 * 1024 * 1024;
@@ -51,16 +55,29 @@ pub struct DeclarationInputs {
     sources: Vec<DeclarationSource>,
     membership_complete: bool,
     batch_epoch: Option<u64>,
+    exports: Vec<DeclarationExports>,
 }
 
 impl DeclarationInputs {
     /// Describes the actual scanner/open-buffer view for this immutable batch.
     pub fn new(current: DeclarationSource, sources: Vec<DeclarationSource>, membership_complete: bool) -> Self {
-        Self { current: Some(current), sources, membership_complete, batch_epoch: Some(0) }
+        Self { current: Some(current), sources, membership_complete, batch_epoch: Some(0), exports: Vec::new() }
     }
     /// Monotone native project-view epoch. Increment it when the scanner/open
     /// source view changes; it is an authority gate, not a parse-attempt counter.
     pub fn with_epoch(mut self, epoch: u64) -> Self { self.batch_epoch = Some(epoch); self }
+    /// Supplies immutable results from other sources; the host revalidates them.
+    pub fn with_exports(mut self, exports: Vec<DeclarationExports>) -> Self { self.exports = exports; self }
+    /// Whole-namespace dependency key, separate from per-attempt authority.
+    pub fn fingerprint(&self) -> String {
+        let current = self.current.as_ref().map(|source| source.document_id.as_str());
+        let mut sources = self.sources.iter().filter(|source| Some(source.document_id.as_str()) != current).collect::<Vec<_>>();
+        sources.sort();
+        let mut exports = self.exports.iter().filter(|record| Some(record.source().document_id()) != current)
+            .map(|record| (record.source().document_id(), record.fingerprint())).collect::<Vec<_>>();
+        exports.sort();
+        format!("{:x}", Sha256::digest(format!("{}|{:?}|{:?}", self.membership_complete, sources, exports).as_bytes()))
+    }
 }
 
 #[derive(Clone, Debug)]
