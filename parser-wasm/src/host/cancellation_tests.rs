@@ -106,6 +106,8 @@ fn project_stability_requires_exact_supported_opt_in_and_no_disabled_component()
         .last_mut()
         .unwrap()
         .minimum_version = 2;
+    assert!(host.project_semantics_are_stable());
+    host.components[0].manifest.capabilities.last_mut().unwrap().minimum_version = 3;
     assert!(!host.project_semantics_are_stable());
     host.components[0]
         .manifest

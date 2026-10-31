@@ -2,6 +2,9 @@
 
 The current contract is WIT `nlaocs:skript-parser-addon@0.49.0`, ABI `31.0`.
 The `parser.addon-data` v1 capability was introduced in WIT 0.47 / ABI 29.
+Version 2 uses the same wire interface and adds initialization-time validation
+of explicitly configured component binary pins. The host advertises v2; v1
+consumers remain compatible.
 Rebuild the host, CoreLibrary and all external
 components together. Older WIT imports or ABI manifests are rejected. SSG files
 and the Catalog remain separate from these optional addon inputs.
@@ -38,8 +41,17 @@ path and cannot specify another owner. After its manifest identity is validated,
 `addon-data.info(id)` exposes the authorized source's schema, bindings, payload
 length and separate `envelope-sha256` / `content-sha256`. The latter hashes exactly
 the bytes returned by `read(id, offset, max-bytes)`, in chunks of at most 64 KiB.
-Chunks can split UTF-8 and must be assembled before decoding. Missing or wrong
-owner/binary pins are unavailable. Calls before manifest validation are denied.
+Chunks can split UTF-8 and must be assembled before decoding. In v2, after the
+loading manifest identifies a component and before its initialization, every
+explicitly configured source for that component must match the actual Wasm
+binary SHA-256. A mismatch rejects the load even if another source matches;
+it cannot masquerade as an omitted optional dataset. Sources for other
+component IDs remain unavailable to this component and are checked only when
+their own component loads. Omitted sources remain optional. Payload/schema,
+identity and size validation remain separate. Calls before manifest validation
+are denied. Consumers that rely on distinguishing omission from an invalid
+configured binary pin must require `parser.addon-data` v2; older hosts do not
+provide this distinction.
 
 These bytes are shared unchanged across safe epoch recreation. The restart-safe
 promise permits immutable Catalog/profile and authorized addon-data queries;
@@ -47,6 +59,34 @@ other unobserved I/O or mutable global semantics still violate the promise.
 Updating a dataset requires a new project initialization and matching pins, not
 an unnoticed file reread during parsing. Native embedders can use
 `AddonDataSource::from_file_with_budget` and `HostConfig.addon_data_sources`.
+
+## Current-document declarations
+
+`parser.document-declarations` v1 is an explicit `ParseStage` subscription at
+`Document` / `Transform` with an empty selector. It also requires
+`parser.project-stable-semantics` v2. After preprocessing and fault masking, before
+the native dynamic registry freezes, the host sends an input-only Parser payload
+with parser ID `host.document-declarations`, empty input/expected types and one
+ownerless `native.tree-view.v1` option. Its JSON has `version: 1` and canonical
+decimal-string `epochHigh`, `epochLow`, `token` and `generation` fields. These
+identify an invocation-owned `tree-data` view, not transferable project data.
+
+Read roots/details/children/text through the existing bounded tree-data pages.
+The view is revoked at return, failure or cancellation and cannot cross stores
+or calls. Output may contain diagnostics, private Parse state and registrations;
+payload replacement, context changes and extra parsing/results are rejected.
+Accepted registrations are document/revision private and rolled back on failure.
+The result exposes the frozen native snapshot for current editing projections.
+Neither this capability nor project-stability v2 exports declarations across
+files or certifies execution, presence, purity or runtime values. Components with
+document declarations cannot certify a closed startup grammar/binding table.
+
+Structure entry context updates are a separate native boundary. Context-only
+updates to the current context remain provisional until all providers accept a
+final native Section with a scoped body and no declaration output. Their author
+and receipt dependencies remain attached to that body. Body-less directives,
+foreign contexts, extra parsing, shared State and other unbound effects retain
+document-wide conservative reach; a later provider can prevent scoped adoption.
 
 ## Current-document identifier proposals
 

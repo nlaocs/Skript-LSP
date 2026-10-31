@@ -1,4 +1,4 @@
-//! Invocation-scoped read-only ownership for Tree macro queries. No guest state
+//! Invocation-scoped read-only ownership for Tree/declaration queries. No guest state
 //! or accepted edits are stored here; dropping the lease revokes all access.
 use super::*;
 use std::{collections::hash_map::RandomState, hash::{BuildHasher, Hasher}, sync::atomic::{AtomicU64, Ordering}};

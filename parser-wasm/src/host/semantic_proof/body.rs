@@ -148,7 +148,7 @@ impl ReceiptRegistry {
 fn shadow_receipt_export_bounds_graph_edges_and_metadata_before_cloning() {
     let mut registry=ReceiptRegistry::default();
     registry.receipts.insert(1,Receipt {issuer:"public.fixture".into(),writers:BTreeSet::new(),parents:BTreeSet::new(),
-        admitted_nested:(2..5002).collect(),valid:true,unbound:false,payload_writer:false});
+        admitted_nested:(2..5002).collect(),valid:true,unbound:false,provisional_structure_context:false,payload_writer:false});
     let calls=vec![HookCall {origin:HookCallOrigin::Executed,component_id:"public.fixture".into(),subscription_id:"fixture".into(),semantic_receipt:Some(1)}];
     let result=registry.body_shadow_export(&calls,&[]);
     assert_eq!(result["overflow"],true);assert_eq!(result["exported"],false);

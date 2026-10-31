@@ -21,7 +21,7 @@ use skript_parser::{
     ExpressionParseContext, FunctionRegistrySnapshot, MappedSource, RawTree, RawTreeOptions,
     StructureDocument, StructureParseRequest, StructureParserConfig, parse_raw_tree,
 };
-use syntaxes::{DynamicRegistryError, DynamicSyntaxSavepoint};
+use syntaxes::{DynamicRegistryError, DynamicSyntaxSavepoint, DynamicSyntaxSnapshot};
 
 use crate::state::{CommitSummary, ParseTransaction, StateError};
 
@@ -90,6 +90,7 @@ pub enum DocumentParseStage {
     TextMacro,
     RawTree,
     TreeMacro,
+    DocumentDeclarations,
     Syntax,
     AstMacro,
     Commit,
@@ -102,6 +103,7 @@ impl fmt::Display for DocumentParseStage {
             Self::TextMacro => "text macro",
             Self::RawTree => "raw tree",
             Self::TreeMacro => "tree macro",
+            Self::DocumentDeclarations => "document declarations",
             Self::Syntax => "syntax",
             Self::AstMacro => "AST macro",
             Self::Commit => "commit",
@@ -256,6 +258,11 @@ pub struct DocumentParseResult {
     pub fault_regions: Vec<ExtensionFaultRegion>,
     /// Current-revision, nonsemantic editing suggestions. Never AST/type authority.
     pub editor_completions: Vec<super::EditorCompletionBatch>,
+    /// Current document's frozen native registry, including declaration prototypes.
+    /// Parser/editing information, never executable-body or runtime-value authority.
+    pub dynamic_syntax: Arc<DynamicSyntaxSnapshot>,
+    /// Source-discovery calls are separate from selected syntax semantic issuers.
+    pub declaration_calls: Vec<HookCall>,
     pub source: MappedSource,
     pub raw_tree: RawTree,
     /// Native parser trace including unknown and recovered nodes.
@@ -305,6 +312,8 @@ impl DocumentParseResult {
 }
 
 struct UncommittedDocument {
+    dynamic_syntax: Arc<DynamicSyntaxSnapshot>,
+    declaration_calls: Vec<HookCall>,
     fault_regions: Vec<ExtensionFaultRegion>,
     source: MappedSource,
     raw_tree: RawTree,
@@ -510,6 +519,8 @@ impl ParserHost {
         );
 
         Ok(DocumentParseResult {
+            dynamic_syntax: parsed.dynamic_syntax,
+            declaration_calls: parsed.declaration_calls,
             transfer_fence,
             editor_completions,
             static_name_rename: self.static_name_rename_certificate(),
@@ -664,7 +675,7 @@ impl ParserHost {
         check_cancelled(
             &request.context,
             &config.cancellation,
-            DocumentParseStage::Syntax,
+            DocumentParseStage::DocumentDeclarations,
         )?;
         let mut fault_regions = document_fault_regions(&source, &text_failures, "Preprocess")?;
         fault_regions.extend(document_fault_regions(
@@ -683,6 +694,35 @@ impl ParserHost {
                 node.kind = skript_parser::RawNodeKind::Invalid;
             }
         }
+        // Share the already masked native tree with invocation leases; do not
+        // clone its node arena merely to expose bounded declaration queries.
+        let mut syntax_tree = Arc::new(syntax_tree);
+        let mut declaration_effects = empty_effects();
+        let mut declaration_calls = Vec::new();
+        let mut declaration_failures = Vec::new();
+        if !global_macro_fault
+            && let Some(prepared) = self.prepare_document_declarations(
+                transaction, &request.context, &source, Arc::clone(&syntax_tree),
+            ).map_err(|error| document_host_error(
+                error, &request.context, DocumentParseStage::DocumentDeclarations,
+            ))?
+        {
+            declaration_effects = prepared.effects;
+            declaration_calls = prepared.calls;
+            declaration_failures = prepared.failures;
+        }
+        check_cancelled(&request.context, &config.cancellation, DocumentParseStage::DocumentDeclarations)?;
+        fault_regions.extend(document_fault_regions(&source, &declaration_failures, "DocumentDeclarations")?);
+        for node in &mut Arc::make_mut(&mut syntax_tree).nodes {
+            let span = mapped_span_to_wit(node.span.clone());
+            if fault_regions.iter().any(|region| fault_contains(&region.span, &span)) {
+                node.kind = skript_parser::RawNodeKind::Invalid;
+            }
+        }
+        // Freeze after all declaration providers finish. Recoverable body errors
+        // remain diagnostics and never make the prototype executable or pure.
+        let dynamic_syntax = Arc::new(self.dynamic_syntax_snapshot(transaction)?);
+        check_cancelled(&request.context, &config.cancellation, DocumentParseStage::Syntax)?;
         #[cfg(test)]
         let measurement = self.measurement_scope("document.structure_syntax_total");
         let parsed = self.parse_structures_in_parse_observed(
@@ -806,10 +846,12 @@ impl ParserHost {
         let mut effects = empty_effects();
         merge_effects(&mut effects, text_effects);
         merge_effects(&mut effects, tree_effects);
+        merge_effects(&mut effects, declaration_effects);
         merge_effects(&mut effects, syntax_effects);
         merge_effects(&mut effects, ast_effects);
         let mut component_failures = text_failures;
         component_failures.extend(tree_failures);
+        component_failures.extend(declaration_failures);
         component_failures.extend(syntax_failures);
         component_failures.extend(ast_failures);
 
@@ -822,6 +864,8 @@ impl ParserHost {
             effects.parse_results.clear();
         }
         Ok(UncommittedDocument {
+            dynamic_syntax,
+            declaration_calls,
             fault_regions,
             source,
             raw_tree,

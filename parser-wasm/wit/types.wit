@@ -359,6 +359,15 @@ interface types {
     /// the promise, project-wide semantic reuse is disabled. Future versions
     /// do not imply this v1 promise.
     ///
+    /// parser.project-stable-semantics v2 retains the same immutable inputs and
+    /// no hidden/cross-document history requirements. It additionally permits
+    /// deterministic registrations in a fresh document-private dynamic layer
+    /// during the native parser.document-declarations v1 pass. The layer is
+    /// rebuilt from the current complete final RawTree, frozen before syntax
+    /// parsing, and discarded on cancellation/failure/replacement. It does not
+    /// permit Project/Shared state or later dynamic mutations. Hosts recognize
+    /// v1 and v2 explicitly; an unknown future version is not a stability claim.
+    ///
     /// parser.static-name-rename-stability v1 separately certifies simultaneous
     /// edits of authenticated ASCII Function declaration/call name leaves and
     /// static scalar local Variable name leaves. With complete bindings and

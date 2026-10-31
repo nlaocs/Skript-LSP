@@ -15,6 +15,7 @@ use std::sync::{Arc, atomic::{AtomicU64, Ordering}};
 const RECEIPT: &str = "parser.semantic-writer-receipt.v1";
 
 mod body;
+mod structure_context;
 pub(super) mod value_facts;
 pub(super) mod entry_facts;
 pub(super) mod intrinsic_facts;
@@ -29,6 +30,9 @@ pub(super) enum SemanticEffects {
     None,
     /// Host-proven own private Invocation/Parse writes. Keep the local receipt.
     Local,
+    /// Same-context Structure entry effects, still unbound until the final
+    /// accepted payload proves a body scope. Unlike Local, Observe is a writer.
+    StructureContext,
     /// Context, extra parsing, registration, or State writes not proven local.
     Unbound,
 }
@@ -42,6 +46,7 @@ struct Receipt {
     admitted_nested: BTreeSet<u64>,
     valid: bool,
     unbound: bool,
+    provisional_structure_context: bool,
     payload_writer: bool,
 }
 
@@ -185,7 +190,8 @@ impl ReceiptRegistry {
                 parents: writers.parents.clone(),
                 admitted_nested: writers.admitted_nested.clone(),
                 valid: !writers.invalid,
-                unbound: semantic_effects == SemanticEffects::Unbound,
+                unbound: matches!(semantic_effects, SemanticEffects::Unbound | SemanticEffects::StructureContext),
+                provisional_structure_context: semantic_effects == SemanticEffects::StructureContext,
                 payload_writer: !matches!(mode,HookMode::Observe),
             },
         );

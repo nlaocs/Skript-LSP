@@ -50,7 +50,10 @@ pub const CAPABILITY_SOURCE_PREPARATION: &str = "parser.source-preparation";
 /// this grants neither whole-body purity nor general cross-provider authority.
 pub const CAPABILITY_SEMANTIC_ENTRY_FACTS: &str = "parser.semantic-entry-facts";
 
-/// Read-only, component-binary-bound immutable dataset inputs.
+/// Read-only, component-binary-bound immutable dataset inputs. Version 2 keeps
+/// the v1 wire API and additionally rejects any explicitly configured source
+/// for the loading component whose binary pin differs, before initialization.
+/// Omitted sources remain optional; other components' sources are unaffected.
 pub const CAPABILITY_ADDON_DATA: &str = "parser.addon-data";
 
 /// Accepted root-declaration exports of bounded, unverified identifier proposals.
@@ -64,8 +67,20 @@ pub const CAPABILITY_INCREMENTAL_STRUCTURE_HEADER: &str = "parser.incremental-st
 /// Explicit opt-in native body reuse contract; unknown subscriptions stay cold.
 pub const CAPABILITY_INCREMENTAL_STRUCTURE_BODY: &str = "parser.incremental-structure-body";
 
-/// Component-wide deterministic project semantic promise; see the WIT manifest contract.
+/// Component-wide deterministic project semantic promise. Version 1 forbids
+/// post-initialization dynamic changes. Version 2 additionally allows bounded,
+/// document-private declarations rebuilt deterministically from the current
+/// complete document pipeline; mutable cross-document state and hidden guest
+/// history remain forbidden. Unknown future versions imply neither promise.
 pub const CAPABILITY_PROJECT_STABLE_SEMANTICS: &str = "parser.project-stable-semantics";
+
+/// Opt-in final-RawTree declaration discovery before the document registry freezes.
+/// Version 1 uses a Document/Parser carrier with an invocation-owned paged tree
+/// view, immutable input and diagnostics-only output effects, plus private Parse
+/// state and document-scoped dynamic registration.
+/// Providers must require project-stable-semantics v2. A declaration prototype
+/// does not certify an executable, pure or error-free implementation body.
+pub const CAPABILITY_DOCUMENT_DECLARATIONS: &str = "parser.document-declarations";
 
 /// Opt-in v1 stability of authenticated ASCII identifier leaves edited together
 /// at Function declaration/call names or static scalar local Variable names.

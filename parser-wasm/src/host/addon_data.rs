@@ -87,6 +87,24 @@ impl AddonDataSource {
     }
 }
 
+/// A configured source for this component is an explicit binding, not an
+/// optional lookup miss. Validate it before allowing initialize to query data.
+/// Sources for other component IDs remain available for their own later loads.
+pub(super) fn validate_component_sources(
+    sources: &[AddonDataSource],
+    component_id: &str,
+    component_sha256: &str,
+) -> Result<(), super::HostError> {
+    if let Some(source) = sources.iter().find(|source|
+        source.pin.component_id == component_id && source.pin.component_sha256 != component_sha256)
+    {
+        return Err(super::HostError::AddonDataBindingMismatch {
+            component_id: component_id.to_owned(), source_id: source.pin.id.clone(),
+        });
+    }
+    Ok(())
+}
+
 pub(super) fn validate_sources(sources: &[AddonDataSource]) -> bool {
     let mut identities = BTreeSet::new();
     let mut bytes = 0usize;
@@ -220,3 +238,6 @@ mod tests {
         assert!(fresh.data().addon_data_owner.is_none());
     }
 }
+
+#[cfg(test)]
+mod binding_tests;

@@ -3,6 +3,14 @@ package nlaocs:skript-parser-addon@0.49.0;
 /// Immutable, explicitly configured inputs owned by one validated component.
 /// No path or caller-supplied owner is exposed. Bindings are opaque identities;
 /// addons must verify their domain meaning against the current runtime.
+///
+/// parser.addon-data v2 keeps the v1 wire interface. Before initialize, the
+/// host rejects a loading component if any explicitly configured source for
+/// its component ID has a different Wasm binary SHA-256 pin. Another matching
+/// source cannot hide that mismatch. Omitted sources stay optional; sources
+/// for other component IDs are checked only when their own component loads.
+/// Consumers relying on this omission-versus-invalid distinction require v2.
+/// Envelope/payload validation and resource bounds retain their own contracts.
 interface addon-data {
     record binding { key: string, value: string }
     record source-info {

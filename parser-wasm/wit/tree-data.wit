@@ -1,6 +1,9 @@
 package nlaocs:skript-parser-addon@0.49.0;
 
-/// Read-only, bounded access to the active Tree macro snapshot.
+/// Read-only, bounded access to the active Tree macro or declaration snapshot.
+/// Document declarations receive native.tree-view.v1 in their dedicated Parser
+/// carrier. Each provider invocation owns a fresh lease; return, trap, restart
+/// and cancellation cannot authorize later calls with a retained reference.
 interface tree-data {
     use types.{tree-reference, node-header, node-summary, node-details, tree-info, node-page, diagnostic-page, tree-error, node-span-kind, mapped-span};
 

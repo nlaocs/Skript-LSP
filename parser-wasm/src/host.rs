@@ -41,6 +41,7 @@ mod incremental;
 mod incremental_equivalence_tests;
 pub use incremental::IncrementalMetrics;
 mod document;
+mod declaration_prepass;
 #[cfg(test)]
 mod function_projection_tests;
 mod public_data;
@@ -629,6 +630,8 @@ pub enum HostError {
     DynamicSyntaxUnavailable,
     #[error("dynamic syntax registry operation failed: {0}")]
     DynamicSyntax(#[from] DynamicRegistryError),
+    #[error("addon dataset {source_id} for component {component_id} is pinned to a different Wasm binary")]
+    AddonDataBindingMismatch { component_id: String, source_id: String },
     #[error("component {component_id} is already loaded")]
     DuplicateComponent { component_id: String },
     #[error("the mandatory component must be {expected}, found {actual}")]
@@ -9528,10 +9531,7 @@ impl ParserHost {
         !self.components.is_empty()
             && self.components.iter().all(|entry| {
                 !entry.disabled
-                    && component_promises(
-                        &entry.manifest.capabilities,
-                        crate::CAPABILITY_PROJECT_STABLE_SEMANTICS,
-                    )
+                    && project_stability_promise(&entry.manifest.capabilities, false)
             })
     }
 
@@ -9572,6 +9572,12 @@ impl ParserHost {
                 entry.subscription.phase == HookPhase::Matching
                     && entry.subscription.mode != HookMode::Observe
             })
+            // Startup promises cannot close grammar added by a document pass.
+            // Candidate-binding closure consumes this same conservative gate.
+            && !self.registry.has_active_matching_capability(
+                &self.components, &DispatchTarget::ParseStage, HookPhase::Document,
+                crate::CAPABILITY_DOCUMENT_DECLARATIONS,
+            )
             && self
                 .dynamic_syntax_registry
                 .as_ref()
@@ -12627,8 +12633,6 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
-        #[cfg(test)]
-        let _measurement = self.measurement_scope("dispatch.total");
         let capability_id = match request.phase {
             HookPhase::Expression => CAPABILITY_EXPRESSION_PARSER,
             HookPhase::DefaultExpression => CAPABILITY_DEFAULT_EXPRESSION,
@@ -12639,6 +12643,18 @@ impl ParserHost {
             HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
+        self.dispatch_with_transaction_for_capability(transaction, request, capability_id, None)
+    }
+
+    fn dispatch_with_transaction_for_capability(
+        &mut self,
+        transaction: &ParseTransaction,
+        request: DispatchRequest,
+        capability_id: &str,
+        declaration_tree: Option<Arc<ParserRawTree>>,
+    ) -> Result<DispatchResult, HostError> {
+        #[cfg(test)]
+        let _measurement = self.measurement_scope("dispatch.total");
         #[cfg(test)]
         let measured = self.measurement_scope("dispatch.candidate_selection");
         let candidates = self.registry.matching_capability(
@@ -12672,6 +12688,7 @@ impl ParserHost {
             .semantic_receipts
             .as_ref()
             .map(|registry| registry.begin(&request.payload));
+        let mut structure_context_receipts = Vec::new();
         #[cfg(test)]
         drop(measured);
         #[cfg(test)]
@@ -12776,8 +12793,11 @@ impl ParserHost {
                 }
                 #[cfg(test)]
                 drop(measured);
-                let incremental_key =
-                    self.incremental_key(candidate.component_index, &mut invocation)?;
+                // A declaration handle is a fresh invocation capability. Never
+                // replay a response or skip collection using an old handle.
+                let incremental_key = if declaration_tree.is_some() { None } else {
+                    self.incremental_key(candidate.component_index, &mut invocation)?
+                };
                 let incremental_checkpoint = incremental_key
                     .as_ref()
                     .map(|_| transaction.observation_checkpoint())
@@ -12814,11 +12834,21 @@ impl ParserHost {
                     if let Some(call)=calls.last_mut() {call.origin=HookCallOrigin::ReusedInvocation;}
                     (Ok(Ok(output)), state_invocation, dynamic_update)
                 } else {
+                    // ensure_component_ready has completed before this fresh
+                    // lease is created. Each provider gets its own token/budget.
+                    let declaration_view = if let Some(tree) = &declaration_tree {
+                        let lease = tree_view::Lease::new(Arc::clone(tree),
+                            request.context.document_revision, self.native_cancellation.clone())
+                            .map_err(|error| StateError::Internal { message: error.to_string() })?;
+                        declaration_prepass::bind_tree_reference(&mut invocation.payload, lease.reference())?;
+                        Some(lease)
+                    } else { None };
                     let entry = &mut self.components[candidate.component_index];
                     entry.store.data_mut().editor_readonly = self.editor_context.is_some();
                     entry.store.data_mut().incremental_impure_call = false;
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
+                        || declaration_view.is_some() && entry.store.data().tree_view.is_some()
                     {
                         return Err(StateError::Internal {
                             message: format!(
@@ -12829,6 +12859,7 @@ impl ParserHost {
                     }
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
+                    if let Some(view) = declaration_view { entry.store.data_mut().tree_view = Some(view); }
                     entry.store.data_mut().cancellation = self.native_cancellation.clone();
                     // Test-only observer work precedes the live guest deadline;
                     // snapshot hashes are released before invocation execution.
@@ -12856,6 +12887,7 @@ impl ParserHost {
                             .expect("the invocation was just installed")
                             .rollback();
                         entry.store.data_mut().dynamic_syntax_update.take();
+                        if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
                         return Err(error);
                     }
                     #[cfg(test)]
@@ -12878,6 +12910,9 @@ impl ParserHost {
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    // Revoke on every return/trap, before cancellation and
+                    // output handling can take another path.
+                    if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
                     #[cfg(test)]
                     if let Some(measurement) = binding_measurement {
                         measurement.finish(call.as_ref().ok().and_then(|output|output.as_ref().ok()));
@@ -13016,16 +13051,34 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
+                if capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS
+                    && let Err(message) = declaration_prepass::validate_output(&output)
+                {
+                    state_invocation.rollback();
+                    drop(dynamic_update);
+                    failures.push(ComponentFailure {
+                        affected_span: None,
+                        component_id: component_id.clone(),
+                        subscription_id: subscription_id.clone(),
+                        error: HostError::InvalidHookOutput {
+                            component_id,
+                            subscription_id,
+                            message,
+                        },
+                    });
+                    break 'candidate;
+                }
+
                 #[cfg(test)]
                 drop(measured);
                 #[cfg(test)]
                 let measured = self.measurement_scope("dispatch.output_validation");
-                if !output.effects.context_updates.is_empty()
-                    || !output.effects.parse_requests.is_empty()
-                    || !output.effects.parse_results.is_empty()
-                {
-                    candidate_semantic_effects = semantic_proof::SemanticEffects::Unbound;
-                }
+                candidate_semantic_effects = candidate_semantic_effects.include_hook_effects(
+                    request.phase,
+                    request.context.syntax_context,
+                    &payload,
+                    &output.effects,
+                );
                 stamp_parse_result_attachments(&mut output.effects, &component_id);
 
                 if let Some(replacement) = output.replacement.as_mut()
@@ -13186,6 +13239,11 @@ impl ParserHost {
                             candidate.subscription.mode,
                             candidate_semantic_effects,
                         );
+                        if candidate_semantic_effects == semantic_proof::SemanticEffects::StructureContext
+                            && let Some(token) = receipt
+                        {
+                            structure_context_receipts.push(token);
+                        }
                         if let Some(token) = receipt
                             && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::value_facts::CAPABILITY && c.minimum_version==1) {
                             registry.value_facts.record(token, &next_payload, &component_id);
@@ -13253,6 +13311,8 @@ impl ParserHost {
             for call in &mut calls {
                 call.semantic_receipt = None;
             }
+        } else if let Some(registry) = self.semantic_receipts.as_mut() {
+            registry.bind_structure_context(&payload, &structure_context_receipts);
         }
         Ok(DispatchResult {
             fault,
@@ -13368,6 +13428,9 @@ impl ParserHost {
             &handler_bindings,
         )?;
         entry.store.data_mut().registered_handler_bindings = handler_bindings.clone();
+        addon_data::validate_component_sources(
+            &self.config.addon_data_sources, &component_id, &entry.component_sha256,
+        )?;
         entry.store.data_mut().addon_data_owner = Some((component_id.clone(), entry.component_sha256.clone()));
         let profile = host_profile(
             &self.capabilities,
@@ -13495,6 +13558,9 @@ impl ParserHost {
         }
 
         let component_sha256 = format!("{:x}", Sha256::digest(bytes));
+        addon_data::validate_component_sources(
+            &self.config.addon_data_sources, &manifest.component_id, &component_sha256,
+        )?;
         store.data_mut().addon_data_owner = Some((manifest.component_id.clone(), component_sha256.clone()));
 
         prepare_store(
@@ -13725,9 +13791,22 @@ fn component_promises(
         .any(|requirement| requirement.id == id && requirement.minimum_version == 1)
 }
 
+/// Only explicitly supported project contracts are interchangeable for project
+/// analysis. Other component promises remain exact v1 contracts.
+fn project_stability_promise(
+    requirements: &[crate::bindings::nlaocs::skript_parser_addon::types::CapabilityRequirement],
+    required: bool,
+) -> bool {
+    let mut claims = requirements.iter()
+        .filter(|claim| claim.id == crate::CAPABILITY_PROJECT_STABLE_SEMANTICS);
+    let Some(claim) = claims.next() else { return false; };
+    claims.next().is_none() && matches!(claim.minimum_version, 1 | 2)
+        && (!required || claim.required)
+}
+
 /// Returns the capabilities advertised by a host without a syntax catalog.
 ///
-/// Dynamic syntax is advertised only by configured hosts that receive a Catalog.
+/// Dynamic syntax and document declarations require a configured Catalog.
 pub fn host_capabilities() -> Vec<Capability> {
     [
         crate::CAPABILITY_ADDON_DATA,
@@ -13765,7 +13844,9 @@ pub fn host_capabilities() -> Vec<Capability> {
     .map(|id| {
         Capability::new(
             id,
-            if id == CAPABILITY_STRUCTURE_PARSER || id==editor_completion::typed::CAPABILITY {
+            if id == crate::CAPABILITY_ADDON_DATA || id == CAPABILITY_STRUCTURE_PARSER
+                || id == editor_completion::typed::CAPABILITY
+                || id == crate::CAPABILITY_PROJECT_STABLE_SEMANTICS {
                 2
             } else {
                 1
@@ -13785,6 +13866,7 @@ fn configured_host_capabilities(
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
+        capabilities.push(Capability::new(crate::CAPABILITY_DOCUMENT_DECLARATIONS, 1));
     }
     capabilities
 }
@@ -14046,20 +14128,23 @@ fn validate_manifest(
                 message: format!("{} has a blank subscription ID", manifest.component_id),
             });
         }
+        if subscription.capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS {
+            declaration_prepass::validate_subscription(manifest, subscription)?;
+        }
         if let HookTarget::Parser(parser_id) = &subscription.target {
             if parser_id.starts_with(editor_completion::ROUTE_PREFIX) {
                 let prefix=format!("{}{}/",editor_completion::ROUTE_PREFIX,manifest.component_id);
                 let trigger=parser_id.strip_prefix(&prefix).unwrap_or_default();
                 if trigger.chars().count()!=1 || trigger.chars().any(|c|c.is_alphanumeric()||c.is_whitespace()||c.is_control())
                     || !manifest.capabilities.iter().any(|c|c.id==editor_completion::CAPABILITY&&c.required&&c.minimum_version==1)
-                    || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
-                    return Err(HostError::InvalidManifest {message:"editing route must belong to its component and require the v1 observational contract".into()});
+                    || !project_stability_promise(&manifest.capabilities, true) {
+                    return Err(HostError::InvalidManifest {message:"editing route must belong to its component and require the v1 observational contract with supported project stability".into()});
                 }
             }
             if parser_id.starts_with(editor_completion::typed::ROUTE_PREFIX) {
                 if parser_id != &format!("{}{}",editor_completion::typed::ROUTE_PREFIX,manifest.component_id)
                     || !manifest.capabilities.iter().any(|c|c.id==editor_completion::typed::CAPABILITY&&c.required&&c.minimum_version==2)
-                    || !manifest.capabilities.iter().any(|c|c.id==crate::CAPABILITY_PROJECT_STABLE_SEMANTICS&&c.required) {
+                    || !project_stability_promise(&manifest.capabilities, true) {
                     return Err(HostError::InvalidManifest {message:"typed editing route must be owner-bound, input-only and project-stable".into()});
                 }
             }
