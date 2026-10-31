@@ -1789,3 +1789,36 @@ fn custom_project_unsupported_namespace_falls_back_and_later_complete_scan_recov
     assert!(complete.incomplete_reason.is_none());assert_eq!(declared(&complete),Some("java.lang.String"));
     assert_eq!(jump(&complete).len(),1);
 }
+
+#[test]
+#[ignore="requires the explicit authored custom-expression profile and project-capable addon"]
+fn custom_project_single_incomplete_namespace_keeps_truthful_local_origin_and_recovers() {
+    let root=tempfile::tempdir().unwrap();let path=root.path().join("only.sk");
+    let valid="expression review shared:\n    return type: string\n    get:\n        return\n";
+    let use_site="on load:\n    set {_value} to review shared\n";
+    let text=format!("{valid}expression:\n    patterns:\n        opaque syntax\n{use_site}");
+    let mut snapshot=ProjectSnapshot {epoch:1,root:root.path().into(),open:vec![view(&path,&text,1,1)]};
+    let (mut host,catalog)=custom_project_host();let mut index=ProjectIndex::new();
+    let partial=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(partial.incomplete_reason.as_ref().is_some_and(|reason|reason.contains("namespace is incomplete")));
+    assert!(!partial.current_semantic.project_complete);
+    assert_eq!(declared(&partial),Some("java.lang.String"),"document-only analysis keeps its known current header");
+    let declarations=partial.result.declaration_exports.as_ref().unwrap();
+    assert!(!host.declaration_exports_are_current("file:///custom-project",declarations),"local fallback never lends foreign export authority");
+    let position=lsp_types::Position::new(8,25);
+    let target=partial.current_semantic.definitions_at(position,&[]);
+    assert_eq!(target.len(),1);assert_eq!(target[0].uri,snapshot.open[0].uri);assert_eq!(target[0].range.start.line,0);
+    snapshot.epoch+=1;snapshot.open[0]=view(&path,&format!("{valid}{use_site}"),1,2);
+    let complete=analyze(&mut index,&mut host,&catalog,&snapshot);
+    assert!(complete.incomplete_reason.is_none()&&complete.current_semantic.project_complete);
+    assert_eq!(declared(&complete),Some("java.lang.String"));
+    assert!(!partial.current_semantic.is_current(),"an old fallback revision cannot keep serving edits or navigation");
+
+    // Even a trusted native caller supplying the wrong editing URI cannot
+    // redirect this frontend's source binding to another document.
+    let source=Arc::clone(&snapshot.open[0].source);let uri=snapshot.open[0].uri.clone();
+    let mismatched=host.parse_document(DocumentParseRequest::new("file:///custom-project",document_key(uri.as_str()),999,Arc::clone(&source)),
+        DocumentParserConfig {declarations:DeclarationInputs::for_document("file:///unrelated.sk"),..Default::default()}).unwrap();
+    let document=semantic::Document::from_result_with_host(&mismatched,source,uri,Arc::clone(&catalog),&mut host,None).unwrap();
+    assert!(document.definitions_at(lsp_types::Position::new(5,25),&[]).is_empty());
+}

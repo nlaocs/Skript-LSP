@@ -1282,7 +1282,12 @@ native coordinator supplies `DocumentParserConfig.declarations` with the actual
 source set, monotone batch epoch and prior immutable `DeclarationExports`. Call
 `synchronize_declaration_sources` before lending cached project results, and
 revalidate them with `declaration_exports_are_current`. A default config has a
-document-only domain with unknown external membership.
+document-only domain with unknown external membership. `DeclarationInputs::for_document(uri)`
+retains a truthful current-file editing URI without granting project membership;
+the native request still supplies the document identity and actual source bytes.
+Single-file and multi-file project results both require current, complete header
+collection and successful import materialization; otherwise the frontend falls
+back to document-only analysis.
 
 An opted-in hook also receives `native.project-declarations.v1`, an exact JSON
 object containing `version:1`, `project`, `complete` and `declarations`. Each

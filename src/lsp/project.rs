@@ -876,6 +876,11 @@ impl ProjectIndex {
                 Some(observer),
             )?;
             parsed_documents += 1;
+            if !prototype_current(host, project_uri, &record)
+                || host.project_declarations_enabled() && record.prototypes.as_ref()
+                    .is_none_or(|record| !record.complete() || !record.imports_complete()) {
+                return Err(incomplete("project declaration namespace is incomplete; using document-only analysis"));
+            }
             let current_semantic = Arc::clone(&record.semantic);
             working.insert(current_uri.as_str().to_owned(), record);
             return self.finish(
@@ -1142,7 +1147,7 @@ impl ProjectIndex {
             path: None,
         };
         config.structure.expression.function_namespace_complete = false;
-        config.declarations = DeclarationInputs::default();
+        config.declarations = DeclarationInputs::for_document(source.key());
         let (result, record, revision) = self.parse(
             host,
             catalog,

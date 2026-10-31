@@ -55,6 +55,7 @@ impl DeclarationSource {
 #[derive(Clone, Debug, Default)]
 pub struct DeclarationInputs {
     current: Option<DeclarationSource>,
+    document_uri: Option<String>,
     sources: Vec<DeclarationSource>,
     membership_complete: bool,
     batch_epoch: Option<u64>,
@@ -64,7 +65,13 @@ pub struct DeclarationInputs {
 impl DeclarationInputs {
     /// Describes the actual scanner/open-buffer view for this immutable batch.
     pub fn new(current: DeclarationSource, sources: Vec<DeclarationSource>, membership_complete: bool) -> Self {
-        Self { current: Some(current), sources, membership_complete, batch_epoch: Some(0), exports: Vec::new() }
+        Self { current: Some(current), document_uri: None, sources, membership_complete, batch_epoch: Some(0), exports: Vec::new() }
+    }
+    /// Supplies a real editing URI for document-only analysis. This neither
+    /// registers source membership nor lends exports to a project. Document ID
+    /// and source digest still come from the actual native parse request.
+    pub fn for_document(uri: impl Into<String>) -> Self {
+        Self { document_uri: Some(uri.into()), ..Self::default() }
     }
     /// Monotone native project-view epoch. Increment it when the scanner/open
     /// source view changes; it is an authority gate, not a parse-attempt counter.
@@ -140,7 +147,7 @@ impl SourceAuthority {
         -> Result<SourceView, HostError>
     {
         let current = input.current.clone().unwrap_or_else(|| DeclarationSource::new(
-            request.context.document_id.clone(), request.context.document_id.clone(), 0, 0, request.source.original()));
+            input.document_uri.clone().unwrap_or_else(|| request.context.document_id.clone()), request.context.document_id.clone(), 0, 0, request.source.original()));
         if current.document_id != request.context.document_id
             || current.digest != format!("{:x}", Sha256::digest(request.source.original().as_bytes()))
         {
@@ -280,6 +287,22 @@ mod tests {
     }
     fn stamp(document: &str, generation: u64, epoch: u64, text: &str) -> DeclarationSource {
         DeclarationSource::new(format!("file:///project/{document}.sk"), document, generation, epoch, text)
+    }
+
+    #[test]
+    fn document_only_uri_is_editing_identity_without_project_membership_authority() {
+        let mut authority=SourceAuthority::default();
+        let actual=stamp("a",1,1,"a");
+        let full=authority.prepare(&request("a",1,"a"),&DeclarationInputs::new(actual.clone(),vec![actual.clone()],true)).unwrap();
+        let editing=authority.prepare(&request("a",2,"new"),&DeclarationInputs::for_document("file:///project/a.sk")).unwrap();
+        assert_eq!(editing.current.stamp.uri,"file:///project/a.sk");
+        assert_eq!(editing.current.stamp.document_id,"a");
+        assert_eq!(editing.current.stamp.digest,format!("{:x}",Sha256::digest(b"new")));
+        assert!(!editing.complete && !editing.view_is_current(&authority,PROJECT));
+        assert!(!authority.is_current(PROJECT,&editing.current));
+        assert!(!editing.permits(&authority,PROJECT,&full.current));
+        assert!(authority.is_current(PROJECT,&full.current),"document-only view does not install or restore a project source");
+        assert!(authority.prepare(&request("a",3,"new"),&DeclarationInputs::for_document("file:///bad\nuri")).is_err());
     }
 
     #[test]
