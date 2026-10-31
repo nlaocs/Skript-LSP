@@ -53,6 +53,14 @@ Storage inference runs only at the consuming scalar local SET when an existing
 native `storageResult` is unavailable, keeping the two computations out of the
 same expression hook's fuel budget.
 
+A dynamic provider can instead supply the existing native-sealed callback-only
+value-facts input (`classes: []`, `complete: false`, audited default-clone). Core
+reads the current sealed summary's public upper bound independently and applies
+the same prepared model. This does not promote that bound to a concrete runtime
+class set, grant Core ownership to foreign metadata, or alter the Core-only
+variable-transfer operation contract. Explicit malformed/foreign/duplicate Core
+input records remain rejected rather than falling back to the callback input.
+
 Write-site hints describe that write's post-state. Later reads also depend on
 lookup/conversion/player-refresh semantics. Core publishes variable-read v2
 `missingValue: "empty"` for the audited Skript 2.15.4 fixed-name scalar local
@@ -95,7 +103,11 @@ registrations follow the same path. Other wrappers, subclasses with a different
 delegate, or overridden hooks do not acquire that contract from a class suffix.
 After the specific semantic resolvers, unchanged complete static declarations
 can supply ordinary bounds without a custom resolver. This does not certify
-arbitrary init/getter effects or promote a partial/dynamic bound.
+arbitrary init/getter effects or promote a partial/dynamic bound. Native dynamic
+syntax uses matching `dynamic:<component>/<local>` definition/registration IDs;
+this fallback leaves those declarations to the registering provider. It does not
+reassert the same bound as a second Core author. Specific standard resolvers,
+static SSG declaration fallback and native single-author input seals are unchanged.
 
 The declaration lookup was added without changing the WIT 0.48 / ABI30 record
 layouts at that time. The current world is WIT 0.49 / ABI31: rebuild all components

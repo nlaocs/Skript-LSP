@@ -21,6 +21,15 @@ cardinality are separate. `beforeChange` is either `unknown` or an explicitly
 audited `default-clone` contract. This is not a purity certificate. Declaring a
 capability or copying a metadata entry does not supply runtime evidence.
 
+A callback-only draft may use `classes: []` and `complete: false`. It makes no
+runtime-class claim, but can retain an independently audited `beforeChange`
+contract. Core can combine that sealed callback input with the current immutable
+summary's complete, scalar public upper bound for ordinary declared-storage
+inference. The bound is read from the sealed summary, never inserted into
+`classes` as if it enumerated runtime values. The stronger runtime-domain / clone
+identity path still rejects this incomplete domain. No presence or getter-effect
+guarantee follows from the callback contract.
+
 The private per-parse registry records the actual accepted issuer/receipt,
 registration, exact mapped span and effective output summary. When a native
 Effect capture actually contains that current value, the host can issue
@@ -35,8 +44,11 @@ text and its derived checksum; it never publishes or reseals a modified AST.
 
 Core consumes only the native seal and independently checks its actual
 ClassInfo clone/storage evidence. It can derive a local scalar post-storage
-type without changing an advertised Object return type. Unknown callbacks,
-unproved class dispatch, incomplete domains and multiple values retain unknown.
+type without changing an advertised Object return type. That stronger path keeps
+unknown callbacks, unproved class dispatch, incomplete domains and multiple values
+unresolved. The separate declared-storage path uses the conditions above and its
+own current prepared ClassInfo model; an explicit invalid Core input contract
+cannot fall back to another native witness.
 The expression's evaluation effects remain unknown unless separately certified;
 other local facts must therefore still be invalidated by an unknown call.
 

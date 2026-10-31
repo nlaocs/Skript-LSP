@@ -2665,6 +2665,22 @@ mod tests {
         payload.effective_multiplicity=payload.declared_multiplicity;
         let Some(expressions::SemanticResolution::Resolved {metadata,..})=expressions::resolve(&payload) else {panic!("complete ordinary declaration")};
         assert!(metadata.is_empty(),"a type declaration cannot certify callback purity");
+        for (definition,registration,dynamic) in [
+            ("dynamic:unseen.provider/header","dynamic:unseen.provider/header",true),
+            ("dynamic:another.provider/value","dynamic:another.provider/value",true),
+            ("dynamic:unseen.provider/header","dynamic:another.provider/header",false),
+            ("dynamic:/header","dynamic:/header",false),
+            ("dynamic:unseen.provider/","dynamic:unseen.provider/",false),
+            ("dynamic:unseen.provider","dynamic:unseen.provider",false),
+        ] {
+            let mut changed=payload.clone();changed.definition_id=definition.into();changed.registration_id=registration.into();
+            assert_eq!(expressions::resolve(&changed).is_none(),dynamic,"{definition} / {registration}");
+            if dynamic {
+                let output=resolve_registered_expression(changed,None).unwrap();
+                assert!(matches!(output.decision,HookDecision::NotApplicable));
+                assert!(output.replacement.is_none(),"a provider-owned dynamic declaration must not gain a duplicate Core author");
+            }
+        }
         let mut changed=payload.clone();changed.effective_multiplicity=None;assert!(expressions::resolve(&changed).is_none());
         let mut changed=payload.clone();changed.effective_return_type=Some("other.Value".into());assert!(expressions::resolve(&changed).is_none());
         let mut changed=payload.clone();changed.effective_possible_return_types_state=ExpressionPossibleReturnTypesState::Partial;assert!(expressions::resolve(&changed).is_none());

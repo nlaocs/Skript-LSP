@@ -184,7 +184,7 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
     } else { Vec::new() };
     let transfer_operation=(authentic&&operation.mode==ChangeMode::Set&&(static_target==Some(false)||global_scalar))
         .then(||delta.and_then(|d|if global_scalar {crate::storage::declared::transfer::global_set_operation(d)}else{crate::storage::declared::transfer::set_operation(d)})).flatten();
-    let composition = if authentic && operation.mode == ChangeMode::Set && storage_result.is_some() {
+    let composition = if authentic && operation.mode == ChangeMode::Set && (storage_result.is_some() || declared_storage.is_some()) {
         target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
             crate::storage::native_inputs::compose(target,value,operation.changed_capture,value_capture,context_preserving))
     } else if transfer_operation.is_some() {

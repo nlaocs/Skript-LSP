@@ -80,6 +80,10 @@ The result exposes the frozen native snapshot for current editing projections.
 Neither this capability nor project-stability v2 exports declarations across
 files or certifies execution, presence, purity or runtime values. Components with
 document declarations cannot certify a closed startup grammar/binding table.
+Native dynamic definition and registration IDs both use the stable
+`dynamic:<component>/<local>` format. Definition metadata is not implicitly
+forwarded to registered-expression hooks; use current immutable IDs and declared
+inputs to relate an invocation to an owned current declaration.
 
 Structure entry context updates are a separate native boundary. Context-only
 updates to the current context remain provisional until all providers accept a

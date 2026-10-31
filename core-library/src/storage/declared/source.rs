@@ -43,10 +43,19 @@ pub(crate) fn for_summary(summary:&ParseSummary)->Option<Inference> {
     #[cfg(target_arch="wasm32")]
     {
         let source=crate::storage::document::current_source().ok()?;
-        guest::infer(&input_at(summary,&source)?)
+        guest::infer(&source,&input_types_at(summary,&source)?)
     }
     #[cfg(not(target_arch="wasm32"))]
     {let _=summary;None}
+}
+fn input_types_at(summary:&ParseSummary,source:&SourceIdentity)->Option<Vec<String>> {
+    if summary.metadata.iter().any(|entry|entry.key==KEY) {
+        // An explicit malformed/foreign/duplicate Core contract must not gain
+        // a second chance from a different native witness.
+        input_at(summary,source).map(|input|input.input_types)
+    } else {
+        crate::storage::native_inputs::declared_clone_bounds(summary)
+    }
 }
 fn input_at(summary:&ParseSummary,source:&SourceIdentity)->Option<Input> {
     let mut entries=summary.metadata.iter().filter(|e|e.key==KEY);
@@ -68,11 +77,11 @@ mod guest {
     fn key(s:&SourceIdentity)->String {format!("{}:{}",s.source_digest,s.snapshot_id)}
     fn current()->Option<SourceIdentity> {crate::storage::document::current_source().ok()}
     fn supported()->bool {crate::runtime::current().as_ref().and_then(|p|p.skript_version.as_deref()).is_some_and(supports)}
-    pub(super) fn infer(input:&Input)->Option<Inference> {
-        if !supported() || current().as_ref()!=Some(&input.source) {return None;}
-        let prepared=MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key(&input.source)).cloned()?;
-        let result=prepared.model.infer(&input.input_types)?;
-        (current().as_ref()==Some(&input.source)).then_some(result)
+    pub(super) fn infer(source:&SourceIdentity,input_types:&[String])->Option<Inference> {
+        if !supported() || current().as_ref()!=Some(source) {return None;}
+        let prepared=MODELS.read().unwrap_or_else(std::sync::PoisonError::into_inner).get(&key(source)).cloned()?;
+        let result=prepared.model.infer(input_types)?;
+        (current().as_ref()==Some(source)).then_some(result)
     }
     pub(super) fn transfer(request:&crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Request)
         ->Option<crate::exports::nlaocs::skript_parser_addon::semantic_transfer::Output> {
@@ -241,5 +250,35 @@ mod tests {
         assert!(!bounded_input("owned.Value",&["x".repeat(1025)]));
         assert!(!bounded_input(&"x".repeat(1025),&["owned.Value".into()]));
         assert!(!bounded_input("owned.Value",&(0..65).map(|i|format!("owned.Type{i}")).collect::<Vec<_>>()));
+    }
+    #[test]
+    fn explicit_core_input_contract_has_priority_and_cannot_fall_back_to_a_native_callback() {
+        let source=SourceIdentity {snapshot_id:"snapshot".into(),source_digest:"digest".into()};
+        let input=Input {version:1,source:source.clone(),definition:"definition".into(),registration:"registration".into(),class:"owned.Getter".into(),
+            pattern:0,return_type:"owned.Value".into(),input_types:vec!["owned.Value".into()]};
+        let mut summary=ParseSummary {kind:"registered-expression".into(),definition_id:Some("definition".into()),registration_id:Some("registration".into()),
+            element_class:Some("owned.Getter".into()),pattern_index:Some(0),return_type:Some("owned.Value".into()),possible_return_types:vec!["owned.Value".into()],
+            possible_return_types_state:ExpressionPossibleReturnTypesState::Complete,multiplicity:Some(DynamicMultiplicity::Single),default_expression:None,
+            public_data:vec![],metadata:vec![MetadataEntry {key:KEY.into(),value:serde_json::to_string(&input).unwrap(),owner_component_id:Some(crate::COMPONENT_ID.into())},
+                MetadataEntry {key:crate::storage::native_inputs::INPUT.into(),owner_component_id:None,value:serde_json::json!({"version":1,"receipt":7,
+                    "subject":"a".repeat(64),"issuer":"foreign.provider","valueDomain":{"version":1,"classes":[],"complete":false,"maybeUnset":false,
+                    "beforeChange":"default-clone","evidence":"audited callback only"}}).to_string()}]};
+        assert_eq!(input_types_at(&summary,&source).unwrap(),["owned.Value"]);
+        let mut no_core=summary.clone();no_core.metadata.remove(0);
+        assert_eq!(input_types_at(&no_core,&source).unwrap(),["owned.Value"]);
+        for case in 0..6 {
+            let mut changed=summary.clone();let mut current=source.clone();
+            match case {
+                0=>changed.metadata[0].owner_component_id=Some("foreign".into()),
+                1=>changed.metadata[0].value="{".into(),
+                2=>changed.metadata.push(changed.metadata[0].clone()),
+                3=>current.source_digest="other".into(),
+                4=>current.snapshot_id="other".into(),
+                _=>{let mut old=serde_json::to_value(&input).unwrap();old["version"]=0.into();changed.metadata[0].value=old.to_string();},
+            }
+            assert!(input_types_at(&changed,&current).is_none(),"explicit invalid input {case}");
+        }
+        summary.metadata[1].value="invalid native seal".into();
+        assert_eq!(input_types_at(&summary,&source).unwrap(),["owned.Value"],"the accepted exact Core source remains the primary path");
     }
 }

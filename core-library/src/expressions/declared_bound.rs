@@ -4,6 +4,14 @@ use super::{SemanticResolution,resolved_with_possible_types};
 use crate::nlaocs::skript_parser_addon::types::{DynamicMultiplicity,ExpressionPossibleReturnTypesState,ExpressionReturnTypeState,RegisteredExpressionPayload};
 
 pub(super) fn resolve(payload:&RegisteredExpressionPayload)->Option<SemanticResolution> {
+    // Dynamic declarations belong to their registering provider. Reasserting
+    // their unchanged public bounds would add Core as a second semantic author
+    // and prevent that provider's native-sealed callback facts from composing.
+    // The native stable qualified ID uses both fields; static SSG declarations
+    // and the specific standard resolvers retain their existing behavior.
+    if payload.definition_id==payload.registration_id
+        && payload.definition_id.strip_prefix("dynamic:").and_then(|id|id.split_once('/'))
+            .is_some_and(|(component,local)|!component.is_empty()&&!local.is_empty()) {return None;}
     let class=payload.declared_return_type.as_deref()?;
     if !payload.regex_captures.is_empty()
         || payload.return_type_state!=ExpressionReturnTypeState::Static

@@ -32,6 +32,28 @@ fn cloner_widens_to_its_declared_class_then_dispatches_storage_again() {
     assert!(!r.types.contains(&"custom.Child".into()),"RHS is not blindly copied");
 }
 #[test]
+fn callback_only_declared_input_still_runs_clone_and_serialization_transfer() {
+    use crate::nlaocs::skript_parser_addon::types::*;
+    let summary=ParseSummary {kind:"registered-expression".into(),definition_id:Some("custom.get".into()),registration_id:Some("custom.get.0".into()),
+        element_class:Some("custom.Getter".into()),pattern_index:Some(0),return_type:Some("custom.Child".into()),possible_return_types:vec!["custom.Child".into()],
+        possible_return_types_state:ExpressionPossibleReturnTypesState::Complete,multiplicity:Some(DynamicMultiplicity::Single),default_expression:None,
+        public_data:vec![],metadata:vec![MetadataEntry {key:crate::storage::native_inputs::INPUT.into(),owner_component_id:None,value:json!({"version":1,"receipt":7,
+            "subject":"a".repeat(64),"issuer":"foreign.provider","valueDomain":{"version":1,"classes":[],"complete":false,"maybeUnset":false,
+            "beforeChange":"default-clone","evidence":"audited callback only"}}).to_string()}]};
+    let bounds=crate::storage::native_inputs::declared_clone_bounds(&summary).unwrap();
+    assert!(crate::storage::native_inputs::clone_classes(&summary).is_none());
+    let mut m=model();let ordinary=m.infer(&bounds).unwrap();
+    assert_eq!(ordinary.types,["custom.Child"]);assert!(ordinary.maybe_unset);
+    m.records[0]["typeRuntime"]["clonerState"]="present".into();
+    m.records.remove(4);
+    for (i,r) in m.records.iter_mut().enumerate() {r["typeParseOrder"]=json!(i);}
+    m.records[0]["serializeAs"]=json!("custom.Target");m.records[0]["typeRuntime"]["serializeAsState"]="present".into();
+    m.records[0]["typeRuntime"]["serializeAsClass"]=json!("custom.Target");
+    let converted=m.infer(&bounds).unwrap();
+    assert!(converted.types.contains(&"custom.Target".into()));assert!(!converted.types.contains(&"custom.Child".into()));
+    assert!(converted.maybe_unset);assert!(!converted.preserves_local_bindings);
+}
+#[test]
 fn exact_registration_after_covering_ordered_entry_is_not_lost() {
     let mut m=model();m.records[4]["typeRuntime"]["clonerState"]="present".into();
     m.records[4]["serializeAs"]=json!("custom.Target");m.records[4]["typeRuntime"]["serializeAsState"]="present".into();
