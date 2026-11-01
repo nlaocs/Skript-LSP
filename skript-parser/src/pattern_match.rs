@@ -147,6 +147,8 @@ pub struct PatternCandidate<'a> {
 /// One nonempty prefix accepted by recursive typed-expression parsing.
 /// Structural omissions are retained separately, never as selected resolutions.
 pub struct TypeExpressionResolution {
+    /// Raw matcher consumption, including permitted Java-trim padding.
+    /// The selected expression keeps its own precise semantic span.
     pub range: TextRange,
     pub alternative_index: Option<usize>,
     pub resolution_id: Option<String>,

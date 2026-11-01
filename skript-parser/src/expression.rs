@@ -35,6 +35,8 @@ use thiserror::Error;
 mod compatibility;
 pub use compatibility::*;
 
+mod type_capture_padding;
+
 mod preparation;
 pub use preparation::ExpressionPreparationCache;
 
@@ -4917,6 +4919,9 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             .iter()
             .map(|end| frame_start + *end)
             .collect::<Vec<_>>();
+        self.validate_prefix_request(remaining, &candidate_ends)?;
+        let prefixes = type_capture_padding::Prefixes::new(self.source.virtual_source(), remaining, candidate_ends);
+        if prefixes.ends.is_empty() { return Ok(TypeExpressionOutcome::default()); }
         let mut resolutions = Vec::new();
         let mut failure = None;
         for (alternative_index, alternative) in request.expression.alternatives.iter().enumerate() {
@@ -4928,8 +4933,8 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
                 plural: alternative.plural,
             }];
             let parsed = self.parse_prefixes_mode(
-                remaining,
-                &candidate_ends,
+                prefixes.range,
+                &prefixes.ends,
                 &expected,
                 request.expression.allow_literals,
                 request.expression.allow_expressions,
@@ -4944,17 +4949,19 @@ impl<E: ExpressionParseEnvironment> ExpressionSession<'_, E> {
             for mut candidate in parsed.candidates {
                 candidate.expected_alternative = Some(alternative_index);
                 let absolute = candidate.node.span.local_range;
-                if !resolved_ends.insert(absolute.end) {
-                    continue;
-                }
+                let mut consumed = prefixes.consumed_ends(&absolute.end).iter().copied()
+                    .filter(|end| resolved_ends.insert(*end));
+                let Some(first) = consumed.next() else { continue; };
                 let id = format!("expression:{}", self.next_resolution_id);
                 self.next_resolution_id = self.next_resolution_id.saturating_add(1);
                 self.resolved_nodes.insert(id.clone(), candidate.node);
-                resolutions.push(TypeExpressionResolution {
-                    range: TextRange::new(absolute.start - frame_start, absolute.end - frame_start),
-                    alternative_index: Some(alternative_index),
-                    resolution_id: Some(id),
-                });
+                for end in std::iter::once(first).chain(consumed) {
+                    resolutions.push(TypeExpressionResolution {
+                        range: TextRange::new(request.remaining.start, end - frame_start),
+                        alternative_index: Some(alternative_index),
+                        resolution_id: Some(id.clone()),
+                    });
+                }
             }
         }
         // A rejected type alternative cannot diagnose an input range accepted

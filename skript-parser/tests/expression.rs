@@ -1725,39 +1725,40 @@ fn semantic_fallback_snapshot(catalog: &Catalog) -> DynamicSyntaxSnapshot {
 fn semantic_fallback_activates_the_alternative_matcher_state() {
     let catalog = expression_fixture();
     let snapshot = semantic_fallback_snapshot(&catalog);
-    let text = "use value";
-    let source = MappedSource::identity(text);
-    let mut environment = SemanticFallbackEnvironment::default();
-    let result = parse_expression_with_snapshot(
-        &catalog,
-        Some(&snapshot),
-        ExpressionParseRequest {
-            source: &source,
-            range: TextRange::new(0, text.len()),
-            expected_types: vec![expected("java.lang.String")],
-            context: ExpressionParseContext::default(),
-        },
-        &mut environment,
-        ExpressionParserConfig::default(),
-    )
-    .expect("semantic fallback must parse the accepted alternative");
+    for text in ["use value", "use  value", "use \tvalue"] {
+        let source = MappedSource::identity(text);
+        let mut environment = SemanticFallbackEnvironment::default();
+        let result = parse_expression_with_snapshot(
+            &catalog,
+            Some(&snapshot),
+            ExpressionParseRequest {
+                source: &source,
+                range: TextRange::new(0, text.len()),
+                expected_types: vec![expected("java.lang.String")],
+                context: ExpressionParseContext::default(),
+            },
+            &mut environment,
+            ExpressionParserConfig::default(),
+        )
+        .expect("semantic fallback must parse the accepted alternative");
 
-    let selected = result
-        .selected
-        .expect("the fallback registered expression must be selected");
-    assert!(matches!(
-        &selected.node.kind,
-        ExpressionNodeKind::Registered { registration_id, .. }
-            if registration_id.ends_with("/second")
-    ));
-    assert_eq!(
-        environment.semantic_observations,
-        vec![
-            ("test.semantic-fallback.first".to_owned(), Some(1)),
-            ("test.semantic-fallback.second".to_owned(), Some(2)),
-        ]
-    );
-    assert_eq!(environment.active_marker, Some(2));
+        let selected = result
+            .selected
+            .expect("the fallback registered expression must be selected");
+        assert!(matches!(
+            &selected.node.kind,
+            ExpressionNodeKind::Registered { registration_id, .. }
+                if registration_id.ends_with("/second")
+        ));
+        assert_eq!(
+            environment.semantic_observations,
+            vec![
+                ("test.semantic-fallback.first".to_owned(), Some(1)),
+                ("test.semantic-fallback.second".to_owned(), Some(2)),
+            ]
+        );
+        assert_eq!(environment.active_marker, Some(2));
+    }
 }
 
 #[test]
@@ -2581,5 +2582,46 @@ impl ExpressionParseEnvironment for LiteralEnvironment {
 
     fn state_revision(&self) -> Result<u64, String> {
         Ok(0)
+    }
+}
+
+#[test]
+fn typed_capture_consumes_java_padding_but_preserves_exact_expression_spans() {
+    let original=expression_fixture();
+    let mut wrapper=original.expressions().next().unwrap().clone();
+    let pattern=r"review\(%string%\)";
+    wrapper.common.patterns=vec![syntaxes::Pattern {source:pattern.into(),
+        parsed:syntax_pattern_parser::syntax::parse(pattern,original.plural_rules()).unwrap()}];
+    wrapper.return_type=Some(ClassName("java.lang.String".into()));
+    wrapper.return_type_state=ReturnTypeState::Static;
+    wrapper.possible_return_types=vec![ClassName("java.lang.String".into())];
+    wrapper.possible_return_types_state=PossibleReturnTypesState::Complete;
+    let mut syntaxes=original.syntaxes().iter().filter(|s|matches!(s,Syntax::Type(_))).cloned().collect::<Vec<_>>();
+    syntaxes.push(Syntax::Expression(wrapper));
+    let catalog=catalog_with_syntaxes(&original,syntaxes);
+    let literal=r#"" a ""#;
+    for (left,right) in [("",""),(" ",""),(""," "),(" \t","\t ")] {
+        let text=format!("🦀 review({left}{literal}{right})");
+        let start="🦀 ".len();let source=MappedSource::identity(text.as_str());
+        let parsed=parse_expression(&catalog,ExpressionParseRequest {source:&source,
+            range:TextRange::new(start,text.len()),expected_types:vec![expected("java.lang.String")],
+            context:Default::default()},&mut LiteralEnvironment,Default::default()).unwrap();
+        let node=parsed.selected.unwrap_or_else(||panic!("missing padded expression: {text:?}")).node;
+        let capture=node.captures.iter().find_map(|c|match c {
+            skript_parser::PatternCapture::TypeExpression {value,span,..}=>Some((value,span)),_=>None}).unwrap();
+        assert_eq!(capture.0,&format!("{left}{literal}{right}"));
+        assert_eq!(capture.1.mapped.virtual_range.slice(&text),Some(capture.0.as_str()));
+        assert_eq!(node.children.len(),1);
+        let child=&node.children[0];let quoted=text.find('"').unwrap();
+        assert_eq!(child.span.local_range,TextRange::new(quoted,quoted+literal.len()));
+        assert_eq!(child.span.local_range.slice(&text),Some(literal));
+        assert_eq!(child.span.mapped.virtual_range,child.span.local_range);
+    }
+    for argument in [" \t ".to_owned(),format!("\u{a0}{literal}"),format!("{literal}\u{3000}")] {
+        let text=format!("review({argument})");let source=MappedSource::identity(text.as_str());
+        let parsed=parse_expression(&catalog,ExpressionParseRequest {source:&source,
+            range:TextRange::new(0,text.len()),expected_types:vec![expected("java.lang.String")],
+            context:Default::default()},&mut LiteralEnvironment,Default::default()).unwrap();
+        assert!(parsed.selected.is_none(),"Java trim must not invent a value: {text:?}");
     }
 }
