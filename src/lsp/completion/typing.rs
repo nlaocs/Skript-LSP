@@ -71,6 +71,9 @@ impl Index {
     pub(super) fn current(&self) -> bool {
         self.certificate.as_ref().is_none_or(|c| c.is_current())
     }
+    pub(super) fn advisory_routes_current(&self) -> bool {
+        self.certificate.as_ref().is_some_and(|certificate|certificate.is_current())
+    }
     pub(super) fn finite_captures_current(&self) -> bool {
         self.certificate.is_some()
             && self.current()
@@ -220,7 +223,7 @@ impl CatalogIndex {
             }
         }
         self.capture_routes.clear();
-        if index.finite_captures_current() {
+        if index.advisory_routes_current() {
             let routed_patterns = self.patterns.iter()
                 .filter(|pattern| pattern.graph.slot_types.iter().any(Option::is_none))
                 .map(|pattern| pattern.identity.as_str()).collect::<HashSet<_>>();
@@ -236,7 +239,7 @@ impl CatalogIndex {
                 if identities.is_empty() {
                     continue;
                 }
-                if let Some(routes) = host.completion_capture_parser_ids(
+                if let Some(routes) = host.completion_advisory_capture_parser_ids(
                     syntax.kind(), common.definition_id.as_str(), common.registration_id.as_str(),
                 ) {
                     for identity in identities {

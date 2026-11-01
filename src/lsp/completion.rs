@@ -863,7 +863,19 @@ impl Document {
                     .then(a.3.cmp(&b.3))
                     .then(a.2.cmp(&b.2))
             });
-            for (_fixed, _slots, _, keyword, pattern) in continuations {
+            for (_fixed, _slots, _, keyword, pattern, pattern_start) in continuations {
+                // A current declared condition route can start inside another
+                // grammar. Keep the complete literal declaration in its edit.
+                if matches!(pattern.kind,SyntaxKind::Effect|SyntaxKind::Condition)
+                    && let Some(template)=self.dynamic_patterns.templates.iter().find(|t|t.identity==pattern.identity) {
+                    let start=line.code_start+pattern_start;let query=&self.source[start..offset];
+                    if template.folded.starts_with(&query.to_lowercase())
+                        && items.may_accept_matching(&template.leading,&preview(&template.parts),start) {
+                        let (item,_)=self.template_item(template,query,start,word_end,line,snippets)?;
+                        items.push_matching(item,&template.leading);
+                    }
+                    continue;
+                }
                 let detail = format!(
                     "{}; alternative grammar continuation (arguments unverified)",
                     pattern.detail
@@ -1250,12 +1262,19 @@ impl Document {
                 }
                 items.push_matching(item, &template.leading);
             }
-            if expression && !line.root {
+            if !line.root {
                 // A literal document pattern can already have several words
                 // before the cursor. Keep that prefix in its native edit range
                 // instead of comparing only the last word with the full name.
                 for template in &self.dynamic_patterns.templates {
                     let Some((relative, query)) = dynamic_patterns::literal_prefix(prefix, &template.folded) else { continue; };
+                    let allowed=match template.kind {
+                        SyntaxKind::Expression=>expression,
+                        SyntaxKind::Effect=>relative==0&&!matches!(line.scope,Scope::Expressions|Scope::Conditions),
+                        SyntaxKind::Condition=>relative==0&&!matches!(line.scope,Scope::Expressions),
+                        _=>false,
+                    };
+                    if !allowed {continue;}
                     let start = line.code_start + relative;
                     if !items.may_accept_matching(&template.leading, &preview(&template.parts), start) { continue; }
                     let (item, _) = self.template_item(template, query, start, word_end, line, snippets)?;

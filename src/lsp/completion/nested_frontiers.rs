@@ -9,9 +9,9 @@ impl Document {
         committed: &str,
         query: &str,
         budget: &mut continuation::Budget,
-    ) -> (Vec<(usize, usize, usize, String, &'a Pattern)>, bool) {
+    ) -> (Vec<(usize, usize, usize, String, &'a Pattern, usize)>, bool) {
         let routes_current = self.index.typing.as_ref()
-            .is_some_and(typing::Index::finite_captures_current);
+            .is_some_and(typing::Index::advisory_routes_current);
         let mut pending = vec![(0, false, 0, 0, 0)];
         let mut visited = HashMap::<(usize, bool), Vec<(usize, usize, usize)>>::new();
         let mut output = Vec::new();
@@ -50,7 +50,7 @@ impl Document {
                 let frontier = pattern.graph.next_words(text, query, budget);
                 limited |= frontier.limited;
                 output.extend(frontier.words.into_iter().map(|(word, fixed, slots)|
-                    (outer_fixed + fixed, outer_slots + slots, order, word, pattern)));
+                    (outer_fixed + fixed, outer_slots + slots, order, word, pattern, start)));
                 if !routes_current {
                     continue;
                 }

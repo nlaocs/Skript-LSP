@@ -9643,8 +9643,21 @@ impl ParserHost {
         if !self.completion_candidate_bindings_are_closed() {
             return None;
         }
+        self.completion_advisory_capture_parser_ids(kind,definition,registration)
+    }
+
+    /// Positive grammar guidance from currently active registered handlers.
+    /// Open document grammars do not make these routes exhaustive: callers must
+    /// not use them for exclusion, type proof, accepted edits or completeness.
+    /// Retain a current completion certificate when caching these suggestions.
+    pub fn completion_advisory_capture_parser_ids(
+        &self,
+        kind: CatalogSyntaxKind,
+        definition: &str,
+        registration: &str,
+    ) -> Option<Vec<(usize, String)>> {
         let mut domains = BTreeMap::new();
-        for component in self.components.iter().filter(|c| !c.unloaded) {
+        for component in self.components.iter().filter(|c| !c.unloaded && !c.disabled) {
             for handler in &component.manifest.registered_syntax_handlers {
                 if handler.phase == HookPhase::DefaultExpression
                     || catalog_syntax_kind(handler.kind) != kind
@@ -13923,7 +13936,7 @@ fn configured_host_capabilities(
         capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 6));
     }
     if dynamic_syntax_available {
-        capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 1));
+        capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 2));
         capabilities.push(Capability::new(crate::CAPABILITY_DOCUMENT_DECLARATIONS, 1));
         capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_DECLARATIONS, 1));
     }
@@ -18116,6 +18129,25 @@ mod tests {
             component_ids
         );
         reopened.cancel().unwrap();
+    }
+
+    #[test]
+    fn captured_static_order_is_an_explicit_dynamic_v2_requirement() {
+        use crate::bindings::nlaocs::skript_parser_addon::types::{AbiVersion,CapabilityRequirement};
+        let manifest=ComponentManifest {
+            component_id:"test.dynamic-order-v2".into(),component_version:"1".into(),abi:AbiVersion {major:31,minor:0},
+            capabilities:vec![CapabilityRequirement {id:CAPABILITY_DYNAMIC_SYNTAX.into(),minimum_version:2,required:true}],
+            subscriptions:vec![],registered_syntax_handlers:vec![],catalog_annotations:vec![],state_namespaces:vec![],
+            incremental_body_handler_subscriptions:vec![],incremental_body_subscriptions:vec![],
+            incremental_header_handlers:vec![],incremental_local_subscriptions:vec![],
+        };
+        let current=configured_host_capabilities(true,true);
+        assert!(validate_manifest(&manifest,&current).is_ok());
+        let mut previous=current;
+        previous.iter_mut().find(|capability|capability.id==CAPABILITY_DYNAMIC_SYNTAX).unwrap().version=1;
+        assert!(matches!(validate_manifest(&manifest,&previous),Err(HostError::Compatibility {
+            source:CompatibilityError::CapabilityVersionTooOld {..},..
+        })),"old hosts reject the required ordering semantics before dispatch");
     }
 
     #[test]

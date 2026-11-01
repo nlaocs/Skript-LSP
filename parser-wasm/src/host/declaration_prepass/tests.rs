@@ -320,7 +320,17 @@ fn document_declarations_prevent_startup_grammar_and_binding_closure() {
     assert!(host.completion_candidate_bindings_are_closed());
     // Even a provider claiming startup closure cannot certify future document
     // registrations that were absent when that static index was constructed.
+    let (kind,definition,registration,expected)=host.config.syntax_catalog.as_ref().unwrap().syntaxes().iter()
+        .filter(|syntax|matches!(syntax.kind(),CatalogSyntaxKind::Effect|CatalogSyntaxKind::Condition|CatalogSyntaxKind::Section))
+        .find_map(|syntax| {
+            let common=syntax.common()?;
+            let routes=host.completion_capture_parser_ids(syntax.kind(),common.definition_id.as_str(),common.registration_id.as_str())?;
+            (!routes.is_empty()).then(||(syntax.kind(),common.definition_id.0.clone(),common.registration_id.0.clone(),routes))
+        }).expect("Core has a registered nested parser domain");
     host.registry.register(0, 0, &[declaration]);
+    assert!(host.completion_capture_parser_ids(kind,&definition,&registration).is_none(),"strict proof remains unavailable");
+    assert_eq!(host.completion_advisory_capture_parser_ids(kind,&definition,&registration),Some(expected),
+        "an active document declaration subscriber does not erase positive grammar guidance");
     assert!(!host.completion_catalog_patterns_are_closed());
     assert!(!host.completion_candidate_bindings_are_closed());
 }

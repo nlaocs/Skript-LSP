@@ -239,7 +239,7 @@ older host without failing while lifting its manifest.
 The host advertises and executes Text, Tree, and AST macros. CoreLibrary's
 manifest requires `parser.hooks`, the five syntax-parser capabilities, Tree
 macros, and `parser.state-store`; it optionally consumes
-`parser.dynamic-syntax` version 3 and `parser.catalog-data` version 4. It does not require
+`parser.dynamic-syntax` version 1 and `parser.catalog-data` version 4. It does not require
 Text or AST macros.
 
 `addon.initialize` also receives a `RuntimeProfile` built from the loaded SSG
@@ -1068,6 +1068,14 @@ snapshot combines static and dynamic candidates in deterministic topological
 order. Rejection and host failure roll dynamic updates back alongside
 StateStore updates. Unloading a component removes its entries from future
 snapshots without mutating already frozen document snapshots.
+
+The host advertises version 2 of this capability. It preserves the Catalog's
+static subsequence within each kind when resolving dynamic before/after anchors.
+Contradictory attempts to reverse that static order are typed priority cycles.
+Guests relying on family-relative insertion must require v2; an older v1 host
+rejects them before dispatch. WIT 0.49 / ABI31 layouts are unchanged, and
+existing v1 guests remain accepted unless their constraints contradict that
+static-order invariant.
 
 The capability is intentionally unavailable when no Catalog is connected.
 
