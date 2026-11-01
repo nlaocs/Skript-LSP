@@ -866,7 +866,7 @@ impl Document {
             for (_fixed, _slots, _, keyword, pattern, pattern_start) in continuations {
                 // A current declared condition route can start inside another
                 // grammar. Keep the complete literal declaration in its edit.
-                if matches!(pattern.kind,SyntaxKind::Effect|SyntaxKind::Condition)
+                if matches!(pattern.kind,SyntaxKind::Event|SyntaxKind::Effect|SyntaxKind::Condition)
                     && let Some(template)=self.dynamic_patterns.templates.iter().find(|t|t.identity==pattern.identity) {
                     let start=line.code_start+pattern_start;let query=&self.source[start..offset];
                     if template.folded.starts_with(&query.to_lowercase())
@@ -1262,16 +1262,17 @@ impl Document {
                 }
                 items.push_matching(item, &template.leading);
             }
-            if !line.root {
+            {
                 // A literal document pattern can already have several words
                 // before the cursor. Keep that prefix in its native edit range
                 // instead of comparing only the last word with the full name.
                 for template in &self.dynamic_patterns.templates {
                     let Some((relative, query)) = dynamic_patterns::literal_prefix(prefix, &template.folded) else { continue; };
                     let allowed=match template.kind {
-                        SyntaxKind::Expression=>expression,
-                        SyntaxKind::Effect=>relative==0&&!matches!(line.scope,Scope::Expressions|Scope::Conditions),
-                        SyntaxKind::Condition=>relative==0&&!matches!(line.scope,Scope::Expressions),
+                        SyntaxKind::Event=>line.root&&relative==0,
+                        SyntaxKind::Expression=>!line.root&&expression,
+                        SyntaxKind::Effect=>!line.root&&relative==0&&!matches!(line.scope,Scope::Expressions|Scope::Conditions),
+                        SyntaxKind::Condition=>!line.root&&relative==0&&!matches!(line.scope,Scope::Expressions),
                         _=>false,
                     };
                     if !allowed {continue;}
@@ -1318,11 +1319,16 @@ impl Document {
         );
         let end = word_end;
         let after = &self.source[end..line.range.end];
-        let colon_end = (header && after.trim_start().starts_with(':'))
+        let colon_end = ((header || line.section) && after.trim_start().starts_with(':'))
             .then(|| end + after.len() - after.trim_start().len() + 1);
-        let suffix = !self.source[colon_end.unwrap_or(end)..line.range.end]
-            .trim()
-            .is_empty();
+        let tail_start = colon_end.unwrap_or(end);
+        // Native comment trivia is outside the edit and is not an argument.
+        // Keep real source suffixes, including a # inside a string literal.
+        let tail_end = line.comments.iter().filter(|comment|
+            comment.start >= tail_start && comment.end <= line.range.end
+                && self.source[comment.end..line.range.end].trim().is_empty())
+            .map(|comment| comment.start).min().unwrap_or(line.range.end);
+        let suffix = !self.source[tail_start..tail_end].trim().is_empty();
         let use_snippets = snippets && !suffix;
         let mut insertion = if suffix {
             // Preserve arguments and fixed words already present to the right.

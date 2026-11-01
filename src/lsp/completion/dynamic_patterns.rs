@@ -31,10 +31,10 @@ impl View {
         for candidate in &snapshot.candidates {
             let syntaxes::SyntaxCandidateSource::Dynamic(id) = &candidate.source else { continue; };
             let Some(definition) = snapshot.definitions.get(id) else { view.limited = true; continue; };
-            // The document projection supports literal expressions and actions. The
+            // The document projection supports literal events, expressions and actions. The
             // native registry can contain other kinds/shapes without pretending
             // that this editor view has complete coverage of them.
-            if !matches!(definition.kind,SyntaxKind::Expression|SyntaxKind::Effect|SyntaxKind::Condition) { view.limited = true; continue; }
+            if !matches!(definition.kind,SyntaxKind::Event|SyntaxKind::Expression|SyntaxKind::Effect|SyntaxKind::Condition) { view.limited = true; continue; }
             for (pattern_index, pattern) in definition.patterns.iter().enumerate() {
                 bytes = bytes.saturating_add(pattern.source.len());
                 if view.patterns.len() >= MAX_PATTERNS || bytes > MAX_BYTES
@@ -59,7 +59,7 @@ impl View {
                     label: pattern.source.clone(), detail: detail.clone(), identity: identity.clone(), graph });
                 view.templates.push(Template { finite_capture: false, documentation: None,
                     kind: definition.kind, label: pattern.source.clone(), detail, identity,
-                    folded: text.to_lowercase(), leading: text.clone(), parts: vec![Part::Text(text)] });
+                    folded: text.to_lowercase(), leading: text.clone(), parts: vec![Part::Text(if definition.kind==SyntaxKind::Event {format!("{text}:")}else{text})] });
             }
         }
         view
@@ -140,6 +140,8 @@ mod tests {
             (SyntaxKind::Effect,"review notice","set {_x} to review no",None),
             (SyntaxKind::Condition,"review ready","review re",Some("review ready")),
             (SyntaxKind::Condition,"review ready","if review re:",Some("if review ready:")),
+            (SyntaxKind::Condition,"review ready","if rev:",Some("if review ready:")),
+            (SyntaxKind::Condition,"review ready","if rev: # keep",Some("if review ready: # keep")),
             (SyntaxKind::Condition,"review ready","set {_x} to review re",None),
         ].into_iter().enumerate() {
             let source:Arc<str>=format!("# Unicode 日本語 🦀\non load:\n    {line}\n").into();
@@ -172,6 +174,87 @@ mod tests {
     }
 
     #[test]
+    fn current_event_patterns_follow_direct_and_provider_declared_header_routes() {
+        let catalog=crate::lsp::test_support::runtime_catalog();
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),
+            runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},
+            ..Default::default()}).unwrap();
+        let mut index=CatalogIndex::with_documentation_format(&catalog,
+            skript_parser::RawTreeOptions::for_skript_version(2,15),lsp_types::MarkupKind::PlainText);
+        index.certify_types(&host);
+        assert!(index.capture_routes.values().flatten().any(|(_,parser)|parser=="host.event"));
+        let index=Arc::new(index);
+        for (revision,(line,expected)) in [
+            ("rev",Some("review fired:")),("review fi",Some("review fired:")),
+            ("on rev",Some("on review fired:")),("on review fi:",Some("on review fired:")),
+            ("on rev: # keep",Some("on review fired: # keep")),
+            ("    review fi",None),("    set {_x} to rev",None),
+        ].into_iter().enumerate() {
+            let body=if expected.is_none() {format!("on load:\n{line}\n")}else{format!("{line}\n")};
+            let source:Arc<str>=format!("# Unicode 日本語 😀\n{body}").into();
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///events",
+                "file:///events/current.sk",revision as u64+1,source.to_string()),Default::default()).unwrap();
+            let mut doc=Document::from_result(&result,source.clone(),index.clone()).unwrap();
+            doc.dynamic_patterns=View::from_snapshot(&snapshot_kind(&catalog,"review fired",SyntaxKind::Event));
+            let offset=source.find(line).unwrap()+line.find(':').unwrap_or(line.len());
+            let position=doc.lines.position(&source,offset).unwrap();
+            for snippets in [false,true] {
+                let list=doc.syntax_at(position,snippets).unwrap();
+                let proposals=list.items.iter().filter(|i|i.label=="review fired:").collect::<Vec<_>>();
+                if let Some(expected)=expected {
+                    assert_eq!(proposals.len(),1,"current event edit for {line}");
+                    let Some(CompletionTextEdit::Edit(edit))=&proposals[0].text_edit else {panic!("plain event edit")};
+                    let mut applied=source.to_string();
+                    let range=doc.lines.offset(&source,edit.range.start).unwrap()..doc.lines.offset(&source,edit.range.end).unwrap();
+                    applied.replace_range(range,&edit.new_text);
+                    assert!(applied.contains(&format!("\n{expected}\n")),"{applied}");
+                    assert_eq!(proposals[0].data.as_ref().unwrap()["syntaxKind"],"Event");
+                }else {assert!(proposals.is_empty(),"Event must not enter body/RHS grammar: {line}");}
+            }
+            let fresh=Document::from_result(&result,source.clone(),index.clone()).unwrap();
+            assert!(!fresh.syntax_at(position,false).unwrap().items.iter().any(|i|i.label=="review fired:"));
+        }
+    }
+
+    #[test]
+    #[ignore="requires the explicit custom-event profile and matching candidate Wasm"]
+    fn current_event_patterns_with_actual_external_declarations() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let mut index=CatalogIndex::with_documentation_format(&catalog,host.raw_tree_options(),lsp_types::MarkupKind::PlainText);
+        index.certify_types(&host);
+        assert!(!index.typing.as_ref().unwrap().finite_captures_current());
+        assert!(index.capture_routes.values().flatten().any(|(_,parser)|parser=="host.event"));
+        let index=Arc::new(index);
+        for (number,line) in ["rev","review fi","on rev","on review fi:","on rev: # keep"].into_iter().enumerate() {
+            let source:Arc<str>=format!("# Unicode 日本語 😀\nevent \"review id\":\n    pattern: review fired\n{line}\n    send \"event\" to console\n").into();
+            let revision=number as u64*2+1;
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///mixed-events",
+                "file:///mixed-events/current.sk",revision,source.to_string()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            let doc=Document::from_result(&result,source.clone(),index.clone()).unwrap();
+            let start=source.find(&format!("\n{line}\n")).unwrap()+1;
+            let offset=start+line.find(':').unwrap_or(line.len());
+            let position=doc.lines.position(&source,offset).unwrap();
+            let list=doc.syntax_at(position,false).unwrap();
+            let proposals=list.items.iter().filter(|i|i.label=="review fired:").collect::<Vec<_>>();
+            assert_eq!(proposals.len(),1,"actual mixed Event completion for {line}");
+            let Some(CompletionTextEdit::Edit(edit))=&proposals[0].text_edit else {panic!("native edit")};
+            let mut applied=source.to_string();
+            applied.replace_range(doc.lines.offset(&source,edit.range.start).unwrap()..doc.lines.offset(&source,edit.range.end).unwrap(),&edit.new_text);
+            let reparsed=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///mixed-events",
+                "file:///mixed-events/current.sk",revision+1,applied),Default::default()).unwrap();
+            assert!(reparsed.component_failures.is_empty());
+            assert!(reparsed.syntax.diagnostics.is_empty(),"{:?}",reparsed.syntax.diagnostics);
+            assert!(reparsed.ast.nodes.iter().any(|n|n.kind==parser_wasm::host::SyntaxKind::Event
+                &&n.syntax_id.starts_with("dynamic:nlaocs.skript-reflect/")),"inserted event has a current native declaration");
+        }
+    }
+
+    #[test]
     #[ignore="requires the explicit external declarations profile and matching candidate Wasm"]
     fn current_action_patterns_with_actual_external_declarations() {
         let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
@@ -194,6 +277,8 @@ mod tests {
         for (revision,(line,pattern,expected)) in [
             ("review no","review notice",Some("review notice")),
             ("if review re:","review ready",Some("if review ready:")),
+            ("if rev:","review ready",Some("if review ready:")),
+            ("if rev: # keep","review ready",Some("if review ready: # keep")),
             ("if review no:","review notice",None),
             ("set {_x} to review re","review ready",None),
         ].into_iter().enumerate() {
@@ -203,7 +288,7 @@ mod tests {
             assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
             assert_eq!(result.dynamic_syntax.definitions.len(),2);
             let doc=Document::from_result(&result,source.clone(),index.clone()).unwrap();
-            let needle=if line.contains("no") {"review no"}else{"review re"};
+            let needle=if line.starts_with("if rev:") {"rev"}else if line.contains("no") {"review no"}else{"review re"};
             let offset=source.rfind(needle).unwrap()+needle.len();
             let position=doc.lines.position(&source,offset).unwrap();
             let list=doc.syntax_at(position,false).unwrap();

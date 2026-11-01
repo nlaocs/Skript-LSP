@@ -310,7 +310,8 @@ impl Graph {
                         Some(Consumed::Full(end, matched)) => {
                             pending.push((*next, end, fixed + matched, slots))
                         }
-                        Some(Consumed::Prefix(remaining, matched)) if fixed + matched > 0 => {
+                        Some(Consumed::Prefix(remaining, matched))
+                            if fixed + matched > 0 || committed.is_empty() && slots == 0 && !query.is_empty() => {
                             let (keywords, clipped) = self.word_frontiers(remaining, *next, budget);
                             limited |= clipped;
                             for keyword in keywords {
@@ -342,6 +343,11 @@ impl Graph {
                             captures.insert((*parameter, offset, fixed, slots + 1));
                         }
                         pending.extend(ends.into_iter().map(|end| (*next, end, fixed, slots + 1)));
+                    }
+                    // The query is the first word in this routed argument.
+                    // Advertise its start, but never traverse an empty Slot.
+                    Edge::Slot(_, parameter) if offset == committed.len() && fixed > 0 => {
+                        captures.insert((*parameter, offset, fixed, slots + 1));
                     }
                     Edge::Slot(..) => {}
                 }
@@ -676,11 +682,16 @@ mod tests {
     fn leading_slots_need_fixed_grammar_and_routed_captures_are_balanced() {
         assert_eq!(keywords("%players% (is|are) [not] op", "player is ", "o"), ["op"]);
         assert!(keywords("%objects% op", "player ", "o").is_empty());
+        assert!(keywords("%objects% op", "", "o").is_empty());
+        assert_eq!(keywords("review fired", "", "rev"), ["review"]);
         let rules = syntax_pattern_parser::syntax::PluralRules::from_json(include_str!(
             "../../../syntax-pattern-parser/tests/data/PluralRules-2.15.4.json"
         )).unwrap();
         let parsed = syntax_pattern_parser::syntax::parse("guard %objects% using <.+>", &rules).unwrap();
         let graph = Graph::new(&parsed.elements).unwrap();
+        let empty = graph.next_words("guard {_p} using ", "o", &mut Budget::new());
+        assert!(empty.captures.iter().any(|&(capture, start, _, _)|
+            capture == 1 && start == "guard {_p} using ".len()));
         let frontier = graph.next_words("guard {_p} using player is ", "o", &mut Budget::new());
         assert!(frontier.captures.iter().any(|&(capture, start, _, _)|
             capture == 1 && &"guard {_p} using player is "[start..] == "player is "));

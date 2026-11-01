@@ -229,7 +229,7 @@ impl CatalogIndex {
                 .map(|pattern| pattern.identity.as_str()).collect::<HashSet<_>>();
             for syntax in index.catalog.syntaxes() {
                 let Some(common) = syntax.common() else { continue };
-                if !matches!(syntax.kind(), SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section) {
+                if !matches!(syntax.kind(), SyntaxKind::Effect | SyntaxKind::Condition | SyntaxKind::Section | SyntaxKind::Structure) {
                     continue;
                 }
                 let identities = common.patterns.iter().enumerate()

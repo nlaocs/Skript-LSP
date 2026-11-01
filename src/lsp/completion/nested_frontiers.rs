@@ -1,6 +1,9 @@
-//! Positive grammar guidance through provider-declared condition captures.
+//! Positive grammar guidance through provider-declared capture domains.
 //! These routes never certify argument acceptance or participate in exclusions.
 use super::*;
+
+#[derive(Clone,Copy,PartialEq,Eq,Hash)]
+enum Domain { Statement, Condition, Event }
 
 impl Document {
     pub(super) fn continuation_words<'a>(
@@ -12,12 +15,12 @@ impl Document {
     ) -> (Vec<(usize, usize, usize, String, &'a Pattern, usize)>, bool) {
         let routes_current = self.index.typing.as_ref()
             .is_some_and(typing::Index::advisory_routes_current);
-        let mut pending = vec![(0, false, 0, 0, 0)];
-        let mut visited = HashMap::<(usize, bool), Vec<(usize, usize, usize)>>::new();
+        let mut pending = vec![(0, Domain::Statement, 0, 0, 0)];
+        let mut visited = HashMap::<(usize, Domain), Vec<(usize, usize, usize)>>::new();
         let mut output = Vec::new();
         let mut limited = false;
-        while let Some((start, condition, outer_fixed, outer_slots, depth)) = pending.pop() {
-            let states = visited.entry((start, condition)).or_default();
+        while let Some((start, domain, outer_fixed, outer_slots, depth)) = pending.pop() {
+            let states = visited.entry((start, domain)).or_default();
             if !budget.scan(states.len() + 1) {
                 limited = true;
                 break;
@@ -37,7 +40,9 @@ impl Document {
                     limited = true;
                     break;
                 }
-                let allowed = if condition || matches!(line.scope, Scope::Conditions) {
+                let allowed = if domain==Domain::Event {
+                    pattern.kind == SyntaxKind::Event
+                } else if domain==Domain::Condition || matches!(line.scope, Scope::Conditions) {
                     pattern.kind == SyntaxKind::Condition
                 } else if line.root {
                     matches!(pattern.kind, SyntaxKind::Event | SyntaxKind::Structure)
@@ -58,15 +63,15 @@ impl Document {
                     continue;
                 };
                 for (parameter, offset, fixed, slots) in frontier.captures {
-                    if !routes.iter().any(|(index, parser)| *index == parameter
-                        && parser == "host.condition") {
-                        continue;
-                    }
+                    let next=routes.iter().filter(|(index,_)|*index==parameter).find_map(|(_,parser)|match parser.as_str() {
+                        "host.condition"=>Some(Domain::Condition),"host.event"=>Some(Domain::Event),_=>None,
+                    });
+                    let Some(next)=next else {continue;};
                     if depth == 12 {
                         limited = true;
                         continue;
                     }
-                    pending.push((start + offset, true, outer_fixed + fixed,
+                    pending.push((start + offset, next, outer_fixed + fixed,
                         outer_slots + slots, depth + 1));
                 }
             }
