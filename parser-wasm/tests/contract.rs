@@ -54,6 +54,7 @@ const CATALOG_QUERIES: &[&str] = &[
     "registered-handler-matches",
     "registered-type-pattern-match",
     "resolve-alias",
+    "resolve-type-name",
     "serialization-contract-for-type",
     "source",
     "type-for-class",
