@@ -369,4 +369,58 @@ mod tests {
         }
     }
 
+
+    #[test]
+    #[ignore="requires explicit custom-event-values profile and matching current guest Component"]
+    fn current_event_values_keep_core_hints_and_alias_completion_across_edits() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let mut index=CatalogIndex::with_documentation_format(&catalog,host.raw_tree_options(),lsp_types::MarkupKind::PlainText);
+        index.certify_types(&host);let index=Arc::new(index);
+        let uri="file:///event-value-editor/value.sk";
+        let source:Arc<str>="# 🧪 Unicode\nlocal event \"value id\":\n    patterns:\n        value arrived\n        alternate value arrived\n    event values: string\non alternate val:\n    set {_message} to event-string\n    set {_copy} to {_message}\n    set {_control} to 123\n".into();
+        let first=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,1,source.to_string()),Default::default()).unwrap();
+        let doc=Document::from_result(&first,source.clone(),index.clone()).unwrap();
+        let at=doc.lines.position(&source,source.find("on alternate val:").unwrap()+"on alternate val".len()).unwrap();
+        let completion=doc.syntax_at(at,false).unwrap();
+        let matching=completion.items.iter().filter(|item|item.label=="alternate value arrived:").collect::<Vec<_>>();
+        assert_eq!(matching.len(),1,"local alias is a current Event insertion candidate");
+        let Some(CompletionTextEdit::Edit(edit))=&matching[0].text_edit else {panic!("native text edit")};
+        let mut inserted=source.to_string();
+        inserted.replace_range(doc.lines.offset(&source,edit.range.start).unwrap()..doc.lines.offset(&source,edit.range.end).unwrap(),&edit.new_text);
+        let valid:Arc<str>=inserted.into();
+        let mut baseline=None;
+        for (revision,text,expected) in [(2,valid.to_string(),true),(3,valid.replace("event values: string","event values: number"),false),(4,valid.to_string(),true)] {
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,revision,text.clone()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            assert_eq!(result.syntax.diagnostics.is_empty(),expected,"{:?}",result.syntax.diagnostics);
+            let semantic=crate::lsp::semantic::Document::from_result(&result,text.clone().into(),uri.parse().unwrap(),catalog.clone()).unwrap();
+            let hints=semantic.write_type_hints();
+            let lines=crate::lsp::positions::LineIndex::new(&text);
+            let position=|name:&str|lines.position(&text,text.find(name).unwrap()+name.len()).unwrap();
+            let label=|name:&str|hints.iter().find(|hint|hint.position==position(name)).map(|hint|match &hint.label {lsp_types::InlayHintLabel::String(s)=>s.clone(),_=>panic!("string hint")});
+            assert_eq!(label("{_control}"),Some(": long".into()),"event selection must not author independent Core facts");
+            if expected {
+                assert_eq!(label("{_message}"),Some(": string?".into()),"declared event value does not prove presence");
+                assert_eq!(label("{_copy}"),Some(": string?".into()));
+                let at=lines.position(&text,text.find("event-string").unwrap()+2).unwrap();
+                let variable_at=lines.position(&text,text.rfind("{_message}").unwrap()+2).unwrap();
+                let (_,variable_hover)=semantic.hover(variable_at).expect("saved variable hover");
+                assert!(variable_hover.contains("string"));
+                let expression_hover=crate::lsp::hover::Document::from_result(result,text.clone().into(),catalog.clone(),lsp_types::MarkupKind::PlainText).unwrap();
+                assert!(expression_hover.at(at).is_some(),"expression hover uses the actual syntax-hover path");
+                let serialized=serde_json::to_value(&hints).unwrap();
+                if let Some(old)=&baseline {assert_eq!(&serialized,old);}else{baseline=Some(serialized);}
+            }else{assert_ne!(label("{_message}"),Some(": string?".into()),"old declaration cannot survive type-list edits");}
+        }
+        assert!(host.release_document("file:///event-value-editor",uri,4).unwrap());
+        let reopened=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,1,valid.to_string()),Default::default()).unwrap();
+        assert!(reopened.syntax.diagnostics.is_empty());
+        let semantic=crate::lsp::semantic::Document::from_result(&reopened,valid,uri.parse().unwrap(),catalog).unwrap();
+        assert_eq!(serde_json::to_value(semantic.write_type_hints()).unwrap(),baseline.unwrap());
+    }
+
 }

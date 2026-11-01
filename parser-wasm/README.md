@@ -1346,6 +1346,16 @@ Headers are deterministic functions of their own source, catalog and prepared
 immutable addon inputs; incoming imports resolve uses rather than silently
 changing exported header semantics.
 
+An additional `parser.project-conflicts` v1 opt-in receives a separate
+`native.project-conflicts.v1` sidecar, preserving the declarations-v1 shape.
+An own export may supply `projectConflictKey`; the host retains same-provider
+namespace/key occupancy from private and noncallable headers without callable
+patterns, bodies, values or import tokens. Public imports and private conflict
+records share 256 items and 64 KiB of encoded options. Overflow withdraws both
+complete lists; it never certifies truncated absence. Current source/provider/
+membership/lifetime fences and body invalidation include the keys. See
+[conflict-only keys](docs/project-conflicts.md) for the owner-bound contract.
+
 Completeness is an unchanged Parser echo with one trailing
 `parser.project-completeness.v1` option (`{"version":1,"complete":true|false}`).
 Only ContinueProcessing can report it. The host charges the full output before

@@ -46,3 +46,15 @@ execution, purity, accepted storage results or initialization success. Its lexic
 authorship uses the existing StructureContext receipts. Shared/durable writes,
 dynamic changes and additional parsing retain their existing Unbound treatment;
 this feature does not import or rewrite their receipts.
+
+
+## Data-only entries
+
+Requiring parser.structure-entry-data v1 in addition to the two capabilities
+above enables entry plan mode raw. The same owner, lease, root, immutable
+EntryData and direct Unknown Section adoption checks apply. A raw entry cannot
+carry an event-class or context-value patch. Its original RawTree children are
+retained as Section data without Trigger / Conditions parsing, and editor
+preparation marks it Raw rather than offering statement completion. This is a
+per-entry mode, not a new StructureBodyMode or permission to rewrite source.
+Old hosts reject the required capability; WIT 0.49 / ABI31 remains unchanged.

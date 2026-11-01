@@ -322,3 +322,52 @@ fn incomplete_private_conflict_view_is_unknown_and_legacy_inputs_stay_unchanged(
     let mut changed=reply;if let Some(HookPayload::Parser(reply))=&mut changed.replacement {reply.options[2].value.push(' ');}
     assert!(current.status(&changed).is_err(),"the conflict sidecar is an immutable input, even for semantically equivalent JSON");
 }
+
+
+fn mixed_conflict_record(authority:&mut SourceAuthority,stamp:ProviderStamp,a:DeclarationSource,sources:Vec<DeclarationSource>,count:usize,key_bytes:usize,padding:usize)->DeclarationExports {
+    let (arena,mut lease,prior,root)=setup(authority,stamp,a,sources,vec![],true);
+    let invocation=with_conflicts(&arena,authority,&lease,&prior);let mut names=Vec::new();let mut bindings=Vec::new();
+    for index in 0..count {
+        let name=format!("private-{index}");let mut key=format!("conflict-{index}-");
+        if key_bytes>key.len(){key.push_str(&"x".repeat(key_bytes-key.len()));}
+        let mut entry=conflict_entry(&invocation,root,&key);let mut value:Value=serde_json::from_str(&entry.value).unwrap();
+        value["key"]=name.clone().into();entry.value=value.to_string();
+        bindings.push(invocation.bind(&input(&name),&entry,&mut lease).unwrap());names.push(name);
+    }
+    let mut public=input("public");public.metadata.insert("padding".into(),"x".repeat(padding));
+    bindings.push(invocation.bind(&public,&export_entry(&invocation,root,false,false),&mut lease).unwrap());names.push("public".into());
+    finish(&arena,names.iter().zip(bindings).map(|(name,binding)|(name.as_str(),binding)).collect())
+}
+
+#[test]
+fn combined_conflicts_and_public_imports_share_the_256_item_bound_without_truncation() {
+    for (count,expected) in [(255,true),(256,false)] {
+        let mut authority=SourceAuthority::default();let stamp=provider();let a=source("a");let b=source("b");
+        let record=mixed_conflict_record(&mut authority,stamp.clone(),a.clone(),vec![a.clone(),b.clone()],count,0,0);
+        assert!(record.complete());assert_eq!(record.0.bindings.len(),1);assert_eq!(record.0.conflicts.len(),count);
+        let (arena,lease,prior,_)=setup(&mut authority,stamp,b.clone(),vec![a,b],vec![record],true);
+        let current=with_conflicts(&arena,&authority,&lease,&prior);
+        let headers:Value=serde_json::from_str(&current.original.options[1].value).unwrap();
+        let keys:Value=serde_json::from_str(&current.original.options[2].value).unwrap();
+        assert_eq!(headers["complete"],expected);assert_eq!(keys["complete"],expected);
+        assert_eq!(headers["declarations"].as_array().unwrap().len(),usize::from(expected));
+        assert_eq!(keys["conflicts"].as_array().unwrap().len(),if expected {count}else{0});
+        assert_eq!(current.imports.len(),usize::from(expected));assert_eq!(lock(&arena).unwrap().imports_complete,expected);
+    }
+}
+
+#[test]
+fn combined_conflict_and_public_signature_bytes_share_64_kib_not_two_separate_quotas() {
+    for (count,expected) in [(16,true),(32,false)] {
+        let mut authority=SourceAuthority::default();let stamp=provider();let a=source("a");let b=source("b");
+        let record=mixed_conflict_record(&mut authority,stamp.clone(),a.clone(),vec![a.clone(),b.clone()],count,1024,32*1024);
+        let (arena,lease,prior,_)=setup(&mut authority,stamp,b.clone(),vec![a,b],vec![record],true);
+        assert!(prior.original.options[1].value.len()<MAX_OPTION_BYTES,"legacy public view itself fits");
+        let current=with_conflicts(&arena,&authority,&lease,&prior);
+        let headers:Value=serde_json::from_str(&current.original.options[1].value).unwrap();
+        let keys:Value=serde_json::from_str(&current.original.options[2].value).unwrap();
+        assert_eq!(headers["complete"],expected);assert_eq!(keys["complete"],expected);
+        assert!(current.original.options[1..].iter().map(|o|o.value.len()).sum::<usize>()<=MAX_OPTION_BYTES);
+        if !expected {assert_eq!(headers["declarations"],json!([]));assert_eq!(keys["conflicts"],json!([]));assert!(current.imports.is_empty());}
+    }
+}

@@ -757,19 +757,24 @@ mod tests {
     }
     #[test]
     fn current_unknown_entry_plan_uses_the_same_provisional_selector_and_revocation() {
-        let source:Arc<str>=Arc::from("root:\n    change number:\n        hold");
-        let mapped=skript_parser::MappedSource::identity(Arc::clone(&source));
-        let index=PreparedDocument::test_fixture(Arc::clone(&source)).document.index;
-        let tree=skript_parser::parse_raw_tree(&mapped,index.raw_options);
-        let mut owner=candidate(&tree,0,Some(EntryValidator {entry_data:vec![entry("change",EntryKind::Unknown)]}));
-        let raw=tree.get(owner.raw_node_id).unwrap();let node=raw.children[0];
-        owner.metadata.insert(skript_parser::STRUCTURE_ENTRY_LAYOUT_METADATA.into(),skript_parser::structure_entry_layout(&owner,"17").unwrap());
-        owner.metadata.insert(format!("example.owner/{}",skript_parser::STRUCTURE_ENTRY_PLANS_METADATA),serde_json::json!({"version":1,"token":"17","structureNode":raw.id.get(),"entries":[{
-            "node":node.get(),"declarationIndex":0,"mode":"trigger","adoptUnknown":true,"context":{"eventClasses":[],"values":[]}}]}).to_string());
-        let mut view=PreparedDocument::new(source,index,&mapped,&tree,&[StructureHeaderPreparation {attempt_id:1,candidate:&owner,body_mode:StructureBodyMode::Entries,ambiguous:false}]).unwrap();
-        assert_eq!(ready(&view,2,12).items.len(),1);
-        assert!(view.revoke(&OwnerAttempt {root:owner.raw_node_id,registration:owner.matched.registration_id.clone(),pattern:owner.matched.pattern_index,attempt_id:1}));
-        assert!(matches!(view.at(Position::new(2,12),false).unwrap(),PreparedQuery::NeedsAnalysis));
+        for (mode,expected) in [("trigger",1),("raw",0)] {
+            let source:Arc<str>=Arc::from("root:\n    change number:\n        hold");
+            let mapped=skript_parser::MappedSource::identity(Arc::clone(&source));
+            let index=PreparedDocument::test_fixture(Arc::clone(&source)).document.index;
+            let tree=skript_parser::parse_raw_tree(&mapped,index.raw_options);
+            let mut owner=candidate(&tree,0,Some(EntryValidator {entry_data:vec![entry("change",EntryKind::Unknown)]}));
+            let raw=tree.get(owner.raw_node_id).unwrap();let node=raw.children[0];
+            owner.metadata.insert(skript_parser::STRUCTURE_ENTRY_LAYOUT_METADATA.into(),skript_parser::structure_entry_layout(&owner,"17").unwrap());
+            owner.metadata.insert(format!("example.owner/{}",skript_parser::STRUCTURE_ENTRY_PLANS_METADATA),serde_json::json!({"version":1,"token":"17","structureNode":raw.id.get(),"entries":[{
+                "node":node.get(),"declarationIndex":0,"mode":mode,"adoptUnknown":true,
+                "context":{"eventClasses":if mode=="raw"{serde_json::Value::Null}else{serde_json::json!([])},"values":[]}}]}).to_string());
+            let mut view=PreparedDocument::new(source,index,&mapped,&tree,&[StructureHeaderPreparation {attempt_id:1,candidate:&owner,body_mode:StructureBodyMode::Entries,ambiguous:false}]).unwrap();
+            assert_eq!(ready(&view,2,12).items.len(),expected,"data is never a statement completion scope");
+            if mode=="trigger" {
+                assert!(view.revoke(&OwnerAttempt {root:owner.raw_node_id,registration:owner.matched.registration_id.clone(),pattern:owner.matched.pattern_index,attempt_id:1}));
+                assert!(matches!(view.at(Position::new(2,12),false).unwrap(),PreparedQuery::NeedsAnalysis));
+            }
+        }
     }
     fn section_candidate(
         tree: &skript_parser::RawTree,
