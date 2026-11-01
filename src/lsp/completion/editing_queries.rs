@@ -72,4 +72,30 @@ mod tests {
         assert!(list.is_incomplete&&list.items.len()<=MAX_ITEMS);
     }
 
+
+    #[test]fn constructor_argument_edits_match_autopairs_and_spaces(){
+        for (tail,cursor_inside) in [("(",0),("()",0),("( )",0),("( )",1),("(  ",2)] {
+            let source=format!("# 雪😀\non load:\n    set {{_x}} to new JString{tail}\n");
+            let code=source.find("set").unwrap();let start=source.rfind('(').unwrap()+1;
+            let end=source.len()-1;let mut d=document(&source,start-code,end-code);
+            d.editor_queries[0].input=source[code..end].into();
+            d.editor_queries[0].span.origins[0].original_range.end=end as u64;
+            d.editor_queries[0].span.virtual_range.end=end as u64;
+            let proposal=&mut d.editor_queries[0].output.proposals[0];
+            proposal.id="constructor:owned".into();proposal.label="new String(String)".into();
+            proposal.filter_text=if start==end {"String".into()}else{source[start..end].into()};
+            proposal.insert_text="arg1)".into();proposal.snippet=Some("${1:arg1})".into());
+            for snippets in [false,true] {
+                let list=d.at(d.lines.position(&source,start+cursor_inside).unwrap(),snippets).unwrap();
+                let item=list.items.iter().find(|i|i.label=="new String(String)").expect("empty/autopaired constructor menu");
+                let Some(CompletionTextEdit::Edit(edit))=&item.text_edit else{panic!()};
+                assert_eq!(edit.range.start,d.lines.position(&source,start).unwrap());
+                assert_eq!(edit.range.end,d.lines.position(&source,end).unwrap());
+                let replacement=if snippets {"${1:arg1})"}else{"arg1)"};assert_eq!(edit.new_text,replacement);
+                let applied=format!("{}{}{}",&source[..start],edit.new_text,&source[end..]);
+                assert!(applied.ends_with(&format!("JString({replacement}\n")),"{applied}");
+                assert!(!applied.ends_with("))\n"),"must replace the existing auto-pair once");
+            }
+        }
+    }
 }
