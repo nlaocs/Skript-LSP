@@ -8,6 +8,7 @@ use syntaxes::{NativeSyntaxBinding, NativeSyntaxBindings};
 
 pub(in crate::host) const CAPABILITY: &str = "parser.project-declarations";
 pub(in crate::host) const OPTION: &str = "native.project-declarations.v1";
+pub(in crate::host) const CONFLICTS: &str = "native.project-conflicts.v1";
 pub(in crate::host) const EXPORT: &str = "parser.project-export.v1";
 pub(in crate::host) const IMPORT: &str = "parser.project-import.v1";
 pub(in crate::host) const STATUS: &str = "parser.project-completeness.v1";
@@ -45,7 +46,7 @@ impl Tree {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ExportDraft { version: u32, tree: Tree, root: String, namespace: String, key: String,
-    visibility: String, callable: bool }
+    visibility: String, callable: bool, #[serde(default)] project_conflict_key: Option<String> }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct ImportDraft { version: u32, reference: String }
@@ -61,6 +62,7 @@ pub(in crate::host) struct Origin {
     pub(in crate::host) namespace: String,
     pub(in crate::host) key: String,
     local: bool,
+    conflict_key: Option<String>,
 }
 #[derive(Clone, Debug)]
 pub(in crate::host) struct Binding {
@@ -78,13 +80,13 @@ impl Binding {
         let mut input = self.input.clone(); input.local_id = self.import_id(); input
     }
     fn semantic_key(&self) -> String {
-        format!("{}|{:?}|{}|{}|{}|{:?}", self.owner, self.origin.source.stamp,
-            self.origin.namespace, self.origin.key, self.origin.local, self.input)
+        format!("{}|{:?}|{}|{}|{}|{}|{:?}|{:?}", self.owner, self.origin.source.stamp,
+            self.origin.root, self.origin.namespace, self.origin.key, self.origin.local, self.origin.conflict_key, self.input)
     }
 }
 
 struct ExportData { source: SourceLease, view: Arc<SourceView>, provider: ProviderStamp,
-    complete: bool, imports_complete: bool, provider_current: bool, bindings: Vec<Arc<Binding>>,
+    complete: bool, imports_complete: bool, provider_current: bool, bindings: Vec<Arc<Binding>>, conflicts: Vec<Arc<Binding>>,
     selected: BTreeMap<String, Arc<Binding>>, import_bytes: usize, key: String }
 
 /// Immutable, host-authenticated header data. It contains no foreign AST,
@@ -172,6 +174,7 @@ impl Arena {
     fn allocate(&mut self, binding: Binding) -> Result<NativeSyntaxBinding, String> {
         let bytes = input_bytes(&binding.input).saturating_add(binding.origin.source.stamp.bytes())
             .saturating_add(binding.origin.namespace.len()).saturating_add(binding.origin.key.len())
+            .saturating_add(binding.origin.conflict_key.as_ref().map_or(0,String::len))
             .saturating_add(binding.origin.header.origins.len().saturating_mul(64));
         if self.allocations >= MAX_ALLOCATIONS || self.bytes.saturating_add(bytes) > MAX_ARENA_BYTES {
             self.violated = true;
@@ -188,6 +191,7 @@ impl Arena {
         let complete = header_execution_complete && !self.violated && self.provider.matches(provider)
             && self.expected.iter().all(|hook| annotations.completeness.get(hook) == Some(&true));
         let mut bindings = Vec::new();
+        let mut conflicts = BTreeMap::new();
         let mut selected = BTreeMap::new();
         for (id, annotation) in annotations.definitions {
             let binding = self.bindings.get(&annotation.token).ok_or("native project binding is not in its arena")?;
@@ -195,14 +199,23 @@ impl Arena {
                 return Err("native project binding differs from its final definition".into());
             }
             if annotation.callable { selected.insert(id.qualified(), Arc::clone(binding)); }
-            if !binding.imported && !binding.origin.local { bindings.push(Arc::clone(binding)); }
+            if !binding.imported {
+                if !binding.origin.local { bindings.push(Arc::clone(binding)); }
+                if let Some(key)=&binding.origin.conflict_key {
+                    conflicts.entry((binding.owner.clone(),binding.origin.root,binding.origin.namespace.clone(),key.clone()))
+                        .or_insert_with(||Arc::clone(binding));
+                }
+            }
         }
         bindings.sort_by_key(|binding| (binding.owner.clone(), binding.input.local_id.clone()));
-        let key = format!("{:x}", Sha256::digest(format!("{:?}|{}|{:?}", self.view.current.stamp, complete,
-            bindings.iter().map(|b| b.semantic_key()).collect::<Vec<_>>()).as_bytes()));
+        if conflicts.len()>MAX_ITEMS {return Err("project conflict key count limit".into());}
+        let conflicts=conflicts.into_values().collect::<Vec<_>>();
+        let key = format!("{:x}", Sha256::digest(format!("{:?}|{}|{:?}|{:?}", self.view.current.stamp, complete,
+            bindings.iter().map(|b| b.semantic_key()).collect::<Vec<_>>(),
+            conflicts.iter().map(|b| b.semantic_key()).collect::<Vec<_>>()).as_bytes()));
         Ok(DeclarationExports(Arc::new(ExportData { source: self.view.current.clone(), view: Arc::clone(&self.view),
             provider: self.provider.clone(), complete, imports_complete: self.imports_complete,
-            provider_current: self.provider.matches(provider), bindings, selected, import_bytes: self.import_bytes, key })))
+            provider_current: self.provider.matches(provider), bindings, conflicts, selected, import_bytes: self.import_bytes, key })))
     }
 }
 
@@ -213,6 +226,7 @@ pub(in crate::host) struct Invocation {
     hook: String,
     tree: tree_view::Reference,
     imports: BTreeMap<u64, Arc<Binding>>,
+    conflicts_enabled: bool,
 }
 
 fn lock(arena: &Mutex<Arena>) -> Result<std::sync::MutexGuard<'_, Arena>, String> {
@@ -220,66 +234,72 @@ fn lock(arena: &Mutex<Arena>) -> Result<std::sync::MutexGuard<'_, Arena>, String
 }
 
 impl Invocation {
+    #[cfg(test)]
     pub(in crate::host) fn prepare(arena: Arc<Mutex<Arena>>, authority: &SourceAuthority,
-        owner: &str, hook: &str, tree: tree_view::Reference, payload: &mut HookPayload) -> Result<Self, String>
+        owner: &str, hook: &str, tree: tree_view::Reference, payload: &mut HookPayload) -> Result<Self,String>
+    {Self::prepare_with_conflicts(arena,authority,owner,hook,tree,false,payload)}
+
+    pub(in crate::host) fn prepare_with_conflicts(arena: Arc<Mutex<Arena>>, authority: &SourceAuthority,
+        owner: &str, hook: &str, tree: tree_view::Reference, conflicts_enabled:bool, payload: &mut HookPayload) -> Result<Self, String>
     {
-        let HookPayload::Parser(request) = payload else { return Err("invalid project declaration carrier".into()); };
-        if request.parser_id != declaration_prepass::PARSER_ID || request.options.len() != 1 {
-            return Err("invalid project declaration input options".into());
-        }
-        let mut frame = lock(&arena)?;
-        let mut records = BTreeMap::new();
-        let mut complete = frame.project_mode && frame.view.complete;
+        let HookPayload::Parser(request) = payload else {return Err("invalid project declaration carrier".into());};
+        if request.parser_id!=declaration_prepass::PARSER_ID || request.options.len()!=1 {return Err("invalid project declaration input options".into());}
+        let mut frame=lock(&arena)?;let mut records=BTreeMap::new();let mut complete=frame.project_mode&&frame.view.complete;
         for record in &frame.inputs {
-            if record.0.source.stamp.document_id == frame.view.current.stamp.document_id { continue; }
-            if !record.current(&frame.project, authority, &frame.provider)
-                || !frame.view.permits(authority, &frame.project, &record.0.source)
-                || records.insert(record.0.source.stamp.document_id.clone(), record.clone()).is_some()
-            { complete = false; }
+            if record.0.source.stamp.document_id==frame.view.current.stamp.document_id {continue;}
+            if !record.current(&frame.project,authority,&frame.provider) || !frame.view.permits(authority,&frame.project,&record.0.source)
+                || records.insert(record.0.source.stamp.document_id.clone(),record.clone()).is_some() {complete=false;}
         }
-        for document in frame.view.membership.keys().filter(|document| **document != frame.view.current.stamp.document_id) {
-            if !records.get(document).is_some_and(DeclarationExports::complete) { complete = false; }
+        for document in frame.view.membership.keys().filter(|d|**d!=frame.view.current.stamp.document_id) {
+            if !records.get(document).is_some_and(DeclarationExports::complete) {complete=false;}
         }
-        let mut imports = BTreeMap::new();
-        let mut descriptors = Vec::new();
-        let mut descriptor_bytes = 128usize;
-        let mut body_bindings = Vec::new();
+        let mut imports=BTreeMap::new();let mut descriptors=Vec::new();let mut conflicts=Vec::new();
+        let mut descriptor_bytes=if conflicts_enabled {256usize}else{128usize};let mut body_bindings=Vec::new();
         if complete {
-            for record in records.values() {
-                for binding in record.0.bindings.iter().filter(|binding| binding.owner == owner) {
-                    if imports.len() >= MAX_ITEMS { complete = false; break; }
-                    let reference = token()?;
-                    let mut definition = wire(&binding.input);
-                    definition["localId"] = binding.import_id().into();
-                    let descriptor = json!({"reference":reference.to_string(),"definition":definition,
-                        "origin":{"uri":binding.origin.source.stamp.uri,"namespace":binding.origin.namespace,"key":binding.origin.key}});
-                    let bytes = serde_json::to_vec(&descriptor).map_err(|e|e.to_string())?.len();
-                    if bytes.saturating_add(descriptor_bytes) > MAX_OPTION_BYTES {
-                        complete = false; break;
+            'records: for record in records.values() {
+                if conflicts_enabled {
+                    for binding in record.0.conflicts.iter().filter(|b|b.owner==owner) {
+                        if conflicts.len()+imports.len()>=MAX_ITEMS {complete=false;break 'records;}
+                        let descriptor=json!({"uri":binding.origin.source.stamp.uri,"root":binding.origin.root.to_string(),
+                            "namespace":binding.origin.namespace,"key":binding.origin.conflict_key});
+                        let bytes=serde_json::to_vec(&descriptor).map_err(|e|e.to_string())?.len();
+                        if descriptor_bytes.saturating_add(bytes)>MAX_OPTION_BYTES {complete=false;break 'records;}
+                        descriptor_bytes+=bytes;conflicts.push(descriptor);
+                        body_bindings.push(format!("conflict|{}|{}",binding.semantic_key(),binding.origin.source.lifetime));
                     }
-                    descriptor_bytes = descriptor_bytes.saturating_add(bytes);
-                    descriptors.push(descriptor);
-                    body_bindings.push(format!("{}|{}|{}", binding.semantic_key(), binding.origin.source.lifetime, frame.provider.semantic_key()));
-                    imports.insert(reference, Arc::clone(binding));
+                }
+                for binding in record.0.bindings.iter().filter(|b|b.owner==owner) {
+                    if conflicts.len()+imports.len()>=MAX_ITEMS {complete=false;break 'records;}
+                    let reference=token()?;let mut definition=wire(&binding.input);definition["localId"]=binding.import_id().into();
+                    let descriptor=json!({"reference":reference.to_string(),"definition":definition,
+                        "origin":{"uri":binding.origin.source.stamp.uri,"namespace":binding.origin.namespace,"key":binding.origin.key}});
+                    let bytes=serde_json::to_vec(&descriptor).map_err(|e|e.to_string())?.len();
+                    if descriptor_bytes.saturating_add(bytes)>MAX_OPTION_BYTES {complete=false;break 'records;}
+                    descriptor_bytes+=bytes;descriptors.push(descriptor);
+                    body_bindings.push(format!("{}|{}|{}",binding.semantic_key(),binding.origin.source.lifetime,frame.provider.semantic_key()));
+                    imports.insert(reference,Arc::clone(binding));
                 }
             }
         }
-        let encode = |complete: bool, descriptors: &[Value]| serde_json::to_string(&json!({"version":1,
-            "project":frame.project_mode,"complete":complete,"declarations":descriptors})).map_err(|e|e.to_string());
-        let mut value = encode(complete, &descriptors)?;
-        if !complete || value.len() > MAX_OPTION_BYTES {
-            complete = false; imports.clear(); descriptors.clear(); body_bindings.clear();
-            value = encode(false, &descriptors)?;
+        let encode=|complete:bool,items:&[Value]|serde_json::to_string(&json!({"version":1,"project":frame.project_mode,
+            "complete":complete,"declarations":items})).map_err(|e|e.to_string());
+        let encode_conflicts=|complete:bool,items:&[Value]|serde_json::to_string(&json!({"version":1,"project":frame.project_mode,
+            "complete":complete,"conflicts":items})).map_err(|e|e.to_string());
+        let mut value=encode(complete,&descriptors)?;
+        let mut conflict_value=if conflicts_enabled {Some(encode_conflicts(complete,&conflicts)?)}else{None};
+        if !complete || value.len().saturating_add(conflict_value.as_ref().map_or(0,String::len))>MAX_OPTION_BYTES {
+            complete=false;imports.clear();descriptors.clear();conflicts.clear();body_bindings.clear();
+            value=encode(false,&descriptors)?;conflict_value=if conflicts_enabled {Some(encode_conflicts(false,&conflicts)?)}else{None};
         }
-        frame.import_bytes = frame.import_bytes.max(value.len());
-        frame.imports_complete &= complete;
-        let body_key = format!("{:x}", Sha256::digest(format!("{}|{}|{:?}", frame.project_mode, complete, body_bindings).as_bytes()));
-        frame.body_inputs.insert((owner.into(), hook.into()), body_key);
-        frame.body_key = format!("{:x}", Sha256::digest(format!("{}|{:?}", frame.provider.semantic_key(), frame.body_inputs).as_bytes()));
-        request.options.push(WitMetadataEntry { key: OPTION.into(), owner_component_id: None, value });
-        let original = request.clone();
-        drop(frame);
-        Ok(Self { arena, original, owner: owner.into(), hook: hook.into(), tree, imports })
+        frame.import_bytes=frame.import_bytes.max(value.len()+conflict_value.as_ref().map_or(0,String::len));
+        frame.imports_complete&=complete;
+        let body_key=format!("{:x}",Sha256::digest(format!("{}|{}|{:?}",frame.project_mode,complete,body_bindings).as_bytes()));
+        frame.body_inputs.insert((owner.into(),hook.into()),body_key);
+        frame.body_key=format!("{:x}",Sha256::digest(format!("{}|{:?}",frame.provider.semantic_key(),frame.body_inputs).as_bytes()));
+        request.options.push(WitMetadataEntry {key:OPTION.into(),owner_component_id:None,value});
+        if let Some(value)=conflict_value {request.options.push(WitMetadataEntry {key:CONFLICTS.into(),owner_component_id:None,value});}
+        let original=request.clone();drop(frame);
+        Ok(Self {arena,original,owner:owner.into(),hook:hook.into(),tree,imports,conflicts_enabled})
     }
 
     /// Called only after full hook-output accounting; no echoed bytes escape
@@ -338,6 +358,9 @@ impl Invocation {
                 || draft.key.is_empty() || draft.key.len() > 1024 || draft.key.chars().any(char::is_control)
                 || !matches!(draft.visibility.as_str(), "document" | "project")
             { return Err("invalid current project export draft".into()); }
+            if draft.project_conflict_key.as_ref().is_some_and(|key|!self.conflicts_enabled || key.is_empty() || key.len()>1024 || key.chars().any(char::is_control)) {
+                return Err("project conflict keys require an opted-in owner and bounded opaque key".into());
+            }
             let root = number(&draft.root)?;
             let tree = lease.read(self.tree).map_err(|e|e.to_string())?;
             if !tree.roots.iter().any(|id| id.get() == root) { return Err("project declaration is not a native root".into()); }
@@ -348,12 +371,13 @@ impl Invocation {
             validate_ordering(input, frame.provider.catalog.as_deref())?;
             if input_bytes(input).saturating_add(frame.view.current.stamp.bytes())
                 .saturating_add(node.line.content_span.origins.len().saturating_mul(64))
-                .saturating_add(draft.namespace.len()).saturating_add(draft.key.len()) > MAX_ARENA_BYTES.saturating_sub(frame.bytes)
+                .saturating_add(draft.namespace.len()).saturating_add(draft.key.len())
+                .saturating_add(draft.project_conflict_key.as_ref().map_or(0,String::len)) > MAX_ARENA_BYTES.saturating_sub(frame.bytes)
             { return Err("project declaration staging byte limit".into()); }
             let source = frame.view.current.clone();
             let mut binding = frame.allocate(Binding { owner: self.owner.clone(), input: input.clone(),
                 origin: Origin { source, root, header: mapped_span_to_wit(node.line.content_span.clone()),
-                    namespace: draft.namespace, key: draft.key, local: draft.visibility == "document" }, imported: false })?;
+                    namespace: draft.namespace, key: draft.key, local: draft.visibility == "document", conflict_key: draft.project_conflict_key }, imported: false })?;
             binding.callable = draft.callable;
             return Ok(binding);
         } else if entry.key == IMPORT {
@@ -362,7 +386,8 @@ impl Invocation {
             let imported = self.imports.get(&number(&draft.reference)?).ok_or("stale or foreign project import reference")?;
             if input_bytes(input).saturating_add(imported.origin.source.stamp.bytes())
                 .saturating_add(imported.origin.header.origins.len().saturating_mul(64))
-                .saturating_add(imported.origin.namespace.len()).saturating_add(imported.origin.key.len()) > MAX_ARENA_BYTES.saturating_sub(frame.bytes)
+                .saturating_add(imported.origin.namespace.len()).saturating_add(imported.origin.key.len())
+                .saturating_add(imported.origin.conflict_key.as_ref().map_or(0,String::len)) > MAX_ARENA_BYTES.saturating_sub(frame.bytes)
             { return Err("project declaration import staging byte limit".into()); }
             if *input != imported.imported_input() { return Err("project import changed its immutable signature".into()); }
             Binding { owner: self.owner.clone(), input: input.clone(), origin: imported.origin.clone(), imported: true }

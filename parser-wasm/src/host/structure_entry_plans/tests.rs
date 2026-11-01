@@ -316,3 +316,22 @@ mod retry_lifetime {
     #[test]
     fn native_alternative_reenter_after_entry_body_rejection_uses_a_new_entry_lease() { run(true); }
 }
+
+
+#[test]
+fn raw_data_plans_need_a_separate_mandatory_capability() {
+    let prior=HookPayload::Structure(payload());let mut next=payload();let mut raw=plan();
+    let mut value:serde_json::Value=serde_json::from_str(&raw.value).unwrap();
+    value["entries"][0]["mode"]="raw".into();value["entries"][0]["context"]=serde_json::json!({"eventClasses":null,"values":[]});
+    raw.value=value.to_string();next.candidate.metadata.push(raw);let next=HookPayload::Structure(next);
+    let requirement=|id:&str,required:bool|wit::CapabilityRequirement {id:id.into(),minimum_version:1,required};
+    let mut requirements=vec![requirement(crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,true),requirement(CAPABILITY_CONTEXT_UPDATES,true)];
+    assert!(validate_owner_requirements(&prior,&next,"example.owner",&requirements).is_err());
+    requirements.push(requirement(crate::CAPABILITY_STRUCTURE_ENTRY_DATA,false));
+    assert!(validate_owner_requirements(&prior,&next,"example.owner",&requirements).is_err());
+    requirements.last_mut().unwrap().required=true;
+    validate_owner_requirements(&prior,&next,"example.owner",&requirements).unwrap();
+    let old=host_capabilities().into_iter().filter(|cap|cap.id!=crate::CAPABILITY_STRUCTURE_ENTRY_DATA).collect::<Vec<_>>();
+    assert!(crate::validate_compatibility(crate::AbiVersion::new(31,0),crate::AbiVersion::new(31,0),
+        &[crate::CapabilityRequirement::required(crate::CAPABILITY_STRUCTURE_ENTRY_DATA,1)],&old).is_err());
+}

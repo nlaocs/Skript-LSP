@@ -26,10 +26,19 @@ impl StructureEntryContext {
     }
 }
 
+/// A raw/data section is not an executable Section parser mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StructureEntryBodyMode { Trigger, Conditions, Raw }
+impl StructureEntryBodyMode {
+    pub fn parser_mode(self) -> Option<crate::SectionBodyMode> {
+        match self { Self::Trigger=>Some(crate::SectionBodyMode::Trigger), Self::Conditions=>Some(crate::SectionBodyMode::Conditions), Self::Raw=>None }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StructureEntryPlan {
     pub declaration_index: usize,
-    pub mode: crate::SectionBodyMode,
+    pub mode: StructureEntryBodyMode,
     pub adopt_unknown: bool,
     pub context: StructureEntryContext,
 }
@@ -94,7 +103,10 @@ pub fn decode_structure_entry_plans(metadata: &BTreeMap<String,String>, root: Ra
     if wire.entries.len() > MAX_ENTRIES { return Err("entry plan count limit".into()); }
     let mut output = StructureEntryPlans {owner:Some(owner.to_owned()),entries:BTreeMap::new()};
     for entry in wire.entries {
-        let mode = match entry.mode.as_str() {"trigger"=>crate::SectionBodyMode::Trigger,"conditions"=>crate::SectionBodyMode::Conditions,_=>return Err("invalid entry plan body mode".into())};
+        let mode = match entry.mode.as_str() {"trigger"=>StructureEntryBodyMode::Trigger,"conditions"=>StructureEntryBodyMode::Conditions,"raw"=>StructureEntryBodyMode::Raw,_=>return Err("invalid entry plan body mode".into())};
+        if mode==StructureEntryBodyMode::Raw && (entry.context.event_classes.is_some() || !entry.context.values.is_empty()) {
+            return Err("raw entry plans cannot change parser context".into());
+        }
         let classes = entry.context.event_classes.map(|values| {
             if values.len() > 8 || values.iter().any(|v|v.is_empty() || v.len()>512) { return Err("entry event class limit".to_owned()); }
             Ok(values.into_iter().map(ClassName).collect())
@@ -140,7 +152,7 @@ pub fn validated_structure_entry_plans(candidate: &StructureCandidate, tree: &Ra
             match data.kind {
                 EntryKind::Unknown if plan.adopt_unknown => {},
                 EntryKind::Section if !plan.adopt_unknown && selected==Some(plan.declaration_index) => {},
-                EntryKind::Trigger if !plan.adopt_unknown && selected==Some(plan.declaration_index) && plan.mode==crate::SectionBodyMode::Trigger => {},
+                EntryKind::Trigger if !plan.adopt_unknown && selected==Some(plan.declaration_index) && plan.mode==StructureEntryBodyMode::Trigger => {},
                 _ => return Err("entry plan cannot adopt this EntryData kind".into()),
             }
             if candidate.entry_body_modes.contains_key(&vec![data.key.clone()]) { return Err("entry plan conflicts with an entry body mode".into()); }

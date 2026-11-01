@@ -126,3 +126,20 @@ fn entry_plans_scope_get_change_and_following_structure_even_after_rejection() {
         }
     }
 }
+
+
+#[test]
+fn raw_data_adoption_is_current_and_cannot_smuggle_a_context_patch() {
+    let source=MappedSource::identity("root:\n    set values:\n        first alias\n        second alias\n");
+    let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));let catalog=model();
+    let base=header(&source,&tree,&catalog);let root=tree.get(base.raw_node_id).unwrap();
+    let mut good=wire(root.id.get(),root.children[0].get(),1,true,"unused");
+    good["entries"][0]["mode"]="raw".into();good["entries"][0]["context"]=json!({"eventClasses":null,"values":[]});
+    let mut candidate=base.clone();attach(&mut candidate,good.clone());
+    let plans=validated_structure_entry_plans(&candidate,&tree,StructureBodyMode::Entries).unwrap();
+    assert_eq!(plans.entries[&root.children[0]].mode,StructureEntryBodyMode::Raw);
+    for context in [json!({"eventClasses":[],"values":[]}),json!({"eventClasses":null,"values":[{"key":"foreign","value":"injected"}]})] {
+        let mut bad=good.clone();bad["entries"][0]["context"]=context;let mut candidate=base.clone();attach(&mut candidate,bad);
+        assert!(validated_structure_entry_plans(&candidate,&tree,StructureBodyMode::Entries).is_err());
+    }
+}

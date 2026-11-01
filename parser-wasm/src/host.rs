@@ -12905,8 +12905,9 @@ impl ParserHost {
                     } else { None };
                     let project_invocation = if component_promises(&self.components[candidate.component_index].manifest.capabilities, crate::CAPABILITY_PROJECT_DECLARATIONS) {
                         if let (Some(frame), Some(view)) = (&self.project_declarations, &declaration_view) {
-                            Some(project_declarations::Invocation::prepare(Arc::clone(frame), &self.project_sources,
-                                &component_id, &subscription_id, view.reference(), &mut invocation.payload)
+                            Some(project_declarations::Invocation::prepare_with_conflicts(Arc::clone(frame), &self.project_sources,
+                                &component_id, &subscription_id, view.reference(),
+                                component_promises(&self.components[candidate.component_index].manifest.capabilities,crate::CAPABILITY_PROJECT_CONFLICTS), &mut invocation.payload)
                                 .map_err(|message| StateError::InvalidInput { message })?)
                         } else { None }
                     } else { None };
@@ -13926,6 +13927,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_SECTION_PARSER,
         CAPABILITY_STRUCTURE_PARSER,
         crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
+        crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
     ]
     .map(|id| {
         Capability::new(
@@ -13955,6 +13957,7 @@ fn configured_host_capabilities(
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 2));
         capabilities.push(Capability::new(crate::CAPABILITY_DOCUMENT_DECLARATIONS, 1));
         capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_DECLARATIONS, 1));
+        capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_CONFLICTS, 1));
     }
     capabilities
 }
@@ -14209,6 +14212,20 @@ fn validate_manifest(
         .iter()
         .map(|capability| (capability.id.as_str(), capability.minimum_version))
         .collect::<BTreeMap<_, _>>();
+    if manifest.capabilities.iter().any(|claim|claim.id==crate::CAPABILITY_STRUCTURE_ENTRY_DATA) {
+        for id in [crate::CAPABILITY_STRUCTURE_ENTRY_DATA,crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,CAPABILITY_CONTEXT_UPDATES] {
+            if !manifest.capabilities.iter().any(|c|c.id==id && c.required && c.minimum_version==1) {
+                return Err(HostError::InvalidManifest {message:format!("raw entry adoption requires mandatory {id} v1")});
+            }
+        }
+    }
+    if manifest.capabilities.iter().any(|claim|claim.id==crate::CAPABILITY_PROJECT_CONFLICTS) {
+        for id in [crate::CAPABILITY_PROJECT_CONFLICTS,crate::CAPABILITY_PROJECT_DECLARATIONS] {
+            if !manifest.capabilities.iter().any(|c|c.id==id && c.required && c.minimum_version==1) {
+                return Err(HostError::InvalidManifest {message:format!("project conflict view requires mandatory {id} v1")});
+            }
+        }
+    }
     if manifest.capabilities.iter().any(|claim| claim.id == crate::CAPABILITY_PROJECT_DECLARATIONS) {
         if !manifest.capabilities.iter().any(|claim| claim.id == crate::CAPABILITY_PROJECT_DECLARATIONS && claim.required && claim.minimum_version == 1)
             || !manifest.subscriptions.iter().any(|route| route.capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS) {
@@ -19409,6 +19426,7 @@ mod tests {
                 CAPABILITY_SECTION_PARSER,
                 CAPABILITY_STRUCTURE_PARSER,
                 crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
+                crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
             ]
         );
     }

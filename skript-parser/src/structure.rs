@@ -1537,13 +1537,15 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     let mut diagnostics = Vec::new();
     let mut valid = true;
     let value = if let Some(plan)=entry_plan {
-        let context=plan.context.apply(session.context());
-        let previous=session.replace_context(context);
-        let parsed=crate::section::parse_section_body(session,tree,node,plan.mode,depth);
-        session.replace_context(previous);
-        let (body,section_diagnostics)=parsed.map_err(nested_structure_error)?;
-        diagnostics.extend(section_diagnostics.into_iter().map(section_diagnostic_to_structure));
-        StructureEntryValue::Trigger(body)
+        if let Some(mode)=plan.mode.parser_mode() {
+            let context=plan.context.apply(session.context());
+            let previous=session.replace_context(context);
+            let parsed=crate::section::parse_section_body(session,tree,node,mode,depth);
+            session.replace_context(previous);
+            let (body,section_diagnostics)=parsed.map_err(nested_structure_error)?;
+            diagnostics.extend(section_diagnostics.into_iter().map(section_diagnostic_to_structure));
+            StructureEntryValue::Trigger(body)
+        } else { StructureEntryValue::Section(node.children.clone()) }
     } else {match data.kind {
         EntryKind::Literal | EntryKind::Expression => {
             let expected = if data.kind == EntryKind::Literal {

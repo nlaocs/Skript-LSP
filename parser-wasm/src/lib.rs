@@ -87,6 +87,9 @@ pub const CAPABILITY_DOCUMENT_DECLARATIONS: &str = "parser.document-declarations
 /// Version 1 extends only the document-declarations carrier; it does not certify
 /// executable getter bodies, purity or runtime values. Old hosts reject this requirement.
 pub const CAPABILITY_PROJECT_DECLARATIONS: &str = "parser.project-declarations";
+/// Opt-in conflict-only keys from current same-owner project headers, including private ones.
+/// This does not export a private callable or grant an import token.
+pub const CAPABILITY_PROJECT_CONFLICTS: &str = "parser.project-conflicts";
 
 /// Opt-in v1 stability of authenticated ASCII identifier leaves edited together
 /// at Function declaration/call names or static scalar local Variable names.
@@ -183,6 +186,8 @@ pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
 pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-modes.v1";
 /// Current direct-entry scope plans, with mandatory context-update permission.
 pub const CAPABILITY_STRUCTURE_ENTRY_PLANS: &str = "parser.structure-entry-plans";
+/// Explicit raw/data entry adoption; it confers no executable body or context updates.
+pub const CAPABILITY_STRUCTURE_ENTRY_DATA: &str = "parser.structure-entry-data";
 /// Owned outline metadata on an accepted AST node. JSON v1 contains a nonempty
 /// name, an LSP SymbolKind number (1..=26), optional detail, and selection
 /// {start,end} UTF-8 offsets relative to the node's native header. Consumers

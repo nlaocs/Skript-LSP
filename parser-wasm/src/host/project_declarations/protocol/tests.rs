@@ -244,3 +244,81 @@ fn editing_locations_keep_native_headers_and_expire_with_consumer_or_source_view
         authority.release(PROJECT,"a");assert!(!locations.is_current());assert!(locations.site(&id).is_none());
     }
 }
+
+
+fn with_conflicts(arena:&Arc<Mutex<Arena>>,authority:&SourceAuthority,lease:&tree_view::Lease,prior:&Invocation)->Invocation {
+    let mut request=prior.original.clone();request.options.truncate(1);let mut payload=HookPayload::Parser(request);
+    Invocation::prepare_with_conflicts(Arc::clone(arena),authority,OWNER,HOOK,lease.reference(),true,&mut payload).unwrap()
+}
+fn conflict_entry(invocation:&Invocation,root:u64,key:&str)->WitMetadataEntry {
+    let mut entry=export_entry(invocation,root,true,false);let mut value:Value=serde_json::from_str(&entry.value).unwrap();
+    value["projectConflictKey"]=key.into();entry.value=value.to_string();entry
+}
+fn private_conflict_record(authority:&mut SourceAuthority,stamp:ProviderStamp,a:DeclarationSource,sources:Vec<DeclarationSource>,key:&str)->DeclarationExports {
+    let (arena,mut lease,prior,root)=setup(authority,stamp,a,sources,vec![],true);
+    let invocation=with_conflicts(&arena,authority,&lease,&prior);
+    let first=invocation.bind(&input("private-first"),&conflict_entry(&invocation,root,key),&mut lease).unwrap();
+    let mut second_input=input("private-second");second_input.patterns=vec!["second fixture value".into()];
+    let second=invocation.bind(&second_input,&conflict_entry(&invocation,root,key),&mut lease).unwrap();
+    finish(&arena,vec![("private-first",first),("private-second",second)])
+}
+
+#[test]
+fn private_noncallable_aliases_export_one_conflict_identity_without_a_callable_or_import_token() {
+    let mut authority=SourceAuthority::default();let stamp=provider();let a=source("a");let b=source("b");
+    let record=private_conflict_record(&mut authority,stamp.clone(),a.clone(),vec![a.clone(),b.clone()],"opaque identifier");
+    assert!(record.complete());assert!(record.0.bindings.is_empty());assert!(record.0.selected.is_empty());
+    assert_eq!(record.0.conflicts.len(),1,"only conflict facts deduplicate aliases at the source root");
+    let (arena,mut lease,prior,_)=setup(&mut authority,stamp,b.clone(),vec![a,b],vec![record],true);
+    let invocation=with_conflicts(&arena,&authority,&lease,&prior);
+    let sidecar:Value=serde_json::from_str(&invocation.original.options[2].value).unwrap();
+    assert_eq!(invocation.original.options[2].key,CONFLICTS);
+    assert_eq!(sidecar["complete"],true);assert_eq!(sidecar["conflicts"].as_array().unwrap().len(),1);
+    let key=&sidecar["conflicts"][0];assert_eq!(key["uri"],"file:///project/a.sk");assert_eq!(key["key"],"opaque identifier");
+    assert_eq!(key.as_object().unwrap().len(),4,"only source URI/root/namespace/key travel");
+    assert!(invocation.imports.is_empty());
+    let headers:Value=serde_json::from_str(&invocation.original.options[1].value).unwrap();assert_eq!(headers["declarations"],json!([]));
+    let entry=WitMetadataEntry {key:IMPORT.into(),owner_component_id:None,value:json!({"version":1,"reference":key["root"]}).to_string()};
+    assert!(invocation.bind(&input("foreign-private"),&entry,&mut lease).is_err(),"a conflict root is not an import capability");
+}
+
+#[test]
+fn private_conflict_changes_participate_in_source_and_body_fingerprints() {
+    let mut fingerprints=Vec::new();let mut body_keys=Vec::new();
+    for key in ["first identity","second identity"] {
+        let mut authority=SourceAuthority::default();let stamp=provider();let a=source("a");let b=source("b");
+        let record=private_conflict_record(&mut authority,stamp.clone(),a.clone(),vec![a.clone(),b.clone()],key);
+        fingerprints.push(record.fingerprint().to_owned());
+        let (arena,lease,prior,_)=setup(&mut authority,stamp,b.clone(),vec![a,b],vec![record],true);
+        let _current=with_conflicts(&arena,&authority,&lease,&prior);body_keys.push(lock(&arena).unwrap().body_key.clone());
+    }
+    assert_ne!(fingerprints[0],fingerprints[1]);assert_ne!(body_keys[0],body_keys[1]);
+}
+
+#[test]
+fn conflict_keys_require_opt_in_and_cannot_claim_complete_empty_after_rejection() {
+    let mut authority=SourceAuthority::default();let a=source("a");
+    let (arena,mut lease,invocation,root)=setup(&mut authority,provider(),a.clone(),vec![a],vec![],true);
+    assert!(invocation.bind(&input("old-contract"),&conflict_entry(&invocation,root,"private id"),&mut lease).is_err());
+    assert!(!finish(&arena,vec![]).complete());
+    for key in [String::new(),"bad\nkey".into(),"x".repeat(1025)] {
+        let mut authority=SourceAuthority::default();let a=source("a");
+        let (arena,mut lease,prior,root)=setup(&mut authority,provider(),a.clone(),vec![a],vec![],true);
+        let invocation=with_conflicts(&arena,&authority,&lease,&prior);
+        assert!(invocation.bind(&input("invalid-key"),&conflict_entry(&invocation,root,&key),&mut lease).is_err());
+        assert!(!finish(&arena,vec![]).complete());
+    }
+}
+
+#[test]
+fn incomplete_private_conflict_view_is_unknown_and_legacy_inputs_stay_unchanged() {
+    let mut authority=SourceAuthority::default();let a=source("a");let b=source("b");
+    let (arena,lease,prior,_)=setup(&mut authority,provider(),b.clone(),vec![a,b],vec![],true);
+    assert_eq!(prior.original.options.len(),2);
+    let current=with_conflicts(&arena,&authority,&lease,&prior);
+    let sidecar:Value=serde_json::from_str(&current.original.options[2].value).unwrap();
+    assert_eq!(sidecar["complete"],false);assert_eq!(sidecar["conflicts"],json!([]));assert!(!lock(&arena).unwrap().imports_complete);
+    let reply=status_output(&current,json!({"version":1,"complete":true}));assert_eq!(current.status(&reply).unwrap(),Some(true));
+    let mut changed=reply;if let Some(HookPayload::Parser(reply))=&mut changed.replacement {reply.options[2].value.push(' ');}
+    assert!(current.status(&changed).is_err(),"the conflict sidecar is an immutable input, even for semantically equivalent JSON");
+}

@@ -31,6 +31,10 @@ pub(super) fn validate_owner_requirements(original:&HookPayload,next:&HookPayloa
                 return Err(format!("entry plans require the mandatory {capability} v1 contract"));
             }
         }
+        if decode(next)?.entries.values().any(|p|p.mode==skript_parser::StructureEntryBodyMode::Raw)
+            && !requirements.iter().any(|c|c.id==crate::CAPABILITY_STRUCTURE_ENTRY_DATA && c.required && c.minimum_version==1) {
+            return Err("raw entry plans require the mandatory parser.structure-entry-data v1 contract".into());
+        }
     }
     Ok(())
 }

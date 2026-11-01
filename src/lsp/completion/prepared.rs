@@ -1230,7 +1230,7 @@ fn prepare_entries(
             present.push((index, *id));
             let data = &validator.entry_data[index];
             if path.is_empty() && let Some(plan)=plans.entries.get(id) {
-                scopes.insert(*id,match plan.mode {skript_parser::SectionBodyMode::Trigger=>Scope::Statements,skript_parser::SectionBodyMode::Conditions=>Scope::Conditions});
+                scopes.insert(*id,match plan.mode {skript_parser::StructureEntryBodyMode::Trigger=>Scope::Statements,skript_parser::StructureEntryBodyMode::Conditions=>Scope::Conditions,skript_parser::StructureEntryBodyMode::Raw=>Scope::Raw});
                 continue;
             }
             let mut entry_path = path.clone();

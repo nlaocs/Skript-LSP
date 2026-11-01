@@ -25,7 +25,7 @@ fn entry_context_is_restored_before_fault_or_cancellation_escapes() {
         kind:EntryKind::Section,separator:None,value_type:None,string_mode:None,return_types:vec![],flags:None,nested_validator:None};
     let mut original=ExpressionParseContext::default();original.syntax_context=37;original.event_classes=vec![ClassName("test.Outer".into())];
     original.values.insert("outer".into(),"retained".into());
-    let plan=StructureEntryPlan {declaration_index:0,mode:crate::SectionBodyMode::Trigger,adopt_unknown:false,
+    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Trigger,adopt_unknown:false,
         context:StructureEntryContext {event_classes:Some(vec![ClassName("test.Entry".into())]),values:BTreeMap::from([("outer".into(),None),("entry".into(),Some("local".into()))])}};
     for cancel in [false,true] {
         let mut environment=Environment {cancel,requested:false};
@@ -34,4 +34,25 @@ fn entry_context_is_restored_before_fault_or_cancellation_escapes() {
         assert!(parsed.is_err(),"fault/cancel must escape");
         assert_eq!(session.context(),&original,"restore precedes propagation, including nullable context removals");
     }
+}
+
+
+#[test]
+fn raw_entry_adoption_keeps_data_children_without_running_effects() {
+    let fixture=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+    let snapshot=ssg::load(fixture).unwrap();let catalog=snapshot.catalog();
+    let source=crate::MappedSource::identity("root:\n    data:\n        stop\n        not executable syntax\n");
+    let tree=crate::parse_raw_tree(&source,crate::RawTreeOptions::for_skript_version(2,15));
+    let root=tree.get(tree.roots[0]).unwrap();let node=tree.get(root.children[0]).unwrap();
+    let data=EntryData {key:"data".into(),default_value:None,optional:true,multiple:false,entry_data_class:ClassName("test.Data".into()),
+        kind:EntryKind::Unknown,separator:None,value_type:None,string_mode:None,return_types:vec![],flags:None,nested_validator:None};
+    let mut original=ExpressionParseContext::default();original.event_classes=vec![ClassName("test.Outer".into())];
+    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Raw,adopt_unknown:true,context:Default::default()};
+    // This environment asserts a different context if any Effect is executed.
+    let mut environment=Environment {cancel:false,requested:false};
+    let mut session=ExpressionSession::new(catalog,None,&source,&mut environment,original.clone(),Default::default());
+    let (entry,diagnostics,valid)=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),&["data".into()],1).unwrap();
+    assert!(valid);assert!(diagnostics.is_empty());
+    assert_eq!(entry.value,StructureEntryValue::Section(node.children.clone()));
+    assert_eq!(session.context(),&original);
 }
