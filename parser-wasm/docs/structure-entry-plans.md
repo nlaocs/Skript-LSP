@@ -22,14 +22,15 @@ A Transform semantic owner may publish `structure.entry-plans.v1` metadata:
 ```
 
 The host stamps component ownership. At most one component owns a plan; at most
-32 current direct Section children and 16 KiB of JSON are accepted. Body modes
+32 current direct entries and 16 KiB of JSON are accepted. Executable entry plans
+require Section nodes. Body modes
 are trigger or conditions. Context patches permit up to eight event classes,
 16 key/optional-string values, 128-byte keys and 1,024-byte values. Null removes
 a value. `parser.event-classes` uses the separate eventClasses field. The native
 syntax context and section stack cannot be supplied by metadata.
 
 Native validation precedes body evaluation and editor preparation. Root identity,
-lease, immutable declaration index and current direct raw Section must agree.
+lease, immutable declaration index and current direct raw node must agree.
 Section/Trigger entries must already select that declaration; Trigger remains
 trigger. Unknown Section adoption must be explicit and cannot take a different
 native match, a duplicate single entry, a nested/foreign node or a default value.
@@ -58,3 +59,27 @@ retained as Section data without Trigger / Conditions parsing, and editor
 preparation marks it Raw rather than offering statement completion. This is a
 per-entry mode, not a new StructureBodyMode or permission to rewrite source.
 Old hosts reject the required capability; WIT 0.49 / ABI31 remains unchanged.
+
+## KeyValue source aliases
+
+An entry record may include optional `keyAlias`, a nonempty UTF-8 string of at
+most 256 bytes without control characters. This requires mandatory
+`parser.structure-entry-aliases` v1, `parser.structure-entry-data` v1,
+`parser.structure-entry-plans` v1 and `parser.context-updates` v1. Older hosts
+reject the required capability at loading; they do not silently ignore aliases.
+WIT0.49 and ABI31 are unchanged because this is an explicitly gated metadata
+extension. Native Rust users constructing StructureEntryPlan must initialize the
+new optional key_alias field; use None for existing plans.
+
+An alias is limited to one current direct child Simple node with no children,
+an unchanged KeyValue EntryData, Raw mode, adoptUnknown=true and no context
+updates. It cannot claim a canonical match, another selected entry, a duplicate
+single entry, a nested/foreign node or a stale lease. The existing separator is
+required. Multiple=true keeps its original behavior. The canonical key and
+EntryData identity survive parsing; key/value spans use the actual source
+spelling's byte length. Source text/provenance is never rewritten.
+
+Prepared and final editor scopes retain only aliases admitted for the current
+selected node. Partial unowned text cannot guess aliases. New-key completion
+continues to offer the canonical key; per-node alias plans do not declare a
+catalog-wide alias list. Alias values remain raw data, not executable bodies.
