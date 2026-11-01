@@ -578,3 +578,54 @@ fn rejected_nested_section_does_not_leak_its_frame_to_siblings() {
         Some(1)
     );
 }
+
+
+#[test]
+fn ranked_action_alternatives_remain_inspectable_without_false_body_errors() {
+    let snapshot=ssg::load(fixture()).unwrap();let original=snapshot.catalog();
+    let section=original.sections().find(|s|s.common.element_class.as_str()
+        =="jp.nlaocs.skriptDummyAddon.fixture.LegacySyntaxes$DummySection").unwrap().clone();
+    let mut syntaxes=vec![Syntax::Section(section)];
+    for (kind,label) in [("effect","review action"),("condition","review predicate")] {
+        for order in 0..2 {
+            let mut syntax=if kind=="effect" {Syntax::Effect(original.effects().next().unwrap().clone())}
+                else {Syntax::Condition(original.conditions().next().unwrap().clone())};
+            let common=match &mut syntax {Syntax::Effect(e)=>&mut e.common,Syntax::Condition(c)=>&mut c.common,_=>unreachable!()};
+            common.element_class=ClassName(format!("test.Ordered{kind}"));
+            common.events.clear();common.supported_events=None;common.supported_events_state=None;
+            common.experimental_syntax=None;common.experimental_syntax_state=None;
+            common.definition_id=DefinitionId(format!("ordered:{kind}:{order}"));
+            common.registration_id=RegistrationId(format!("ordered:{kind}:{order}:0"));
+            common.registration_order=order;
+            common.patterns=vec![Pattern {source:label.into(),parsed:syntax_pattern_parser::syntax::parse(label,original.plural_rules()).unwrap()}];
+            syntaxes.push(syntax);
+        }
+    }
+    let catalog=Catalog::new(CatalogParts {syntaxes,converters:vec![],comparators:vec![],event_values:vec![],properties:vec![],
+        operators:vec![],operations:BTreeMap::new(),differences:vec![],classes:vec![],aliases:original.aliases().clone(),
+        plural_rules:original.plural_rules().clone(),language:BTreeMap::new()});
+    for conditions_only in [false,true] {
+        let lines=if conditions_only {"    review predicate\n"}else{"    review action\n    review predicate\n"};
+        let source=MappedSource::identity(format!("dummy fixture section:\n{lines}    review missing\n"));
+        let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));
+        let result=parse_section(&catalog,SectionParseRequest {source:&source,tree:&tree,node:tree.get(tree.roots[0]).unwrap(),
+            context:ExpressionParseContext::default()},&mut ScopedEnvironment {condition_body:conditions_only,..Default::default()},
+            SectionParserConfig::default()).unwrap();
+        assert_eq!(result.diagnostics.len(),1,"only the actually unknown line is a body error: {:?}",result.diagnostics);
+        assert_eq!(result.diagnostics[0].kind,skript_parser::SectionDiagnosticKind::Unclaimed);
+        let body=result.selected.unwrap().body;
+        for node in body.iter().take(body.len()-1) {
+            match node {
+                SectionBodyNode::Effect(matches)=> {
+                    assert_eq!(matches.selected.as_ref().unwrap().matched.registration_id,"ordered:effect:0:0");
+                    assert_eq!(matches.alternatives.len(),1);
+                }
+                SectionBodyNode::Condition {matches,..}=> {
+                    assert!(matches!(&matches.selected.as_ref().unwrap().node.kind,skript_parser::ConditionNodeKind::Registered {registration_id,..} if registration_id=="ordered:condition:0:0"));
+                    assert!(matches.alternatives.is_empty(),"ordinary Conditions stop at the first accepted candidate");
+                }
+                _=>panic!("expected the adopted ranked action")
+            }
+        }
+    }
+}

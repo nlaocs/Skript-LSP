@@ -1092,6 +1092,16 @@ fn build_snapshot(
         .cloned()
         .map(|key| (key, BTreeSet::new()))
         .collect();
+    // A dynamic anchor inserts relative to the captured family without moving
+    // later static candidates ahead of it. The static subsequence is immutable;
+    // contradictory before/after requests are ordinary priority cycles.
+    let mut previous_static = BTreeMap::new();
+    for (index, syntax) in catalog.syntaxes().iter().enumerate() {
+        let key = CandidateKey::Static(index);
+        if let Some(previous) = previous_static.insert(syntax.kind().order(), key.clone()) {
+            edges.entry(previous).or_default().insert(key);
+        }
+    }
     for definition in definitions.values() {
         let source = CandidateKey::Dynamic(definition.id.clone());
         for reference in &definition.before {

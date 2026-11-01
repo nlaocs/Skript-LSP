@@ -945,7 +945,7 @@ pub(crate) fn parse_section_body<E: ExpressionParseEnvironment>(
                                 session,
                                 child,
                                 true,
-                                !effect_matches.alternatives.is_empty(),
+                                false, // ranked alternatives do not make the adopted TriggerItem ambiguous
                                 &mut diagnostics,
                             )?;
                             body.push(SectionBodyNode::Effect(Box::new(effect_matches)));

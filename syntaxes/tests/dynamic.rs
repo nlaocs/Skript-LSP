@@ -519,3 +519,27 @@ fn dynamic_structure_metadata_is_rejected_for_other_kinds_and_invalid_combinatio
         Err(DynamicRegistryError::InvalidInput { .. })
     ));
 }
+
+
+#[test]
+fn anchored_dynamic_preserves_static_subsequence_and_rejects_reversals() {
+    for reverse in [false,true] {
+        let registry=DynamicSyntaxRegistry::new(catalog());
+        let mut update=registry.begin_initial_update("test.anchored",0).unwrap();
+        let mut declaration=dynamic_effect("anchored","static first");
+        declaration.before=vec![SyntaxReference::Registration(RegistrationId(
+            if reverse {"registration:first"}else{"registration:second"}.into()))];
+        if reverse {declaration.after=vec![SyntaxReference::Registration(RegistrationId("registration:second".into()))];}
+        update.register(declaration).unwrap();update.commit().unwrap();
+        registry.begin_document("file:///anchored.sk",1).unwrap();
+        let result=registry.freeze("file:///anchored.sk",1);
+        if reverse {assert!(matches!(result,Err(DynamicRegistryError::PriorityCycle {..})));}
+        else {
+            let snapshot=result.unwrap();
+            assert_eq!(snapshot.candidates.iter().map(|candidate|candidate.source.clone()).collect::<Vec<_>>(),
+                vec![SyntaxCandidateSource::Static(0),
+                    SyntaxCandidateSource::Dynamic(DynamicSyntaxId::new("test.anchored","anchored")),
+                    SyntaxCandidateSource::Static(1)]);
+        }
+    }
+}

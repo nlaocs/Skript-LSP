@@ -135,6 +135,12 @@ The frozen candidate list combines static and dynamic syntax. Explicit
 constraints form a graph and must stay within one `SyntaxKind`. A deterministic
 topological sort uses kind order, numeric priority, static/dynamic class,
 component load order, declaration order, and ID as stable tie breakers.
+The static subsequence of each kind preserves the Catalog's captured order.
+An anchor before a static registration consequently inserts at that family,
+rather than allowing later static registrations to jump over it. A constraint
+requesting a later static before an earlier static through a dynamic node is a
+priority cycle. This tightens the older tie-break-only ordering contract; the
+wire format and ABI are unchanged.
 
 Unknown references, cross-kind constraints, and priority cycles are typed
 errors. Overrides attached to a static candidate are sorted by priority, load
