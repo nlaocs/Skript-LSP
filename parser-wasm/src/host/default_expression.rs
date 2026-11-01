@@ -661,6 +661,7 @@ mod tests {
             },
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
             hooks: WasmPatternHooks {
                 host: &mut host,
                 transaction: &transaction,

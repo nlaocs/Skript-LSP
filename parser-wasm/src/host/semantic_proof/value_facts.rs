@@ -41,17 +41,27 @@ struct WireSeal {
 #[derive(Debug)]
 struct ValueOutput { signature:[u8;32], domain:Domain }
 #[derive(Clone,Debug)]
-struct Subject { wire:WireSeal, digest:[u8;32], tokens:BTreeSet<u64> }
+struct Subject { wire:WireSeal, digest:[u8;32], tokens:BTreeSet<u64>, author_depth:Option<usize> }
+#[derive(Clone,Debug,Default)]
+struct InputFacts { metadata:Vec<WitMetadataEntry>, public_data:Vec<(String,[u8;32])> }
+fn present_metadata_keys<'de,D:serde::Deserializer<'de>>(deserializer:D)->Result<Option<Vec<String>>,D::Error> {
+    Vec::<String>::deserialize(deserializer).map(Some)
+}
 #[derive(Clone,Debug,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct InputClaim { capture:u64, public_schemas:Vec<String> }
+struct InputClaim {
+    capture:u64, public_schemas:Vec<String>,
+    #[serde(default,deserialize_with="present_metadata_keys")]
+    metadata_keys:Option<Vec<String>>,
+    #[serde(skip)] facts:InputFacts,
+}
 #[derive(Clone,Debug,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
-struct ComposeDraft { version:u32, metadata_keys:Vec<String>, inputs:Vec<InputClaim> }
+struct ComposeDraft { version:u32, metadata_keys:Vec<String>, inputs:Vec<InputClaim>, context_input:Option<String> }
 #[derive(Debug)]
 struct Composition {
     issuer:String, span:super::super::MappedSpan, registration:String, pattern:u64,
-    metadata:Vec<WitMetadataEntry>, inputs:Vec<(InputClaim,Subject)>,
+    metadata:Vec<WitMetadataEntry>, inputs:Vec<(InputClaim,Subject)>, context_input:Option<String>,
 }
 #[derive(Debug,Default)]
 pub(in crate::host) struct Registry {
@@ -129,6 +139,12 @@ impl Registry {
                 .is_some_and(|value|expression_signature(root)==Some(value.signature))
     }
     pub(in crate::host) fn record(&mut self,token:u64,payload:&HookPayload,issuer:&str) {
+        self.record_inner(token,payload,issuer,None);
+    }
+    pub(in crate::host) fn record_scoped(&mut self,token:u64,payload:&HookPayload,issuer:&str,scopes:&super::entry_scopes::Registry,operation:&super::entry_scopes::Operation) {
+        self.record_inner(token,payload,issuer,Some((scopes,operation)));
+    }
+    fn record_inner(&mut self,token:u64,payload:&HookPayload,issuer:&str,scopes:Option<(&super::entry_scopes::Registry,&super::entry_scopes::Operation)>) {
         match payload {
             HookPayload::RegisteredExpression(value)=> {
                 let Some(json)=own_entry(&value.metadata,DRAFT,issuer) else{return;};
@@ -143,11 +159,17 @@ impl Registry {
                 let Some(json)=own_entry(&candidate.metadata,COMPOSE,issuer) else{return;};
                 if json.len()>16*1024 || self.compositions.len()>=MAX_SUBJECTS {return;}
                 let Ok(draft)=serde_json::from_str::<ComposeDraft>(json) else{return;};
-                if draft.version!=1 || draft.inputs.is_empty() || draft.inputs.len()>8 || draft.metadata_keys.is_empty() || draft.metadata_keys.len()>16
+                let current_context=match (draft.version,draft.context_input.as_deref()) {
+                    (1,None)=>draft.inputs.iter().all(|input|input.metadata_keys.is_none()),
+                    (2,Some(reference)) if !reference.is_empty()&&reference.len()<=128=>
+                        scopes.is_some_and(|(scopes,operation)|scopes.claim_current(reference,issuer,value,operation)),
+                    _=>false,
+                };
+                if !current_context || draft.inputs.is_empty() || draft.inputs.len()>8 || draft.metadata_keys.is_empty() || draft.metadata_keys.len()>16
                     || draft.inputs.iter().map(|i|i.capture).collect::<BTreeSet<_>>().len()!=draft.inputs.len()
                     || draft.metadata_keys.iter().collect::<BTreeSet<_>>().len()!=draft.metadata_keys.len() {return;}
                 let Ok(subjects)=self.subjects.lock() else{return;};
-                let mut inputs=Vec::new();
+                let mut pending=Vec::new();let mut selected_bytes=0usize;
                 for claim in draft.inputs {
                     if claim.public_schemas.len()>8 || claim.public_schemas.iter().any(|s|s.is_empty()||s.len()>256) {return;}
                     let mut captures=candidate.parsed_captures.iter().filter(|c|c.capture_index==claim.capture);
@@ -158,10 +180,30 @@ impl Registry {
                     let Some(entry)=seals.next().filter(|e|e.owner_component_id.is_none()) else{return;};
                     if seals.next().is_some() {return;}
                     let Some(subject)=subjects.get(&entry.value) else{return;};
-                    if !claim.public_schemas.is_empty() && subject.wire.issuer!=issuer {return;}
-                    if claim.public_schemas.iter().any(|id|summary.public_data.iter().filter(|p|p.schema_id==*id).count()!=1) {return;}
-                    inputs.push((claim,subject.clone()));
+                    let keys=claim.metadata_keys.as_deref().unwrap_or(&[]);
+                    if (!claim.public_schemas.is_empty()||!keys.is_empty()) && subject.wire.issuer!=issuer {return;}
+                    if keys.len()>16||keys.iter().collect::<BTreeSet<_>>().len()!=keys.len()
+                        ||draft.version==2&&claim.public_schemas.iter().collect::<BTreeSet<_>>().len()!=claim.public_schemas.len() {return;}
+                    let mut selected=Vec::new();
+                    for key in keys {
+                        if key.is_empty()||key.len()>256||key.starts_with("parser.")&&key!=super::super::semantic_transfer::METADATA {return;}
+                        let Some(value)=own_entry(&summary.metadata,key,issuer)else{return;};
+                        selected_bytes=selected_bytes.saturating_add(key.len()).saturating_add(value.len()).saturating_add(issuer.len());
+                        if selected_bytes>16*1024{return;}
+                        selected.push(summary.metadata.iter().find(|m|m.key==*key).unwrap());
+                    }
+                    let mut public_data=Vec::new();
+                    for id in &claim.public_schemas {
+                        let mut values=summary.public_data.iter().filter(|p|p.schema_id==*id);
+                        let Some(value)=values.next()else{return;};if values.next().is_some(){return;}
+                        if draft.version==2 {public_data.push((id.clone(),debug_digest("composed-input-public-v2",value)));}
+                    }
+                    pending.push((claim,subject.clone(),selected,public_data));
                 }
+                // Check the combined input budget before cloning selected values.
+                let inputs=pending.into_iter().map(|(mut claim,subject,selected,public_data)| {
+                    claim.facts=InputFacts {metadata:selected.into_iter().cloned().collect(),public_data};(claim,subject)
+                }).collect();
                 let mut metadata=Vec::new();
                 for key in draft.metadata_keys {
                     if key.is_empty() || key.len()>256 || key.starts_with("parser.") && key!=super::super::semantic_transfer::METADATA {return;}
@@ -169,14 +211,15 @@ impl Registry {
                     metadata.push(WitMetadataEntry {key,value:json.into(),owner_component_id:Some(issuer.into())});
                 }
                 self.compositions.insert(token,Composition {issuer:issuer.into(),span:candidate.span.clone(),registration:candidate.registration_id.clone(),
-                    pattern:candidate.pattern_index,metadata,inputs});
+                    pattern:candidate.pattern_index,metadata,inputs,context_input:draft.context_input});
             }
             _=>{}
         }
     }
     pub(in crate::host) fn seal(&self,receipts:&ReceiptRegistry,expression:&skript_parser::ExpressionNode)->Option<WitMetadataEntry> {
-        let mut root=expression;
-        while matches!(root.kind,skript_parser::ExpressionNodeKind::Grouped) && root.children.len()==1 {root=&root.children[0];}
+        let mut root=expression;let mut depth=0;
+        while matches!(root.kind,skript_parser::ExpressionNodeKind::Grouped) && root.children.len()==1 {root=&root.children[0];depth+=1;}
+        let author_depth=(!matches!(root.kind,skript_parser::ExpressionNodeKind::Grouped)).then_some(depth);
         let metadata=super::super::metadata_to_wit(&root.metadata);
         let mut ids=BTreeSet::new();
         if !metadata_receipts(&metadata,&mut ids) || ids.len()!=1 {return None;}
@@ -190,13 +233,14 @@ impl Registry {
         let key=serde_json::to_string(&wire).ok()?;
         let mut subjects=self.subjects.lock().ok()?;
         if !subjects.contains_key(&key) && subjects.len()>=MAX_SUBJECTS {return None;}
-        subjects.insert(key.clone(),Subject {wire,digest,tokens});
+        subjects.insert(key.clone(),Subject {wire,digest,tokens,author_depth});
         Some(WitMetadataEntry {key:INPUT.into(),value:key,owner_component_id:None})
     }
     pub(super) fn has_receipt(&self,token:u64)->bool {self.values.contains_key(&token)||self.compositions.contains_key(&token)}
 
     pub(super) fn certify(&self,tree:&AstTree,receipts:&ReceiptRegistry,retained:&BTreeSet<u64>,global:&BTreeSet<String>,own:&BTreeMap<u64,BTreeSet<String>>)->BTreeMap<u64,FactClaims> {
         let mut claims=BTreeMap::new();
+        let scopes=receipts.entry_scopes.witnesses(tree,&receipts.receipts,retained);
         for parent in &tree.nodes {
             let mut parent_tokens=BTreeSet::new();
             if !metadata_receipts(&parent.metadata,&mut parent_tokens) {continue;}
@@ -205,7 +249,10 @@ impl Registry {
                 let issuer=&composition.issuer;
                 if !retained.contains(&token) || global.iter().any(|w|w!=issuer)
                     || own.get(&parent.id).is_none_or(|w|w.iter().any(|w|w!=issuer))
-                    || !ancestor_authors(tree,parent.id,own,issuer)
+                    || !match &composition.context_input {
+                        Some(reference)=>scopes.authorizes(reference,parent.id,issuer,own),
+                        None=>ancestor_authors(tree,parent.id,own,issuer),
+                    }
                     || debug_digest("span",&parent.span)!=debug_digest("span",&composition.span)
                     || parent.summary.as_ref().is_none_or(|s|s.registration_id.as_ref()!=Some(&composition.registration)||s.pattern_index!=Some(composition.pattern)) {continue;}
                 if composition.metadata.iter().any(|m|!parent.metadata.iter().any(|p|p.key==m.key&&p.value==m.value&&p.owner_component_id==m.owner_component_id)) {continue;}
@@ -220,18 +267,44 @@ impl Registry {
                     let [id]=ids.as_slice() else{break;};
                     let Some(input_tree)=subtree(tree,*id) else{break;};
                     if projection_digest(&input_tree)!=Some(subject.digest) || !subject.tokens.is_subset(retained) {break;}
-                    verified.push((*id,input));
+                    let claimed_id=if composition.context_input.is_some() {
+                        let Some(author)=input_author(&input_tree,subject,input)else{break;};author.id
+                    }else{*id};
+                    verified.push((claimed_id,input));
                 }
                 if verified.len()!=composition.inputs.len() {continue;}
                 let entry=claims.entry(parent.id).or_insert_with(FactClaims::default);
                 for metadata in &composition.metadata {entry.metadata.insert((issuer.clone(),metadata.key.clone()));}
                 for (id,input) in verified {
-                    for schema in &input.public_schemas {claims.entry(id).or_insert_with(FactClaims::default).public_data.insert((issuer.clone(),schema.clone()));}
+                    let entry=claims.entry(id).or_insert_with(FactClaims::default);
+                    for schema in &input.public_schemas {entry.public_data.insert((issuer.clone(),schema.clone()));}
+                    for metadata in &input.facts.metadata {entry.metadata.insert((issuer.clone(),metadata.key.clone()));}
                 }
             }
         }
         claims
     }
+}
+
+// Only the native single-child Grouped path recorded at seal time can expose
+// its actual author. Never search arbitrary descendants for matching metadata.
+fn input_author<'a>(tree:&'a AstTree,subject:&Subject,input:&InputClaim)->Option<&'a AstNode> {
+    let [root]=tree.roots.as_slice()else{return None;};
+    let index=tree.nodes.iter().map(|node|(node.id,node)).collect::<BTreeMap<_,_>>();
+    let mut node=*index.get(root)?;
+    for _ in 0..subject.author_depth? {
+        if node.syntax_id!="parser:expression.grouped" {return None;}
+        let [child]=node.children.as_slice()else{return None;};node=*index.get(child)?;
+    }
+    if node.syntax_id=="parser:expression.grouped" {return None;}
+    let mut roots=BTreeSet::new();
+    if !metadata_receipts(&node.metadata,&mut roots)||roots!=BTreeSet::from([subject.wire.receipt])
+        ||!super::intrinsic_facts::same_entries(&node.metadata,&input.facts.metadata) {return None;}
+    for (id,digest) in &input.facts.public_data {
+        let mut values=node.summary.as_ref()?.public_data.iter().filter(|p|p.schema_id==*id);
+        let value=values.next()?;if values.next().is_some()||debug_digest("composed-input-public-v2",value)!=*digest{return None;}
+    }
+    Some(node)
 }
 
 pub(super) fn ancestor_authors(tree:&AstTree,root:u64,own:&BTreeMap<u64,BTreeSet<String>>,issuer:&str)->bool {
@@ -259,7 +332,7 @@ pub(super) fn volatile(payload:&HookPayload)->bool {
     let header_entry = matches!(payload, HookPayload::Structure(p)
         if matches!(p.timing, super::super::WitStructureTiming::EnterBody));
     let mut found=false;
-    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE|super::intrinsic_facts::DRAFT)
+    cache_metadata(payload,&mut |m|found|=m.iter().any(|e|matches!(e.key.as_str(),DRAFT|INPUT|COMPOSE|super::intrinsic_facts::DRAFT|super::entry_scopes::INPUT)
         || e.key==super::entry_facts::DRAFT && !header_entry));
     found
 }
@@ -373,6 +446,43 @@ mod tests {
         assert!(registry.value_facts.seal(&registry,&replaced).is_none());
         accept(&mut registry,&mut expression,"b");assert!(registry.value_facts.seal(&registry,&expression).is_none());
     }
+    #[test]
+    fn selected_input_facts_bind_exact_native_group_chain_author_and_values() {
+        let mut registry=ReceiptRegistry::default();let mut value=leaf();
+        value.metadata=crate::host::metadata_entries(vec![WitMetadataEntry {key:"owned.result".into(),value:"non-empty".into(),owner_component_id:Some("core".into())}]).unwrap();
+        value.public_data.push(skript_parser::ExpressionPublicData {schema_id:"owned.identity".into(),schema_version:1,json:"{}".into()});
+        accept(&mut registry,&mut value,"core");
+        let selected=crate::host::metadata_to_wit(&value.metadata).into_iter().filter(|m|m.key=="owned.result").collect::<Vec<_>>();
+        for depth in [0,2] {
+            let mut grouped=value.clone();
+            for _ in 0..depth {let child=grouped.clone();grouped.kind=skript_parser::ExpressionNodeKind::Grouped;
+                grouped.metadata.clear();grouped.public_data.clear();grouped.captures.clear();grouped.children=vec![child];}
+            let seal=registry.value_facts.seal(&registry,&grouped).unwrap();
+            let subject=registry.value_facts.subjects.lock().unwrap()[&seal.value].clone();
+            assert_eq!(subject.author_depth,Some(depth));
+            let tree=ast_tree::expression_subject(&grouped);
+            let author=tree.nodes.iter().find(|n|n.syntax_id!="parser:expression.grouped").unwrap();
+            let public=author.summary.as_ref().unwrap().public_data.first().unwrap();
+            let input=InputClaim {capture:1,public_schemas:vec!["owned.identity".into()],metadata_keys:Some(vec!["owned.result".into()]),
+                facts:InputFacts {metadata:selected.clone(),public_data:vec![("owned.identity".into(),debug_digest("composed-input-public-v2",public))]}};
+            assert_eq!(input_author(&tree,&subject,&input).unwrap().id,author.id);
+            assert_eq!(author.id==tree.roots[0],depth==0);
+            for mode in 0..8 {
+                let mut changed=tree.clone();let at=changed.nodes.iter().position(|n|n.id==author.id).unwrap();
+                match mode {
+                    0=>changed.nodes[at].metadata.iter_mut().find(|m|m.key=="owned.result").unwrap().value="forged".into(),
+                    1=>changed.nodes[at].metadata.iter_mut().find(|m|m.key=="owned.result").unwrap().owner_component_id=Some("foreign".into()),
+                    2=>{let m=changed.nodes[at].metadata.iter().find(|m|m.key=="owned.result").unwrap().clone();changed.nodes[at].metadata.push(m);},
+                    3=>changed.nodes[at].summary.as_mut().unwrap().public_data[0].json="{\"forged\":true}".into(),
+                    4=>changed.nodes[at].metadata.retain(|m|m.key!=RECEIPT),
+                    5=>{if depth==0 {continue;}changed.nodes.iter_mut().find(|n|n.id==tree.roots[0]).unwrap().syntax_id="foreign.wrapper".into();},
+                    6=>{if depth==0 {continue;}changed.nodes.iter_mut().find(|n|n.id==tree.roots[0]).unwrap().children.push(author.id);},
+                    _=>{if depth==0 {continue;}let mut wrong=subject.clone();wrong.author_depth=Some(1);assert!(input_author(&changed,&wrong,&input).is_none());continue;},
+                }
+                assert!(input_author(&changed,&subject,&input).is_none(),"changed author/group mode {mode}, depth {depth}");
+            }
+        }
+    }
     fn fixture()->(ReceiptRegistry,AstTree,Vec<HookCall>) {
         let mut registry=ReceiptRegistry::default();let mut target=leaf();let mut value=leaf();
         target.public_data.push(skript_parser::ExpressionPublicData {schema_id:"owned.identity".into(),schema_version:1,json:r#"{"name":"local"}"#.into()});
@@ -387,7 +497,7 @@ mod tests {
         parent.summary=target.summary.clone();parent.metadata=vec![WitMetadataEntry {key:"owned.assignment".into(),value:"stored".into(),owner_component_id:Some("core".into())}];
         let c=crate::host::semantic_proof::tests::write(&mut registry,&mut parent,"core");
         registry.value_facts.compositions.insert(c.semantic_receipt.unwrap(),Composition {issuer:"core".into(),span:parent.span.clone(),registration:parent.summary.as_ref().unwrap().registration_id.clone().unwrap(),pattern:0,
-            metadata:parent.metadata.iter().filter(|m|m.key=="owned.assignment").cloned().collect(),inputs:vec![(InputClaim {capture:0,public_schemas:vec!["owned.identity".into()]},target_subject),(InputClaim {capture:1,public_schemas:vec![]},value_subject)]});
+            metadata:parent.metadata.iter().filter(|m|m.key=="owned.assignment").cloned().collect(),context_input:None,inputs:vec![(InputClaim {capture:0,public_schemas:vec!["owned.identity".into()],metadata_keys:None,facts:InputFacts::default()},target_subject),(InputClaim {capture:1,public_schemas:vec![],metadata_keys:None,facts:InputFacts::default()},value_subject)]});
         (registry,AstTree {roots:vec![0],nodes:vec![parent,target,value]},vec![a,b,c])
     }
     #[test]
@@ -422,6 +532,14 @@ mod tests {
             let entry=tree.nodes[0].metadata.iter().find(|m|m.key=="owned.assignment").unwrap();
             assert!(!view.composed_metadata_valid(&tree.nodes[0],entry),"{mode}");
         }
+    }
+    #[test]
+    fn a_copied_scope_reference_never_replaces_private_native_adoption() {
+        let (mut registry,tree,calls)=fixture();
+        registry.value_facts.compositions.get_mut(&calls[2].semantic_receipt.unwrap()).unwrap().context_input=Some("copied-public-reference".into());
+        let proof=SemanticProofRegistry::capture(&tree,Some(&registry),&calls);let view=proof.view(&tree);
+        let entry=tree.nodes[0].metadata.iter().find(|m|m.key=="owned.assignment").unwrap();
+        assert!(!view.composed_metadata_valid(&tree.nodes[0],entry),"v2 never falls back to the ordinary v1 ancestor route");
     }
     #[test]
     fn volatile_fact_inputs_are_not_replayed_from_dispatch_or_body_cache() {

@@ -143,7 +143,7 @@ impl ParserHost {
         let prepared = self.dispatch_with_transaction_for_capability(transaction, DispatchRequest {
             context: context.clone(), target: DispatchTarget::ParseStage,
             phase: HookPhase::Document, payload: request_payload(source)?,
-        }, crate::CAPABILITY_DOCUMENT_DECLARATIONS, Some(tree)).and_then(|mut result| {
+        }, crate::CAPABILITY_DOCUMENT_DECLARATIONS, Some(tree), None).and_then(|mut result| {
             normalize_text_macro_effects(source, &mut result.effects, "document-declarations.effects")
                 .map_err(|message| HostError::SourceMapping { message })?;
             if let HookDecision::Reject(rejection) = &result.decision {

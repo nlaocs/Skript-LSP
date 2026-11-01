@@ -191,6 +191,8 @@ pub(super) fn resolve(mut payload: EffectPayload) -> Option<HookOutput> {
         target.zip(delta).zip(operation.changer_capture).and_then(|((target,value),value_capture)|
             crate::storage::native_inputs::compose_transfer(target,value,operation.changed_capture,value_capture,context_preserving))
     } else { None };
+    let composition=composition.and_then(|value|crate::storage::native_inputs::with_entry_scope(value,
+        payload.candidate.as_ref().map_or(&[],|candidate|candidate.metadata.as_slice()),delta,operation.changer_capture));
     let contract = serde_json::json!({
         "version": 6,
         "bindingRole": binding_role,

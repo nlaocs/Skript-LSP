@@ -381,7 +381,7 @@ mod tests {
         let mut index=CatalogIndex::with_documentation_format(&catalog,host.raw_tree_options(),lsp_types::MarkupKind::PlainText);
         index.certify_types(&host);let index=Arc::new(index);
         let uri="file:///event-value-editor/value.sk";
-        let source:Arc<str>="# 🧪 Unicode\nlocal event \"value id\":\n    patterns:\n        value arrived\n        alternate value arrived\n    event values: string\non alternate val:\n    set {_message} to event-string\n    set {_copy} to {_message}\n    set {_control} to 123\n".into();
+        let source:Arc<str>="# 🧪 Unicode\nlocal event \"value id\":\n    patterns:\n        value arrived\n        alternate value arrived\n    event values: string\n    check:\n        set {_check_value} to event-string\n        set {_check_copy} to {_check_value}\n        set {_check_control} to 123\n        set {_grouped_control} to ((123))\n        set {_grouped_copy} to (({_check_value}))\n        continue\non alternate val:\n    set {_message} to event-string\n    set {_copy} to {_message}\n    set {_control} to 123\n".into();
         let first=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,1,source.to_string()),Default::default()).unwrap();
         let doc=Document::from_result(&first,source.clone(),index.clone()).unwrap();
         let at=doc.lines.position(&source,source.find("on alternate val:").unwrap()+"on alternate val".len()).unwrap();
@@ -403,7 +403,12 @@ mod tests {
             let position=|name:&str|lines.position(&text,text.find(name).unwrap()+name.len()).unwrap();
             let label=|name:&str|hints.iter().find(|hint|hint.position==position(name)).map(|hint|match &hint.label {lsp_types::InlayHintLabel::String(s)=>s.clone(),_=>panic!("string hint")});
             assert_eq!(label("{_control}"),Some(": long".into()),"event selection must not author independent Core facts");
+            assert_eq!(label("{_check_control}"),Some(": long".into()),"CHECK native scope must retain independent Core control");
+            assert_eq!(label("{_grouped_control}"),Some(": long".into()),"grouped literal retains its actual Core author's presence fact");
             if expected {
+                assert_eq!(label("{_grouped_copy}"),Some(": string?".into()),"grouping does not manufacture presence");
+                assert_eq!(label("{_check_value}"),Some(": string?".into()));
+                assert_eq!(label("{_check_copy}"),Some(": string?".into()));
                 assert_eq!(label("{_message}"),Some(": string?".into()),"declared event value does not prove presence");
                 assert_eq!(label("{_copy}"),Some(": string?".into()));
                 let at=lines.position(&text,text.find("event-string").unwrap()+2).unwrap();

@@ -51,6 +51,10 @@ pub const CAPABILITY_SOURCE_PREPARATION: &str = "parser.source-preparation";
 /// this grants neither whole-body purity nor general cross-provider authority.
 pub const CAPABILITY_SEMANTIC_ENTRY_FACTS: &str = "parser.semantic-entry-facts";
 
+/// Opt-in native entry-scope admission for fact-scoped semantic composition.
+/// Actual entry parsing and final native candidate adoption are both required.
+pub const CAPABILITY_SEMANTIC_ENTRY_SCOPES: &str = "parser.semantic-entry-scopes";
+
 /// Read-only, component-binary-bound immutable dataset inputs. Version 2 keeps
 /// the v1 wire API and additionally rejects any explicitly configured source
 /// for the loading component whose binary pin differs, before initialization.

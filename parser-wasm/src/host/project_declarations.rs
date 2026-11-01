@@ -255,6 +255,11 @@ pub(super) struct ProviderStamp {
     owners: Vec<(String, String, u64, bool, bool)>,
 }
 impl ProviderStamp {
+    /// Manufactured provider world for native contract tests; not live capture evidence.
+    #[cfg(test)]
+    pub(in crate::host) fn entry_scope_test_fixture()->Self {
+        Self {epoch:Arc::new(AtomicBool::new(true)),catalog:None,source:None,owners:Vec::new()}
+    }
     pub(super) fn capture(host: &ParserHost) -> Self {
         Self { epoch: host.transfer_authority.identity(), catalog: host.config.syntax_catalog.clone(),
             source: host.config.syntax_catalog.as_deref().and_then(Catalog::source)

@@ -18,6 +18,7 @@ mod body;
 mod structure_context;
 pub(super) mod value_facts;
 pub(super) mod entry_facts;
+pub(super) mod entry_scopes;
 pub(super) mod intrinsic_facts;
 #[cfg(test)]
 mod local_state_tests;
@@ -54,6 +55,7 @@ struct Receipt {
 pub(super) struct ReceiptRegistry {
     pub(super) value_facts: value_facts::Registry,
     pub(super) entry_facts: entry_facts::Registry,
+    pub(super) entry_scopes: entry_scopes::Registry,
     pub(super) intrinsic_facts: intrinsic_facts::Registry,
     receipts: BTreeMap<u64, Receipt>,
     sequence: Arc<AtomicU64>,

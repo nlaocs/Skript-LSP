@@ -40,7 +40,7 @@ fn direct(registry:&ReceiptRegistry,token:u64,issuer:&str,retained:&BTreeSet<u64
         pending.extend(receipt.parents.iter().copied());
     }true
 }
-fn same_entries(current:&[WitMetadataEntry],selected:&[WitMetadataEntry])->bool {
+pub(super) fn same_entries(current:&[WitMetadataEntry],selected:&[WitMetadataEntry])->bool {
     selected.iter().all(|value| {
         let mut entries=current.iter().filter(|m|m.key==value.key);
         entries.next().is_some_and(|m|m.value==value.value&&m.owner_component_id==value.owner_component_id)&&entries.next().is_none()

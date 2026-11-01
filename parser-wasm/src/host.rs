@@ -3951,6 +3951,7 @@ impl WasmPatternHooks<'_> {
     fn resolve_effect_candidate(
         &mut self,
         request: EffectSemanticRequest<'_>,
+        entry_scope: Option<&semantic_proof::entry_scopes::Operation>,
     ) -> Result<EffectSemanticDecision, String> {
         let catalog = self
             .host
@@ -3959,6 +3960,7 @@ impl WasmPatternHooks<'_> {
             .clone()
             .ok_or_else(|| "syntax catalog is unavailable".to_owned())?;
         let payload = effect_hook_payload(EffectHookPayloadView {
+            native_entry: entry_scope.is_some(),
             receipts: self.host.semantic_receipts.as_ref(),
             input: request.input,
             context: request.context,
@@ -3980,7 +3982,7 @@ impl WasmPatternHooks<'_> {
         };
         let result = self
             .host
-            .dispatch_in_parse(
+            .dispatch_in_parse_scoped(
                 self.transaction,
                 DispatchRequest {
                     context: self.context.clone(),
@@ -3988,6 +3990,7 @@ impl WasmPatternHooks<'_> {
                     phase: HookPhase::Effect,
                     payload: HookPayload::Effect(payload.clone()),
                 },
+                entry_scope,
             )
             .map_err(|error| self.host_error(error))?;
         let rejection_diagnostics =
@@ -4333,6 +4336,8 @@ struct WasmExpressionEnvironment<'a> {
         Option<FunctionRegistrySavepoint>,
         PendingExpressionCheckpoint,
     )>,
+    entry_scope_source: Option<[u8;32]>,
+    active_entry_scopes: Vec<u64>,
     function_registry: Option<&'a mut FunctionRegistryTransaction>,
     structure_preparation:
         Option<&'a mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>)>,
@@ -4656,6 +4661,11 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         candidate: &skript_parser::StructureCandidate,
     ) -> Result<(), String> {
+        if let Ok(plans)=skript_parser::decode_structure_entry_plans(&candidate.metadata,candidate.raw_node_id)
+            && let Some(lease)=plans.native_lease.as_deref()
+            && let Some(registry)=self.hooks.host.semantic_receipts.as_mut() {
+            registry.entry_scopes.discard(candidate.raw_node_id.get(),lease);
+        }
         let Some(registry) = self.function_registry.as_deref_mut() else {
             return Ok(());
         };
@@ -4701,7 +4711,9 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         &mut self,
         request: EffectSemanticRequest<'_>,
     ) -> Result<EffectSemanticDecision, String> {
-        self.hooks.resolve_effect_candidate(request)
+        let operation=self.entry_scope_source.filter(|_|!self.active_entry_scopes.is_empty())
+            .map(|source|semantic_proof::entry_scopes::Operation {source,frames:self.active_entry_scopes.clone()});
+        self.hooks.resolve_effect_candidate(request,operation.as_ref())
     }
 
     fn resolve_condition_candidate(
@@ -5507,6 +5519,23 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         }
     }
 
+    fn enter_structure_entry_scope(&mut self, request: skript_parser::StructureEntryScopeRequest<'_>) -> Option<u64> {
+        let source=self.entry_scope_source?;
+        let current=self.hooks.host.semantic_receipts.as_ref()?.entry_scopes
+            .header_current(request.root.get(),request.native_lease,self.hooks.host);
+        let ticket=self.hooks.host.semantic_receipts.as_mut()?.entry_scopes.begin(source,&request,current)?;
+        self.active_entry_scopes.push(ticket);Some(ticket)
+    }
+
+    fn exit_structure_entry_scope(&mut self, ticket: Option<u64>, completed: bool) {
+        let Some(ticket)=ticket else{return;};
+        let ordered=self.active_entry_scopes.pop()==Some(ticket);
+        if !ordered {self.active_entry_scopes.clear();}
+        if let Some(registry)=self.hooks.host.semantic_receipts.as_mut() {
+            registry.entry_scopes.finish(ticket,completed&&ordered);
+        }
+    }
+
     fn enter_structure(
         &mut self,
         request: StructureHookRequest<'_>,
@@ -5562,7 +5591,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                     diagnostics: Vec::new(),
                 });
             };
-            for declaration in output.candidate.declarations {
+            for declaration in output.candidate.declarations.iter().cloned() {
                 let declaration = match declaration {
                     WitParserDeclaration::DocumentFunction(declaration) => {
                         function_declaration_from_wit(declaration)?
@@ -5581,6 +5610,16 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             && body_mode != StructureBodyMode::None
         {
             return Err("Simple Structure cannot select a body parser".to_owned());
+        }
+        let accepted_context=apply_context_updates(request.context,updates.clone(),"Structure")?;
+        if let Some(source)=self.entry_scope_source {
+            let owners=self.hooks.host.components.iter().filter(|c|!c.disabled&&!c.unloaded
+                && c.manifest.capabilities.iter().any(|cap|cap.id==crate::CAPABILITY_SEMANTIC_ENTRY_SCOPES&&cap.minimum_version==1&&cap.required))
+                .map(|c|c.manifest.component_id.clone()).collect();
+            let provider=project_declarations::ProviderStamp::capture(self.hooks.host);
+            if let Some(registry)=self.hooks.host.semantic_receipts.as_mut() {
+                registry.entry_scopes.register_header(source,&output,accepted_context,provider,&owners);
+            }
         }
         let mut metadata=output.candidate.metadata;
         structure_entry_plans::discard_unused_layout(&mut metadata);
@@ -5662,6 +5701,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
                 diagnostics: rejection_diagnostics,
             });
         }
+        if let Some(registry)=self.hooks.host.semantic_receipts.as_mut() {registry.entry_scopes.exit_header(&output);}
         Ok(StructureExitDecision::Accept {
             metadata: metadata_entries(output.candidate.metadata)?,
         })
@@ -6736,6 +6776,7 @@ fn condition_hook_payload(
 }
 
 struct EffectHookPayloadView<'a> {
+    native_entry: bool,
     receipts: Option<&'a semantic_proof::ReceiptRegistry>,
     input: &'a str,
     context: &'a ExpressionParseContext,
@@ -6867,11 +6908,11 @@ fn effect_hook_payload(view: EffectHookPayloadView<'_>) -> WitEffectPayload {
         timing: view.timing,
         candidate: view
             .candidate
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts)),
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts, view.native_entry)),
         alternatives: view
             .alternatives
             .iter()
-            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts))
+            .map(|candidate| effect_candidate_to_wit(candidate, view.catalog, view.input, view.receipts, false))
             .collect(),
         failure: view.failure.map(effect_failure_to_wit),
         near_match: view.near_match.map(effect_near_match_to_wit),
@@ -6903,9 +6944,12 @@ fn effect_candidate_to_wit(
     catalog: &Catalog,
     input: &str,
     receipts: Option<&semantic_proof::ReceiptRegistry>,
+    native_entry: bool,
 ) -> WitEffectCandidate {
     // Ordinary Core-only paths keep their existing cache/input behavior.
-    // Seal a candidate only when an actual current capture has a value draft.
+    // An actual native entry also seals Core-owned inputs needed to compose
+    // ordinary copies/literals across its foreign header. Public/additional
+    // parse requests cannot opt into that native scope.
     let has_value = receipts.is_some_and(|registry| candidate.parsed_captures.iter().any(|capture|
         matches!(&capture.result.value,Some(skript_parser::ParsedCaptureValue::Expression(expression))
             if registry.value_facts.has_value(expression))));
@@ -7002,7 +7046,7 @@ fn effect_candidate_to_wit(
                 if let Some(summary) = &mut value.summary {
                     summary.metadata.retain(|m| m.key != semantic_proof::value_facts::INPUT);
                     if let (Some(registry), Some(skript_parser::ParsedCaptureValue::Expression(expression))) = (receipts, &capture.result.value)
-                        && has_value && capture.result.status == ParserParsedCaptureStatus::Success
+                        && (has_value || native_entry) && capture.result.status == ParserParsedCaptureStatus::Success
                         && let Some(seal) = registry.value_facts.seal(registry, expression) { summary.metadata.push(seal); }
                 }
                 value
@@ -10216,6 +10260,7 @@ impl ParserHost {
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
             hooks,
             pending_leaf: None,
             pending_registered: None,
@@ -10329,6 +10374,7 @@ impl ParserHost {
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
             hooks,
             pending_leaf: None,
             pending_registered: None,
@@ -10440,6 +10486,7 @@ impl ParserHost {
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
             hooks,
             pending_leaf: None,
             pending_registered: None,
@@ -10493,7 +10540,7 @@ impl ParserHost {
         request: StructureParseRequest<'_>,
         config: StructureParserConfig,
     ) -> Result<WasmStructureParseResult, HostError> {
-        self.parse_structures_in_parse_observed(transaction, context, request, config, &[], None)
+        self.parse_structures_in_parse_observed(transaction, context, request, config, &[], None, false)
     }
 
     fn parse_structures_in_parse_observed(
@@ -10506,6 +10553,7 @@ impl ParserHost {
         mut structure_preparation: Option<
             &mut dyn for<'p> FnMut(skript_parser::StructurePreparationEvent<'p>),
         >,
+        native_entry_scopes: bool,
     ) -> Result<WasmStructureParseResult, HostError> {
         #[cfg(test)]
         let measurement = self.measurement_scope("syntax.host_prepare");
@@ -10575,12 +10623,15 @@ impl ParserHost {
             calls: HookCallLog::default(),
             failures: Vec::new(),
         };
+        let scope_source = (native_entry_scopes && !config.headers_only)
+            .then(||semantic_proof::entry_scopes::source_identity(request.source));
         let mut observe = |event: skript_parser::StructurePreparationEvent<'_>| {
             if let Some(observer) = structure_preparation.as_mut() {
                 observer(event);
             }
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: scope_source, active_entry_scopes: Vec::new(),
             hooks,
             pending_leaf: None,
             pending_registered: None,
@@ -10746,6 +10797,7 @@ impl ParserHost {
         let mut failures = Vec::new();
 
         let before_payload = effect_hook_payload(EffectHookPayloadView {
+            native_entry: false,
             receipts: self.semantic_receipts.as_ref(),
             input: &input,
             context: &parser_context,
@@ -10826,6 +10878,7 @@ impl ParserHost {
             failures: Vec::new(),
         };
         let mut environment = WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
             hooks,
             pending_leaf: None,
             pending_registered: None,
@@ -10909,6 +10962,7 @@ impl ParserHost {
             })
             .unwrap_or(DispatchTarget::SyntaxKind(SyntaxKind::Effect));
         let after_payload = effect_hook_payload(EffectHookPayloadView {
+            native_entry: false,
             receipts: self.semantic_receipts.as_ref(),
             input: &input,
             context: &parser_context,
@@ -11082,6 +11136,11 @@ impl ParserHost {
         transaction: &ParseTransaction,
         request: DispatchRequest,
     ) -> Result<DispatchResult, HostError> {
+        self.dispatch_in_parse_scoped(transaction,request,None)
+    }
+
+    fn dispatch_in_parse_scoped(&mut self,transaction:&ParseTransaction,request:DispatchRequest,
+        entry_scope:Option<&semantic_proof::entry_scopes::Operation>) -> Result<DispatchResult,HostError> {
         let document_id = transaction.document_id()?;
         let document_revision = transaction.document_revision()?;
         if document_id != request.context.document_id
@@ -11111,7 +11170,9 @@ impl ParserHost {
             }
             None
         };
-        let result = self.dispatch_with_transaction(transaction, request);
+        let result = if entry_scope.is_some() {
+            self.dispatch_with_transaction_for_capability(transaction,request,CAPABILITY_EFFECT_PARSER,None,entry_scope)
+        } else {self.dispatch_with_transaction(transaction, request)};
         match result {
             Ok(result)
                 if result.fault.is_some() || matches!(result.decision, HookDecision::Reject(_)) =>
@@ -12703,7 +12764,7 @@ impl ParserHost {
             HookPhase::Parser => CAPABILITY_ADDITIONAL_PARSE,
             _ => CAPABILITY_HOOKS,
         };
-        self.dispatch_with_transaction_for_capability(transaction, request, capability_id, None)
+        self.dispatch_with_transaction_for_capability(transaction, request, capability_id, None, None)
     }
 
     fn dispatch_with_transaction_for_capability(
@@ -12712,6 +12773,7 @@ impl ParserHost {
         request: DispatchRequest,
         capability_id: &str,
         declaration_tree: Option<Arc<ParserRawTree>>,
+        entry_scope: Option<&semantic_proof::entry_scopes::Operation>,
     ) -> Result<DispatchResult, HostError> {
         #[cfg(test)]
         let _measurement = self.measurement_scope("dispatch.total");
@@ -12837,6 +12899,13 @@ impl ParserHost {
                     semantic_receipt: None,
                 });
                 self.ensure_component_ready(candidate.component_index)?;
+                let scoped=entry_scope.filter(|op|self.semantic_receipts.as_ref().is_some_and(|r|r.entry_scopes.operation_current(op,self)))
+                    .filter(|_|self.components[candidate.component_index].manifest.capabilities.iter()
+                        .any(|cap|cap.id==crate::CAPABILITY_SEMANTIC_ENTRY_SCOPES&&cap.minimum_version==1&&cap.required));
+                if let Some(op)=scoped && let HookPayload::Effect(effect)=&mut invocation.payload
+                    && let Some(registry)=self.semantic_receipts.as_mut() {
+                    registry.entry_scopes.issue(op,&component_id,effect);
+                }
                 #[cfg(test)]
                 let measured = self.measurement_scope("dispatch.invocation_begin");
                 let mut state_invocation = transaction.begin_invocation(component_id.clone())?;
@@ -13026,6 +13095,7 @@ impl ParserHost {
                         outcome, !cache_hit && self.components[candidate.component_index].store.data().incremental_impure_call);
                 }
                 payload = invocation.payload;
+                semantic_proof::entry_scopes::strip_payload(&mut payload);
                 let (call, state_invocation, mut dynamic_update, project_invocation) = call;
                 if call.is_ok()
                     && self
@@ -13114,6 +13184,7 @@ impl ParserHost {
                     });
                 }
 
+                semantic_proof::entry_scopes::strip_input(&mut output);
                 if matches!(output.decision, HookDecision::NotApplicable) {
                     state_invocation.rollback();
                     drop(dynamic_update);
@@ -13331,7 +13402,9 @@ impl ParserHost {
                         }
                         if let Some(token) = receipt
                             && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::value_facts::CAPABILITY && c.minimum_version==1) {
-                            registry.value_facts.record(token, &next_payload, &component_id);
+                            if let Some(operation)=entry_scope {
+                                registry.value_facts.record_scoped(token,&next_payload,&component_id,&registry.entry_scopes,operation);
+                            } else {registry.value_facts.record(token,&next_payload,&component_id);}
                         }
                         if let Some(token) = receipt
                             && self.components[candidate.component_index].manifest.capabilities.iter().any(|c|c.id==semantic_proof::entry_facts::CAPABILITY && c.minimum_version==1) {
@@ -13907,6 +13980,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_ADDITIONAL_PARSE,
         semantic_proof::value_facts::CAPABILITY,
         semantic_proof::entry_facts::CAPABILITY,
+        semantic_proof::entry_scopes::CAPABILITY,
         editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
@@ -19406,6 +19480,7 @@ mod tests {
                 CAPABILITY_ADDITIONAL_PARSE,
                 semantic_proof::value_facts::CAPABILITY,
                 semantic_proof::entry_facts::CAPABILITY,
+        semantic_proof::entry_scopes::CAPABILITY,
                 editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,

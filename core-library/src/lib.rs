@@ -221,6 +221,7 @@ impl addon::Guest for CoreLibrary {
                     required: false,
                 },
                 CapabilityRequirement { id: "parser.semantic-value-facts".into(), minimum_version: 1, required: false },
+                CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_ENTRY_SCOPES.into(), minimum_version: 1, required: true },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_ENTRY_FACTS.into(), minimum_version: 1, required: false },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_SEMANTIC_TRANSFER.into(), minimum_version: 1, required: false },
                 CapabilityRequirement { id: parser_wasm::CAPABILITY_TYPE_GUARDS.into(), minimum_version: 1, required: true },
@@ -992,12 +993,13 @@ mod tests {
         assert_eq!(manifest.component_version, COMPONENT_VERSION);
         assert_eq!(manifest.abi.major, ABI_VERSION.major);
         assert_eq!(manifest.abi.minor, ABI_VERSION.minor);
-        assert_eq!(manifest.capabilities.len(), 24);
+        assert_eq!(manifest.capabilities.len(), 25);
         assert_eq!(manifest.capabilities.iter().map(|c|c.id.as_str()).collect::<std::collections::BTreeSet<_>>().len(),manifest.capabilities.len(),"capability IDs remain unique");
         assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_TYPE_GUARDS && c.minimum_version==1 && c.required));
         assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_SEMANTIC_TRANSFER&&c.minimum_version==1&&!c.required));
         assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_SEMANTIC_ENTRY_FACTS && c.minimum_version==1 && !c.required));
         assert!(manifest.capabilities.iter().any(|c|c.id=="parser.semantic-value-facts" && c.minimum_version==1 && !c.required));
+        assert!(manifest.capabilities.iter().any(|c|c.id==parser_wasm::CAPABILITY_SEMANTIC_ENTRY_SCOPES && c.minimum_version==1 && c.required));
         assert!(manifest.capabilities.iter().any(|c| c.id
             == parser_wasm::CAPABILITY_STATIC_NAME_RENAME_STABILITY
             && c.minimum_version == 1));

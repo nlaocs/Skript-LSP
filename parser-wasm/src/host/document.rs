@@ -806,6 +806,7 @@ impl ParserHost {
             config.structure.clone(),
             &config.imported_functions,
             structure_preparation,
+            true,
         );
         #[cfg(test)]
         drop(measurement);
@@ -861,6 +862,10 @@ impl ParserHost {
         #[cfg(test)]
         let measurement = self.measurement_scope("document.ast_conversion");
         let ast = ast_tree::from_structure_document(&source, &syntax);
+        let current_headers=self.semantic_receipts.as_ref().map(|r|r.entry_scopes.current_headers(self)).unwrap_or_default();
+        if let Some(registry)=self.semantic_receipts.as_mut() {
+            registry.entry_scopes.bind_native(super::semantic_proof::entry_scopes::source_identity(&source),&syntax,&ast,&current_headers);
+        }
         #[cfg(test)]
         drop(measurement);
         #[cfg(test)]

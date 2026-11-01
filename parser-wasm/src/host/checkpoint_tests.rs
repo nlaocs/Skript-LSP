@@ -120,6 +120,7 @@ fn with_environment(test: impl FnOnce(WasmExpressionEnvironment<'_>)) {
         .begin_parse("file:///workspace", "file:///workspace/checkpoint.sk", 1)
         .unwrap();
     test(WasmExpressionEnvironment {
+            entry_scope_source: None, active_entry_scopes: Vec::new(),
         hooks: WasmPatternHooks {
             host: &mut host,
             transaction: &transaction,

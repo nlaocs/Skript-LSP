@@ -93,6 +93,50 @@ pub(crate) fn compose_effect_input(value:&ParseSummary,capture:u64,keys:&[&str])
     Some(serde_json::json!({"version":1,"metadataKeys":keys,"inputs":[{"capture":capture,"publicSchemas":[]}]}).to_string())
 }
 
+/// An entry-scope reference is an input to the native composer, never a guest
+/// permission. The host rechecks its private live frame and final adoption.
+pub(crate) fn with_entry_scope(composition:String,metadata:&[crate::nlaocs::skript_parser_addon::types::MetadataEntry],value:Option<&ParseSummary>,value_capture:Option<u64>)->Option<String> {
+    const KEY:&str="parser.native-entry-scope-input.v1";
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Scope {version:u32,reference:String}
+    let mut entries=metadata.iter().filter(|entry|entry.key==KEY);
+    let Some(entry)=entries.next()else{return Some(composition);};
+    if entries.next().is_some()||entry.owner_component_id.is_some()||entry.value.len()>256{return None;}
+    let scope:Scope=serde_json::from_str(&entry.value).ok()?;
+    if scope.version!=1||scope.reference.is_empty()||scope.reference.len()>128{return None;}
+    let mut draft:serde_json::Value=serde_json::from_str(&composition).ok()?;
+    if draft["version"]!=1||draft.get("contextInput").is_some(){return None;}
+    draft["version"]=2.into();draft["contextInput"]=scope.reference.into();
+    if let (Some(value),Some(capture))=(value,value_capture) {
+        // Select only contracts actually authored by Core on the exact RHS.
+        // A foreign callback's domain never authenticates its intrinsic effects.
+        if input(value)?.issuer==crate::COMPONENT_ID {
+            let supported=[crate::public_data::VALUE_RESULT_METADATA_KEY,"skript.semantic.variable-read",
+                "parser.semantic-transfer.v1",crate::public_data::LOCAL_EFFECTS_METADATA_KEY,
+                crate::public_data::OPERAND_EVALUATION_METADATA_KEY,crate::public_data::EVALUATION_CONTEXT_METADATA_KEY];
+            let mut keys=Vec::new();
+            for key in supported {
+                let mut entries=value.metadata.iter().filter(|m|m.key==key);
+                if let Some(entry)=entries.next() {
+                    if entries.next().is_some()||entry.owner_component_id.as_deref()!=Some(crate::COMPONENT_ID){return None;}
+                    keys.push(key);
+                }
+            }
+            let inputs=draft.get_mut("inputs")?.as_array_mut()?;
+            let mut matches=inputs.iter_mut().filter(|i|i["capture"].as_u64()==Some(capture));
+            let selected=matches.next()?;if matches.next().is_some(){return None;}
+            if !keys.is_empty(){selected["metadataKeys"]=serde_json::json!(keys);}
+            let mut identity=value.public_data.iter().filter(|p|p.schema_id==crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID);
+            if identity.next().is_some() {
+                if identity.next().is_some(){return None;}
+                selected["publicSchemas"]=serde_json::json!([crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID]);
+            }
+        }
+    }
+    Some(draft.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,6 +242,48 @@ mod tests {
         assert!(compose(&value,&value,0,1,false).is_none());
         let mut duplicated=value.clone();duplicated.metadata.push(duplicated.metadata[0].clone());
         assert!(compose(&target,&duplicated,0,1,false).is_none());
+    }
+    #[test]
+    fn entry_scope_composition_is_explicit_and_malformed_inputs_do_not_fall_back() {
+        use crate::nlaocs::skript_parser_addon::types::MetadataEntry;
+        let original=r#"{"version":1,"metadataKeys":["owned.fact"],"inputs":[{"capture":0,"publicSchemas":[]}]}"#.to_owned();
+        assert_eq!(with_entry_scope(original.clone(),&[],None,None),Some(original.clone()));
+        let entry=MetadataEntry {key:"parser.native-entry-scope-input.v1".into(),owner_component_id:None,
+            value:r#"{"version":1,"reference":"current-native-reference"}"#.into()};
+        let composed=with_entry_scope(original.clone(),&[entry.clone()],None,None).unwrap();
+        let composed:serde_json::Value=serde_json::from_str(&composed).unwrap();
+        assert_eq!(composed["version"],2);assert_eq!(composed["contextInput"],"current-native-reference");
+        assert_eq!(composed["metadataKeys"],serde_json::json!(["owned.fact"]));
+        for mode in 0..5 {let mut bad=entry.clone();match mode {
+            0=>bad.owner_component_id=Some("forged".into()),1=>bad.value="{}".into(),
+            2=>bad.value=r#"{"version":2,"reference":"unsupported"}"#.into(),
+            3=>bad.value=r#"{"version":1,"reference":""}"#.into(),
+            _=>bad.value="x".repeat(257),
+        }assert!(with_entry_scope(original.clone(),&[bad],None,None).is_none(),"bad input {mode}");}
+        assert!(with_entry_scope(original,&[entry.clone(),entry],None,None).is_none());
+    }
+    #[test]
+    fn entry_scope_selects_only_the_actual_core_rhs_and_preserves_foreign_bounds() {
+        use crate::nlaocs::skript_parser_addon::types::*;
+        let scope=MetadataEntry {key:"parser.native-entry-scope-input.v1".into(),owner_component_id:None,value:r#"{"version":1,"reference":"current"}"#.into()};
+        let original=r#"{"version":1,"metadataKeys":["owned.fact"],"inputs":[{"capture":0,"publicSchemas":[]},{"capture":7,"publicSchemas":[]}]}"#.to_owned();
+        let mut value=summary();let mut seal:serde_json::Value=serde_json::from_str(&value.metadata[0].value).unwrap();
+        seal["issuer"]=crate::COMPONENT_ID.into();value.metadata[0].value=seal.to_string();
+        value.metadata.push(MetadataEntry {key:crate::public_data::VALUE_RESULT_METADATA_KEY.into(),value:"non-empty".into(),owner_component_id:Some(crate::COMPONENT_ID.into())});
+        value.public_data.push(ExpressionPublicData {schema_id:crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID.into(),schema_version:1,json:"{}".into()});
+        let result=with_entry_scope(original.clone(),&[scope.clone()],Some(&value),Some(7)).unwrap();
+        let draft:serde_json::Value=serde_json::from_str(&result).unwrap();
+        assert!(draft["inputs"][0].get("metadataKeys").is_none());
+        assert_eq!(draft["inputs"][1]["metadataKeys"],serde_json::json!([crate::public_data::VALUE_RESULT_METADATA_KEY]));
+        assert_eq!(draft["inputs"][1]["publicSchemas"],serde_json::json!([crate::public_data::VARIABLE_IDENTITY_SCHEMA_ID]));
+        assert_eq!(with_entry_scope(original.clone(),&[],Some(&value),Some(7)),Some(original.clone()),"v1 is unchanged");
+        assert!(with_entry_scope(original.clone(),&[scope.clone()],Some(&value),Some(9)).is_none(),"wrong capture");
+        let foreign=summary();let foreign=with_entry_scope(original.clone(),&[scope.clone()],Some(&foreign),Some(7)).unwrap();
+        let foreign:serde_json::Value=serde_json::from_str(&foreign).unwrap();
+        assert!(foreign["inputs"][1].get("metadataKeys").is_none(),"foreign domain does not authorize Core facts");
+        for duplicate in [false,true] {let mut bad=value.clone();if duplicate {bad.metadata.push(bad.metadata.last().unwrap().clone());}
+            else {bad.metadata.last_mut().unwrap().owner_component_id=Some("foreign".into());}
+            assert!(with_entry_scope(original.clone(),&[scope.clone()],Some(&bad),Some(7)).is_none());}
     }
     #[test]
     fn native_domain_is_separate_from_advertised_object_and_evaluation_effects() {
