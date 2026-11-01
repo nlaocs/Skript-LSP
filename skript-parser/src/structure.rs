@@ -14,6 +14,9 @@ use syntaxes::{
 };
 use thiserror::Error;
 
+mod entry_plans;
+pub use entry_plans::*;
+
 #[cfg(test)]
 #[path="structure_body_reuse_tests.rs"]
 mod body_reuse_tests;
@@ -641,6 +644,8 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                 let parsed=session.with_prepared_owner(preparation_attempt,|session| {
                     // A cache hit must obey the same owner layout contract as
                     // the ordinary body parser, before any replay can mutate state.
+                    let entry_plans=validated_structure_entry_plans(&candidate,tree,body_mode)
+                        .map_err(|message|StructureParseError::from(session.environment_error(message)))?;
                     validate_structure_body_layout(body_mode,validator.as_ref(),&candidate.entry_body_modes)
                         .map_err(|message|StructureParseError::from(session.environment_error(message)))?;
                     let mut reused=None;
@@ -675,7 +680,7 @@ fn parse_structures_with_session<E: ExpressionParseEnvironment>(
                     }
                     match reused {
                         Some(parsed)=>Ok(parsed),
-                        None=>parse_structure_body(session,tree,node,body_mode,validator.as_ref(),&candidate.entry_body_modes,1),
+                        None=>parse_structure_body(session,tree,node,body_mode,validator.as_ref(),&candidate.entry_body_modes,&entry_plans,1),
                     }
                 });
                 let child_context = session.replace_context(saved_context);
@@ -1326,6 +1331,7 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
     mode: StructureBodyMode,
     validator: Option<&EntryValidator>,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    entry_plans: &StructureEntryPlans,
     depth: usize,
 ) -> Result<ParsedStructureBody, StructureParseError> {
     let _measurement = session.environment().measurement_scope("native.structure_body");
@@ -1374,6 +1380,7 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
                 node,
                 validator,
                 entry_body_modes,
+                entry_plans,
                 &[],
                 depth,
             )?;
@@ -1392,6 +1399,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
     parent: &RawNode,
     validator: &EntryValidator,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    entry_plans: &StructureEntryPlans,
     path: &[String],
     depth: usize,
 ) -> Result<(Vec<StructureEntry>, Vec<StructureDiagnostic>, bool), StructureParseError> {
@@ -1407,7 +1415,8 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
         if matches!(child.kind, RawNodeKind::Blank | RawNodeKind::Comment) {
             continue;
         }
-        let matched = structure_entry_index(validator, child, &seen)
+        let matched = if path.is_empty() {structure_entry_index_with_plans(validator,child,&seen,entry_plans)}
+            else {structure_entry_index(validator,child,&seen)}
             .map(|index| (index, &validator.entry_data[index]));
         let Some((index, data)) = matched else {
             valid = false;
@@ -1445,6 +1454,7 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             index,
             data,
             entry_body_modes,
+            if path.is_empty() {entry_plans.entries.get(child_id)} else {None},
             &entry_path,
             depth,
         )?;
@@ -1497,6 +1507,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     declaration_index: usize,
     data: &EntryData,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
+    entry_plan: Option<&StructureEntryPlan>,
     path: &[String],
     depth: usize,
 ) -> Result<(StructureEntry, Vec<StructureDiagnostic>, bool), StructureParseError> {
@@ -1525,7 +1536,15 @@ fn parse_entry<E: ExpressionParseEnvironment>(
         .to_owned();
     let mut diagnostics = Vec::new();
     let mut valid = true;
-    let value = match data.kind {
+    let value = if let Some(plan)=entry_plan {
+        let context=plan.context.apply(session.context());
+        let previous=session.replace_context(context);
+        let parsed=crate::section::parse_section_body(session,tree,node,plan.mode,depth);
+        session.replace_context(previous);
+        let (body,section_diagnostics)=parsed.map_err(nested_structure_error)?;
+        diagnostics.extend(section_diagnostics.into_iter().map(section_diagnostic_to_structure));
+        StructureEntryValue::Trigger(body)
+    } else {match data.kind {
         EntryKind::Literal | EntryKind::Expression => {
             let expected = if data.kind == EntryKind::Literal {
                 data.value_type.iter().cloned().collect::<Vec<_>>()
@@ -1611,6 +1630,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
                 node,
                 nested,
                 entry_body_modes,
+                &StructureEntryPlans::default(),
                 path,
                 depth + 1,
             )?;
@@ -1646,7 +1666,7 @@ fn parse_entry<E: ExpressionParseEnvironment>(
             StructureEntryValue::Unknown(raw_value)
         }
         EntryKind::VariableString | EntryKind::KeyValue => StructureEntryValue::Raw(raw_value),
-    };
+    }};
     Ok((
         structure_entry(node, declaration_index, key_span, data, source, span, value),
         diagnostics,

@@ -2342,3 +2342,6 @@ mod editing_preparation {
         );
     }
 }
+
+#[path = "structure/entry_plans.rs"]
+mod entry_plans;

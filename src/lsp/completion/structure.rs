@@ -46,6 +46,9 @@ pub(super) fn apply(
             continue;
         }
         if let StructureBody::Entries(values) = &candidate.body {
+            if let Ok(plans)=skript_parser::validated_structure_entry_plans(candidate,&result.raw_tree,skript_parser::StructureBodyMode::Entries) {
+                condition_entries.extend(plans.entries.iter().filter_map(|(id,plan)|(plan.mode==skript_parser::SectionBodyMode::Conditions).then_some(*id)));
+            }
             condition_entry_ids(
                 values,
                 &candidate.entry_body_modes,

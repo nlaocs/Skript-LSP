@@ -309,4 +309,64 @@ mod tests {
         assert!(!doc.syntax_at(position,false).unwrap().items.iter().any(|item|item.label=="review ready"),
             "expired providers withdraw advisory nested routes");
     }
+    #[test]
+    #[ignore="requires the explicit handler-entry profile and matching current guest Component"]
+    fn current_handler_entry_completion_inserts_current_expressions_but_not_unknown_parse_gates() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let mut index=CatalogIndex::with_documentation_format(&catalog,host.raw_tree_options(),lsp_types::MarkupKind::PlainText);
+        index.certify_types(&host);let index=Arc::new(index);
+        for (number,(prefix,expected)) in [("review la",Some("review label")),("review ga",None)].into_iter().enumerate() {
+            let source:Arc<str>=format!("# 日本語 🦀\nlocal expression review label:\n    return type: string\n    get:\n        return \"ok\"\n    set string:\n        set {{_inside}} to {prefix}\nlocal expression review gated:\n    return type: boolean\n    parse:\n        continue\n    get:\n        return true\non load:\n    set {{_control}} to 123\n").into();
+            let revision=number as u64*2+1;
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///handler-editor","file:///handler-editor/current.sk",revision,source.to_string()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            let doc=Document::from_result(&result,source.clone(),index.clone()).unwrap();
+            let needle=format!("set {{_inside}} to {prefix}");
+            let position=doc.lines.position(&source,source.find(&needle).unwrap()+needle.len()).unwrap();
+            let list=doc.syntax_at(position,false).unwrap();
+            assert!(!list.items.iter().any(|item|item.label=="review gated"),"unknown parse gate cannot supply a positive use candidate");
+            if let Some(expected)=expected {
+                let matches=list.items.iter().filter(|item|item.label==expected).collect::<Vec<_>>();
+                assert_eq!(matches.len(),1,"adopted Unknown changer body is an executable expression slot");
+                let Some(CompletionTextEdit::Edit(edit))=&matches[0].text_edit else {panic!("plain native insertion")};
+                let mut applied=source.to_string();
+                applied.replace_range(doc.lines.offset(&source,edit.range.start).unwrap()..doc.lines.offset(&source,edit.range.end).unwrap(),&edit.new_text);
+                assert!(applied.contains("set {_inside} to review label"));
+                let accepted=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///handler-editor","file:///handler-editor/current.sk",revision+1,applied),Default::default()).unwrap();
+                assert!(accepted.component_failures.is_empty());assert!(accepted.syntax.diagnostics.is_empty(),"{:?}",accepted.syntax.diagnostics);
+                assert!(accepted.ast.nodes.iter().any(|node|node.text=="review label" && node.kind==parser_wasm::host::SyntaxKind::Expression));
+            }
+        }
+    }
+
+
+    #[test]
+    #[ignore="requires the explicit handler-entry profile and matching current guest Component"]
+    fn current_handler_entry_invalid_delta_keeps_unrelated_core_inlay_type() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let valid="local expression review counter:\n    return type: number\n    get:\n        return 1\n    set number:\n        set {_delta} to change value\n    add numbers:\n        set {_batch::*} to change values\non load:\n    set review counter to 2\n    add 1 and 2 to review counter\n    set {_control} to 123\n";
+        for (number,source) in [valid.to_owned(),valid.replace("set {_batch::*} to change values","set {_batch} to change values")].into_iter().enumerate() {
+            let source:Arc<str>=source.into();let uri="file:///handler-editor/inlay.sk";
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///handler-editor",uri,number as u64+1,source.to_string()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            assert_eq!(result.syntax.diagnostics.is_empty(),number==0);
+            let semantic=crate::lsp::semantic::Document::from_result(&result,source.clone(),uri.parse().unwrap(),catalog.clone()).unwrap();
+            let position=crate::lsp::positions::LineIndex::new(&source).position(&source,source.find("{_control}").unwrap()+"{_control}".len()).unwrap();
+            let hints=semantic.write_type_hints();
+            let node=result.ast.nodes.iter().find(|node|node.text=="set {_control} to 123").unwrap();
+            let witnesses=result.semantic_witnesses();
+            eprintln!("case {number}: native={}, issuer={:?}, composed={:?}, core={:x}",witnesses.native_valid(node),witnesses.unique_issuer(node),node.metadata.iter().filter(|m|m.owner_component_id.as_deref()==Some("nlaocs.core-library")).map(|m|(&m.key,witnesses.composed_metadata_valid(node,m))).collect::<Vec<_>>(),<sha2::Sha256 as sha2::Digest>::digest(crate::core_library_component()));
+            let control=hints.iter().find(|hint|hint.position==position).unwrap_or_else(||panic!("case {number}: independent binding hint missing; current hints={hints:?}"));
+            assert!(matches!(&control.label,lsp_types::InlayHintLabel::String(label) if label==": long"),"case {number}: {control:?}");
+        }
+    }
+
 }

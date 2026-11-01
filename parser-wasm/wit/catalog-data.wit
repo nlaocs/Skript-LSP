@@ -309,6 +309,15 @@ interface catalog-data {
         input: string,
     ) -> result<option<expression-type-option>, catalog-error>;
 
+    /// Catalog-data v7. Apply current recorded PluralRules, prefer the exact
+    /// singular code name, then try singular user-input regexes in order.
+    /// The bool is input plurality. At most 1024 UTF-8 bytes; none on unknown.
+    /// This returns declared metadata, not a parser/getter execution result.
+    /// The older type-for-user-input remains raw-regex-only.
+    resolve-type-name: func(
+        input: string,
+    ) -> result<option<tuple<expression-type-option, bool>>, catalog-error>;
+
     /// Tests one handler identity against this component's host-resolved SSG bindings.
     registered-handler-matches: func(
         handler-id: string,

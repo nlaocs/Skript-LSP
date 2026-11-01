@@ -181,6 +181,8 @@ pub const CAPABILITY_STRUCTURE_PARSER: &str = "parser.structure";
 /// Owned Structure metadata containing a JSON list of {"path":["entry"],"mode":"trigger"|"conditions"}.
 /// Paths select Section entries in the registration's EntryValidator, never source spelling guesses.
 pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-modes.v1";
+/// Current direct-entry scope plans, with mandatory context-update permission.
+pub const CAPABILITY_STRUCTURE_ENTRY_PLANS: &str = "parser.structure-entry-plans";
 /// Owned outline metadata on an accepted AST node. JSON v1 contains a nonempty
 /// name, an LSP SymbolKind number (1..=26), optional detail, and selection
 /// {start,end} UTF-8 offsets relative to the node's native header. Consumers

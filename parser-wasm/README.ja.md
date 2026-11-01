@@ -914,3 +914,7 @@ source/revision 検証を維持します。表示用の所有権は型の権限�
 ## 入力を認証した値の根拠
 
 `parser.semantic-value-facts` v1 は、現在の式入力をホストが認証し、親の選択した根拠だけを合成する任意機能です。式が公開する型、値の候補・欠落可能性、保存後の保証、評価時の作用を区別し、ノード全体の単一提供元チェックは維持します。ABI 31のmetadata（layoutはABI 29から不変）を使い、この機能を必須とするaddonは未対応の古いhostで拒否されます。[契約・上限・制限](../docs/wasm-value-facts.md)を参照してください。
+
+
+See [direct entry scope plans v1](docs/structure-entry-plans.md) for the optional
+`parser.structure-entry-plans` capability, ownership, lifetime and bounded context contract.

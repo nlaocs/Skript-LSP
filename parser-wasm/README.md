@@ -1378,3 +1378,7 @@ document URI/digest/identity and an Exact source projection. These locations and
 public return bounds are not runtime-class, presence, callback, storage or type
 proof certificates. Close returns an open document to saved disk state, rather
 than simulating Skript unload.
+
+
+See [direct entry scope plans v1](docs/structure-entry-plans.md) for the optional
+`parser.structure-entry-plans` capability, ownership, lifetime and bounded context contract.

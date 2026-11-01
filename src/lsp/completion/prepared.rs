@@ -53,6 +53,7 @@ impl PreparedDocument {
             let Some(raw) = tree.get(candidate.raw_node_id) else {
                 continue;
             };
+            let Ok(entry_plans)=skript_parser::validated_structure_entry_plans(candidate,tree,header.body_mode) else {continue;};
             if header.ambiguous
                 || !context.values().any(|line| line.node == Some(raw.id))
                 || exact_native(&raw.line.span).is_none()
@@ -105,6 +106,7 @@ impl PreparedDocument {
                             raw.id,
                             validator,
                             &candidate.entry_body_modes,
+                            &entry_plans,
                             &candidate.matched.registration_id,
                             &mut scopes,
                             &mut entry_scopes,
@@ -753,6 +755,22 @@ mod tests {
         assert_eq!(ready(&view, 2, 12).items.len(), 1);
         assert!(ready(&view, 4, 12).items.is_empty());
     }
+    #[test]
+    fn current_unknown_entry_plan_uses_the_same_provisional_selector_and_revocation() {
+        let source:Arc<str>=Arc::from("root:\n    change number:\n        hold");
+        let mapped=skript_parser::MappedSource::identity(Arc::clone(&source));
+        let index=PreparedDocument::test_fixture(Arc::clone(&source)).document.index;
+        let tree=skript_parser::parse_raw_tree(&mapped,index.raw_options);
+        let mut owner=candidate(&tree,0,Some(EntryValidator {entry_data:vec![entry("change",EntryKind::Unknown)]}));
+        let raw=tree.get(owner.raw_node_id).unwrap();let node=raw.children[0];
+        owner.metadata.insert(skript_parser::STRUCTURE_ENTRY_LAYOUT_METADATA.into(),skript_parser::structure_entry_layout(&owner,"17").unwrap());
+        owner.metadata.insert(format!("example.owner/{}",skript_parser::STRUCTURE_ENTRY_PLANS_METADATA),serde_json::json!({"version":1,"token":"17","structureNode":raw.id.get(),"entries":[{
+            "node":node.get(),"declarationIndex":0,"mode":"trigger","adoptUnknown":true,"context":{"eventClasses":[],"values":[]}}]}).to_string());
+        let mut view=PreparedDocument::new(source,index,&mapped,&tree,&[StructureHeaderPreparation {attempt_id:1,candidate:&owner,body_mode:StructureBodyMode::Entries,ambiguous:false}]).unwrap();
+        assert_eq!(ready(&view,2,12).items.len(),1);
+        assert!(view.revoke(&OwnerAttempt {root:owner.raw_node_id,registration:owner.matched.registration_id.clone(),pattern:owner.matched.pattern_index,attempt_id:1}));
+        assert!(matches!(view.at(Position::new(2,12),false).unwrap(),PreparedQuery::NeedsAnalysis));
+    }
     fn section_candidate(
         tree: &skript_parser::RawTree,
         line: usize,
@@ -1186,6 +1204,7 @@ fn prepare_entries(
     root: RawNodeId,
     validator: &EntryValidator,
     modes: &BTreeMap<Vec<String>, skript_parser::SectionBodyMode>,
+    plans: &skript_parser::StructureEntryPlans,
     registration: &str,
     scopes: &mut HashMap<RawNodeId, Scope>,
     output: &mut Vec<EntryScope>,
@@ -1202,12 +1221,18 @@ fn prepare_entries(
             if matches!(child.kind, RawNodeKind::Blank | RawNodeKind::Comment) {
                 continue;
             }
-            let Some(index) = skript_parser::structure_entry_index(validator, child, &seen) else {
+            let index=if path.is_empty() {skript_parser::structure_entry_index_with_plans(validator,child,&seen,plans)}
+                else {skript_parser::structure_entry_index(validator,child,&seen)};
+            let Some(index) = index else {
                 continue;
             };
             seen.insert(index);
             present.push((index, *id));
             let data = &validator.entry_data[index];
+            if path.is_empty() && let Some(plan)=plans.entries.get(id) {
+                scopes.insert(*id,match plan.mode {skript_parser::SectionBodyMode::Trigger=>Scope::Statements,skript_parser::SectionBodyMode::Conditions=>Scope::Conditions});
+                continue;
+            }
             let mut entry_path = path.clone();
             entry_path.push(data.key.clone());
             match data.kind {

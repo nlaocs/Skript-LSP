@@ -54,6 +54,8 @@ pub mod source_geometry;
 mod source_mapping_tests;
 mod subscriptions;
 mod type_name_spellings;
+mod type_name_resolution;
+mod structure_entry_plans;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
@@ -1615,6 +1617,11 @@ impl wit_catalog_data::Host for StoreData {
             }
         }
         Ok(None)
+    }
+
+    fn resolve_type_name(&mut self,input:String)->Result<Option<(WitExpressionTypeOption,bool)>,wit_catalog_data::CatalogError> {
+        let catalog=self.catalog()?;
+        type_name_resolution::resolve(catalog,&self.type_user_input_matchers,&input)
     }
 
     fn change_contract_for_type(
@@ -5575,11 +5582,13 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
         {
             return Err("Simple Structure cannot select a body parser".to_owned());
         }
+        let mut metadata=output.candidate.metadata;
+        structure_entry_plans::discard_unused_layout(&mut metadata);
         Ok(StructureHookDecision::Accept {
             context: apply_context_updates(request.context, updates, "Structure")?,
             body_mode,
-            entry_body_modes: structure_entry_body_modes(&output.candidate.metadata)?,
-            metadata: metadata_entries(output.candidate.metadata)?,
+            entry_body_modes: structure_entry_body_modes(&metadata)?,
+            metadata: metadata_entries(metadata)?,
         })
     }
 
@@ -5838,7 +5847,7 @@ fn structure_hook_payload(
             child_node_ids: structure_child_node_ids(&candidate.body),
             entries,
             handler: candidate.handler.clone(),
-            metadata: metadata_to_wit(&candidate.metadata),
+            metadata: structure_entry_plans::input_metadata(request)?,
             declarations: Vec::new(),
         },
     })
@@ -13154,6 +13163,8 @@ impl ParserHost {
                     && let Err(message) =
                         normalize_hook_metadata(&payload, replacement, &component_id).and_then(
                             |()| {
+                                structure_entry_plans::validate_owner_requirements(&payload,replacement,&component_id,
+                                    &self.components[candidate.component_index].manifest.capabilities)?;
                                 validate_function_references(
                                     replacement,
                                     &candidate_parse_results,
@@ -13259,6 +13270,10 @@ impl ParserHost {
                         terminal,
                     } = applied;
                     normalize_structure_hook_payload(&payload, &mut next_payload, &next_effects)?;
+                    if structure_entry_plans::changed(&payload,&next_payload)
+                        && candidate_semantic_effects!=semantic_proof::SemanticEffects::Unbound {
+                        candidate_semantic_effects=semantic_proof::SemanticEffects::StructureContext;
+                    }
                     if matches!(next_decision, Some(HookDecision::Reject(_))) {
                         state_invocation.rollback();
                         drop(dynamic_update);
@@ -13910,6 +13925,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_EFFECT_PARSER,
         CAPABILITY_SECTION_PARSER,
         CAPABILITY_STRUCTURE_PARSER,
+        crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
     ]
     .map(|id| {
         Capability::new(
@@ -13933,7 +13949,7 @@ fn configured_host_capabilities(
 ) -> Vec<Capability> {
     let mut capabilities = host_capabilities();
     if catalog_source_available {
-        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 6));
+        capabilities.push(Capability::new(CAPABILITY_CATALOG_DATA, 7));
     }
     if dynamic_syntax_available {
         capabilities.push(Capability::new(CAPABILITY_DYNAMIC_SYNTAX, 2));
@@ -15561,6 +15577,8 @@ fn normalize_structure_hook_payload(
     let (HookPayload::Structure(previous), HookPayload::Structure(next)) = (previous, next) else {
         return Ok(());
     };
+    structure_entry_plans::validate_transition(previous,next)
+        .map_err(|message|StructureParseError::Environment {message})?;
     if !same_structure_payload_identity(next, previous)
         || previous.timing == WitStructureTiming::ExitBody
             && (next.candidate.body_mode != previous.candidate.body_mode
@@ -19390,6 +19408,7 @@ mod tests {
                 CAPABILITY_EFFECT_PARSER,
                 CAPABILITY_SECTION_PARSER,
                 CAPABILITY_STRUCTURE_PARSER,
+                crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
             ]
         );
     }
