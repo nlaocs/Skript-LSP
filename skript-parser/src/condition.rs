@@ -5,12 +5,16 @@
 mod capture_bindings_tests;
 
 use crate::pattern_match::{find_parenthesis_end, java_trim_range};
+use crate::expression::{
+    capture_context, capture_expression_expected_types, capture_expression_flags,
+    capture_expression_time_state,
+};
 use crate::{
     CandidateMatch, ExpressionNode, ExpressionParseContext, ExpressionParseEnvironment,
     ExpressionParseError, ExpressionParserConfig, ExpressionSession, FailureFrame,
     FailureFrameRole, FailureTrace, MappedSource, MatchSpan, MatchSyntaxKind, ParseMarkCapture,
     ParseTagCapture, ParsedCaptureRef, PatternCapture, PatternFailure, PatternFailureReason,
-    TextRange,
+    RegisteredSyntaxIdentity, TextRange, HOST_EXPRESSION_PARSER_ID,
 };
 use std::collections::BTreeMap;
 use syntaxes::{Catalog, DynamicSyntaxSnapshot, SyntaxKind};
@@ -51,6 +55,15 @@ pub enum ConditionNodeKind {
 pub struct ConditionExpressionBinding {
     pub capture_index: usize,
     pub expression_index: usize,
+    pub origin: ConditionExpressionBindingOrigin,
+}
+
+/// How the native parser selected an associated expression. A coincident regex
+/// span alone never establishes a binding to an expression parsed elsewhere.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConditionExpressionBindingOrigin {
+    TypeResolution,
+    NativeRegex,
 }
 
 /// One parsed Condition with its nested Expression and grouping structure.
@@ -70,8 +83,8 @@ pub struct ConditionNode {
 }
 
 impl ConditionNode {
-    /// A unique resolved typed-slot association, or no claim for malformed or
-    /// unbound children. Neither missing slots nor regex captures shift indices.
+    /// A unique native capture association, or no claim for malformed or
+    /// unbound children. Regex slots require explicit native selection origin.
     pub fn expression_capture_index(&self, expression_index: usize) -> Option<usize> {
         self.expressions.get(expression_index)?;
         let mut bindings = self
@@ -94,11 +107,10 @@ impl ConditionNode {
             .iter()
             .filter(|capture| capture.capture_index() == binding.capture_index);
         if !matches!(
-            captures.next()?,
-            PatternCapture::TypeExpression {
-                resolution_id: Some(_),
-                ..
-            }
+            (captures.next()?, binding.origin),
+            (PatternCapture::TypeExpression { resolution_id: Some(_), .. },
+                ConditionExpressionBindingOrigin::TypeResolution)
+                | (PatternCapture::Regex { .. }, ConditionExpressionBindingOrigin::NativeRegex)
         ) || captures.next().is_some()
         {
             return None;
@@ -280,7 +292,13 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
             session
                 .activate_pattern_candidate(&matched)
                 .map_err(|message| session.environment_error(message))?;
-            let mut candidate = condition_candidate(session, matched, trimmed)?;
+            let mut candidate = match condition_candidate(session, matched, trimmed, depth)? {
+                ConditionCandidateResolution::Accepted(candidate) => candidate,
+                ConditionCandidateResolution::Rejected(trace) => {
+                    failure = crate::choose_failure_trace(failure.take(), Some(trace));
+                    return Ok(None);
+                }
+            };
             let mut accepted_semantically = true;
             let input = trimmed
                 .slice(session.source().virtual_source())
@@ -342,19 +360,18 @@ pub(crate) fn parse_condition_with_session<E: ExpressionParseEnvironment>(
                     );
                 }
             }
-            Ok((candidate, accepted_semantically))
+            Ok(accepted_semantically.then_some(candidate))
         })();
         let keep = attempt
             .as_ref()
-            .is_ok_and(|(_, accepted_semantically)| *accepted_semantically && accepted.is_empty());
+            .is_ok_and(|candidate| candidate.is_some() && accepted.is_empty());
         if keep {
             selected_context = Some(session.context().clone());
         }
         session
             .finish_semantic_candidate(keep)
             .map_err(|message| session.environment_error(message))?;
-        let (candidate, accepted_semantically) = attempt?;
-        if accepted_semantically {
+        if let Some(candidate) = attempt? {
             accepted.push(candidate);
             break;
         }
@@ -391,12 +408,18 @@ fn grouped_candidate(candidate: ConditionCandidate, span: MatchSpan) -> Conditio
     }
 }
 
+enum ConditionCandidateResolution {
+    Accepted(ConditionCandidate),
+    Rejected(FailureTrace),
+}
+
 fn condition_candidate<E: ExpressionParseEnvironment>(
-    session: &ExpressionSession<'_, E>,
+    session: &mut ExpressionSession<'_, E>,
     matched: CandidateMatch,
     range: TextRange,
-) -> Result<ConditionCandidate, ConditionParseError> {
-    let (expressions, expression_bindings) =
+    depth: usize,
+) -> Result<ConditionCandidateResolution, ConditionParseError> {
+    let (mut expressions, mut expression_bindings) =
         resolved_condition_expressions(&matched.matched.captures, |id| session.resolved_node(id));
     let dynamic = session.dynamic_snapshot().and_then(|snapshot| {
         snapshot
@@ -404,7 +427,70 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
             .values()
             .find(|definition| definition.id.qualified() == matched.registration_id)
     });
-    Ok(ConditionCandidate {
+    let handler = dynamic.map(|definition| definition.handler.clone());
+    let metadata = dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone());
+    let bindings = session.environment().registered_capture_bindings(RegisteredSyntaxIdentity {
+        kind: SyntaxKind::Condition,
+        definition_id: &matched.definition_id,
+        registration_id: &matched.registration_id,
+        pattern_index: Some(matched.pattern_index),
+        pattern_source: Some(&matched.pattern),
+        tags: Some(&matched.matched.tags),
+        mark: Some(matched.matched.mark),
+        dynamic_handler: handler.as_deref(),
+    }).map_err(|message| session.environment_error(message))?;
+    for capture in &matched.matched.captures {
+        let PatternCapture::Regex { capture_index, pattern_span, span, .. } = capture else { continue; };
+        let Some(binding) = bindings.iter().find(|binding| binding.capture_index == *capture_index) else { continue; };
+        let rejected = |cause: Option<FailureTrace>| {
+            cause.unwrap_or_else(|| crate::effect::nested_failure_trace(span.clone()))
+                .with_parent(FailureFrame {
+                    kind: MatchSyntaxKind::Condition,
+                    definition_id: matched.definition_id.clone(),
+                    registration_id: matched.registration_id.clone(),
+                    pattern_index: matched.pattern_index,
+                    pattern: matched.pattern.clone(),
+                    element_path: Vec::new(),
+                    pattern_span: Some(*pattern_span),
+                    input_span: span.clone(),
+                    role: FailureFrameRole::ExpressionCapture { index: *capture_index },
+                })
+        };
+        if binding.parser_id != HOST_EXPRESSION_PARSER_ID {
+            if binding.required { return Ok(ConditionCandidateResolution::Rejected(rejected(None))); }
+            continue;
+        }
+        let input = TextRange::new(range.start + span.local_range.start, range.start + span.local_range.end);
+        let context = capture_context(session.context(), binding, &expressions)
+            .map_err(|message| session.environment_error(message))?;
+        let expected = capture_expression_expected_types(binding)
+            .map_err(|message| session.environment_error(message))?;
+        let time = capture_expression_time_state(binding, 0)
+            .map_err(|message| session.environment_error(message))?;
+        let (allow_literals, allow_expressions) = capture_expression_flags(binding)
+            .map_err(|message| session.environment_error(message))?;
+        let previous = context.map(|context| session.replace_context(context));
+        let parsed = session.parse_capture_expression_prefixes(binding, input, &expected,
+            allow_literals, allow_expressions, time, depth + 1);
+        if let Some(previous) = previous { session.replace_context(previous); }
+        let parsed = parsed?;
+        let cause = parsed.failure;
+        let mut candidates = parsed.candidates.into_iter()
+            .filter(|candidate| candidate.node.span.local_range.end == input.end);
+        let Some(candidate) = candidates.next() else {
+            if binding.required { return Ok(ConditionCandidateResolution::Rejected(rejected(cause))); }
+            continue;
+        };
+        session.select_expression(&candidate.node)?;
+        session.check_cancelled()?;
+        expression_bindings.push(ConditionExpressionBinding {
+            capture_index: *capture_index,
+            expression_index: expressions.len(),
+            origin: ConditionExpressionBindingOrigin::NativeRegex,
+        });
+        expressions.push(candidate.node);
+    }
+    Ok(ConditionCandidateResolution::Accepted(ConditionCandidate {
         node: ConditionNode {
             kind: ConditionNodeKind::Registered {
                 definition_id: matched.definition_id,
@@ -422,10 +508,10 @@ fn condition_candidate<E: ExpressionParseEnvironment>(
             expressions,
             expression_bindings,
             children: Vec::new(),
-            handler: dynamic.map(|definition| definition.handler.clone()),
-            metadata: dynamic.map_or_else(BTreeMap::new, |definition| definition.metadata.clone()),
+            handler,
+            metadata,
         },
-    })
+    }))
 }
 
 fn resolved_condition_expressions<'a>(
@@ -445,6 +531,7 @@ fn resolved_condition_expressions<'a>(
             bindings.push(ConditionExpressionBinding {
                 capture_index: *capture_index,
                 expression_index: expressions.len(),
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             });
             expressions.push(node.clone());
         }

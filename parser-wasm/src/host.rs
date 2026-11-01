@@ -35,6 +35,7 @@ mod checkpoint_tests;
 mod default_expression;
 mod dispatch_original;
 use dispatch_original::DispatchOriginal;
+mod native_expression_inputs;
 mod type_expected;
 mod hook_calls;
 use hook_calls::HookCallLog;
@@ -5235,10 +5236,21 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
             },
             effective_multiplicity: request.declared_multiplicity.map(multiplicity_to_wit),
             public_data: Vec::new(),
-            metadata: expression_input_cardinality_metadata(
-                &request,
-                self.hooks.host.config.syntax_catalog.as_deref(),
-            ),
+            metadata: {
+                let mut metadata=expression_input_cardinality_metadata(
+                    &request,self.hooks.host.config.syntax_catalog.as_deref());
+                if registered_handler_requires_context(&self.hooks.host.components,
+                    RegisteredSyntaxIdentity {kind:CatalogSyntaxKind::Expression,
+                        definition_id:request.definition_id,registration_id:request.registration_id,
+                        pattern_index:Some(request.pattern_index),pattern_source:Some(request.pattern),
+                        tags:Some(request.tags),mark:Some(request.mark),dynamic_handler:request.dynamic_handler},
+                    native_expression_inputs::CONTEXT) {
+                    if let Some(entry)=native_expression_inputs::metadata(request.parsed_captures) {
+                        metadata.push(entry);
+                    }
+                }
+                metadata
+            },
         };
         let original = payload.clone();
         let result = self
@@ -8904,6 +8916,7 @@ fn same_registered_expression_identity(
         && left.declared_return_type == right.declared_return_type
         && left.declared_multiplicity == right.declared_multiplicity
         && same_input_cardinality_metadata(&left.metadata, &right.metadata)
+        && native_expression_inputs::same(&left.metadata, &right.metadata)
         && left.return_type_state == right.return_type_state
         && left.possible_return_types == right.possible_return_types
         && left.possible_return_types_state == right.possible_return_types_state
@@ -13868,6 +13881,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
         CAPABILITY_EXPRESSION_PARSER,
+        native_expression_inputs::CAPABILITY,
         crate::CAPABILITY_EXPRESSION_ROOT_SELECTION,
         CAPABILITY_DEFAULT_EXPRESSION,
         crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,
@@ -13888,6 +13902,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         Capability::new(
             id,
             if id == crate::CAPABILITY_ADDON_DATA || id == CAPABILITY_STRUCTURE_PARSER
+                || id == CAPABILITY_CONDITION_PARSER
                 || id == editor_completion::typed::CAPABILITY
                 || id == crate::CAPABILITY_PROJECT_STABLE_SEMANTICS {
                 2
@@ -14642,7 +14657,14 @@ fn validate_manifest(
                     ),
                 });
             }
-            if requirement != REGISTERED_CONTEXT_ALL_TYPE_OPTIONS {
+            if requirement == native_expression_inputs::CONTEXT {
+                if handler.kind != SyntaxKind::Expression || !manifest.capabilities.iter().any(|c|
+                    c.id==native_expression_inputs::CAPABILITY && c.minimum_version==1 && c.required) {
+                    return Err(HostError::InvalidManifest {message:format!(
+                        "{} handler {} needs required native-expression-inputs v1 on Expression",
+                        manifest.component_id,handler.handler_id)});
+                }
+            } else if requirement != REGISTERED_CONTEXT_ALL_TYPE_OPTIONS {
                 return Err(HostError::InvalidManifest {
                     message: format!(
                         "{} declares unsupported context requirement {} for handler {}",
@@ -14658,6 +14680,16 @@ fn validate_manifest(
                     ),
                 });
             }
+        }
+        // Native regex children on Conditions require the explicit v2 pipeline.
+        // Existing v1 typed captures and other parser routes retain their contract.
+        if handler.kind==SyntaxKind::Condition && handler.capture_parsers.iter().any(|binding|
+            binding.parser_id==skript_parser::HOST_EXPRESSION_PARSER_ID) &&
+            !manifest.capabilities.iter().any(|c|c.id==CAPABILITY_CONDITION_PARSER &&
+                c.minimum_version==2 && c.required) {
+            return Err(HostError::InvalidManifest {message:format!(
+                "{} handler {} needs required parser.condition v2 for native Expression captures",
+                manifest.component_id,handler.handler_id)});
         }
         let mut bindings = BTreeSet::new();
         for binding in &handler.capture_parsers {
@@ -19310,6 +19342,7 @@ mod tests {
                 editor_completion::CAPABILITY,
         editor_completion::typed::CAPABILITY,
                 CAPABILITY_EXPRESSION_PARSER,
+                native_expression_inputs::CAPABILITY,
                 crate::CAPABILITY_EXPRESSION_ROOT_SELECTION,
                 CAPABILITY_DEFAULT_EXPRESSION,
                 crate::CAPABILITY_INCREMENTAL_LOCAL_SYNTAX,

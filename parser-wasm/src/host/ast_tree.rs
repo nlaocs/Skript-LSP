@@ -835,6 +835,7 @@ mod tests {
             marks: Vec::new(),
             expressions: root.children.clone(),
             expression_bindings: vec![skript_parser::ConditionExpressionBinding {
+                origin: skript_parser::ConditionExpressionBindingOrigin::TypeResolution,
                 capture_index: 2,
                 expression_index: 1,
             }],

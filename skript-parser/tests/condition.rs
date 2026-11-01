@@ -1,3 +1,5 @@
+#[path = "condition/native_capture_tests.rs"]
+mod native_capture_tests;
 use skript_parser::{
     ConditionNodeKind, ConditionParseRequest, ConditionParserConfig, ExpressionLeafCandidate,
     ExpressionLeafKind, ExpressionLeafParse, ExpressionLeafRequest, ExpressionLeafTiming,

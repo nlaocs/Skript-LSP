@@ -190,6 +190,13 @@ pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-mode
 pub const DOCUMENT_SYMBOL_METADATA: &str = "skript.semantic.document-symbol";
 /// Requests every SSG type option in a registered Expression payload.
 pub const REGISTERED_CONTEXT_ALL_TYPE_OPTIONS: &str = "expression.type-options.all";
+/// Bounded immutable headers from current native Expression captures, version 1.
+/// These identify AST shape and declared type information, not runtime values or effects.
+pub const CAPABILITY_NATIVE_EXPRESSION_INPUTS: &str = "parser.native-expression-inputs";
+/// Opt-in context requirement for native Expression capture headers.
+pub const REGISTERED_CONTEXT_NATIVE_EXPRESSION_INPUTS: &str = "expression.native-inputs";
+/// Reserved ownerless metadata protected across registered Expression transforms.
+pub const REGISTERED_METADATA_NATIVE_EXPRESSION_INPUTS: &str = "host.expression.native-inputs.v1";
 /// Immutable native annotation mapping positive SSG input-cardinality evidence to a capture slot.
 pub const REGISTERED_METADATA_MULTIPLICITY_SOURCE: &str = "host.expression.multiplicity-source";
 

@@ -98,10 +98,12 @@ fn missing_resolutions_regex_and_null_slots_never_shift_later_bindings() {
         bindings,
         [
             ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
                 capture_index: 7,
                 expression_index: 0
             },
             ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
                 capture_index: 9,
                 expression_index: 1
             }
@@ -135,6 +137,7 @@ fn malformed_or_absent_associations_make_no_claim_despite_equal_spans() {
         ],
         vec![expression(), expression()],
         vec![ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 4,
             expression_index: 0,
         }],
@@ -143,18 +146,22 @@ fn malformed_or_absent_associations_make_no_claim_despite_equal_spans() {
     assert_eq!(base.expression_capture_index(1), None);
     for binding in [
         ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 4,
             expression_index: 1,
         },
         ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 0,
             expression_index: 0,
         },
         ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 99,
             expression_index: 0,
         },
         ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 4,
             expression_index: 99,
         },
@@ -187,6 +194,7 @@ fn recursive_source_mapping_preserves_explicit_associations_and_groups() {
         vec![typed(7, Some("valid"), TypeCaptureState::Explicit)],
         vec![expression()],
         vec![ConditionExpressionBinding {
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
             capture_index: 7,
             expression_index: 0,
         }],
@@ -223,4 +231,35 @@ fn recursive_source_mapping_preserves_explicit_associations_and_groups() {
         inner.span.local_range,
         inner.expressions[0].span.local_range
     );
+}
+
+#[test]
+fn native_regex_origin_is_explicit_and_cannot_relabel_typed_or_duplicate_slots() {
+    let base = node(
+        vec![regex(0), typed(4, Some("valid"), TypeCaptureState::Explicit)],
+        vec![expression(), expression()],
+        vec![
+            ConditionExpressionBinding {
+                capture_index: 0, expression_index: 0,
+                origin: ConditionExpressionBindingOrigin::NativeRegex,
+            },
+            ConditionExpressionBinding {
+                capture_index: 4, expression_index: 1,
+                origin: ConditionExpressionBindingOrigin::TypeResolution,
+            },
+        ],
+    );
+    assert_eq!(base.parsed_capture_refs().map(|v|v.capture_index()).collect::<Vec<_>>(), [0,4]);
+    for index in [0,1] {
+        let mut wrong = base.clone();
+        wrong.expression_bindings[index].origin = if index==0 {
+            ConditionExpressionBindingOrigin::TypeResolution
+        } else { ConditionExpressionBindingOrigin::NativeRegex };
+        assert_eq!(wrong.expression_capture_index(index), None);
+        assert_eq!(wrong.parsed_capture_refs().count(), 1);
+    }
+    let mut duplicate = base.clone();
+    duplicate.expression_bindings.push(base.expression_bindings[0]);
+    assert_eq!(duplicate.expression_capture_index(0), None);
+    assert_eq!(duplicate.parsed_capture_refs().count(), 1);
 }

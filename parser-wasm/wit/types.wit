@@ -1212,8 +1212,10 @@ interface types {
 
     // capture-index is the stable native pattern slot, not a captures array
     // position: omitted Regex/choice branches can leave gaps. expression-index
-    // indexes the unchanged children list. Created at resolution-ID lookup.
-    // Invalid/missing associations make no semantic typed-slot claim.
+    // indexes the unchanged children list. Native associations come from typed
+    // resolution IDs, or (parser.condition v2) a selected regex host.expression
+    // binding in the current candidate transaction. They do not certify semantics.
+    // Invalid/missing associations make no child-identity claim.
     record condition-expression-binding {
         capture-index: u64,
         expression-index: u64,

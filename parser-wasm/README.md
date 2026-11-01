@@ -380,6 +380,31 @@ explicitly selected by a future contract; v1 never substitutes it by name.
 This selects syntax; it grants no semantic, runtime or storage certificate.
 Components using it must require the capability; older hosts reject them at
 initialization. This capability uses existing record layouts; the current world is WIT 0.49 / ABI 31.
+The additive `parser.native-expression-inputs` v1 capability and the registered
+Expression context requirement `expression.native-inputs` provide an ownerless,
+immutable `host.expression.native-inputs.v1` metadata entry for the current call.
+Its JSON object contains version 1 and captures with `captureIndex`, a root
+header and `directChildren`. Headers preserve native kind, AND/OR conjunction,
+mapped span, declared return type alternatives/completeness and multiplicity.
+This is a read-only native AST view, never runtime value, purity or storage proof.
+The view is omitted when it exceeds 64 captures, 64 total direct children,
+64 types per header, 512 bytes per type name, 32 origins per span, or 64 KiB of
+encoded JSON. No partial child prefix is returned. Consumers must remain
+conservative without a complete supported view. Transforms cannot alter, remove
+or counterfeit the reserved ownerless entry. Only handlers explicitly requesting
+the context cause this projection, and they must require the capability.
+
+`parser.condition` v2 permits an explicit regex capture binding to
+`host.expression`, including existing context, expected type, time, flags
+and root-handler restrictions. The selected child is attached once within the
+Condition candidate savepoint; rejection, failed required captures and cancellation
+roll back before another registration. Its binding is an identity association,
+not a type-guard or runtime-truth certificate. Condition handlers requesting this
+route must require v2; v1 handlers without the route retain their contract.
+Both capabilities use the existing WIT 0.49 / ABI 31 record layouts; hosts lacking
+the required capabilities reject initialization.
+
+
 Capture indexes count every pattern capture in source order, including typed
 `%type%` captures before a regex `<.+>` capture.
 A handler may also request named
