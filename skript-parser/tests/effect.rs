@@ -1007,3 +1007,162 @@ fn nested_restricted_expression_failure_retains_supported_and_current_events() {
         assert_eq!(reason.1, expected_current);
     }
 }
+
+mod effect_adoption_scope {
+    use super::*;
+
+    #[derive(Default)]
+    struct Environment {
+        inner: ScopedExpressionCaptureEnvironment,
+        reject_first: bool,
+        semantic_calls: usize,
+    }
+    impl PatternMatchEnvironment for Environment {
+        fn cancellation_requested(&mut self) -> bool { self.inner.cancelled }
+        fn resolve_type(&mut self, request: TypeExpressionRequest<'_>) -> Result<TypeExpressionOutcome, String> {
+            self.inner.resolve_type(request)
+        }
+        fn dispatch_hook(&mut self, event: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+            self.inner.dispatch_hook(event)
+        }
+    }
+    impl ExpressionParseEnvironment for Environment {
+        fn state_revision(&self) -> Result<u64, String> { Ok(0) }
+        fn parse_expression_leaf(&mut self, request: ExpressionLeafRequest<'_>) -> Result<ExpressionLeafParse, String> {
+            // Reuse the existing owned "input" leaf. This local context is only
+            // for the fixture leaf; it is not a regex capture binding or effect.
+            let mut context = request.context.clone();
+            context.values.insert("fixture.input-source".into(), "true".into());
+            self.inner.parse_expression_leaf(ExpressionLeafRequest { context: &context, ..request })
+        }
+        fn resolve_effect_candidate(&mut self, request: EffectSemanticRequest<'_>) -> Result<EffectSemanticDecision, String> {
+            self.semantic_calls += 1;
+            let previous = self.inner.reject_effect;
+            if self.reject_first { self.inner.reject_effect = self.semantic_calls == 1; }
+            let result = self.inner.resolve_effect_candidate(request);
+            self.inner.reject_effect = previous;
+            result
+        }
+        fn apply_expression_effects(&mut self, effects: &ExpressionEffects) -> Result<(), String> {
+            self.inner.apply_expression_effects(effects)
+        }
+        fn begin_semantic_candidate(&mut self) -> Result<(), String> {
+            self.inner.begin_semantic_candidate()
+        }
+        fn finish_semantic_candidate(&mut self, accepted: bool) -> Result<(), String> {
+            self.inner.finish_semantic_candidate(accepted)
+        }
+    }
+
+    fn snapshot(catalog: &Catalog) -> DynamicSyntaxSnapshot {
+        let effect_id = DynamicSyntaxId::new("test.effect-adoption", "effect");
+        let root_id = DynamicSyntaxId::new("test.effect-adoption", "root");
+        let definition = |id: DynamicSyntaxId, kind, pattern: &str, declaration_order| DynamicSyntaxDefinition {
+            id, kind,
+            patterns: vec![DynamicPattern {
+                source: pattern.into(),
+                parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules()).unwrap(),
+            }],
+            priority: 0, before: vec![], after: vec![], return_type: None, return_multiplicity: None,
+            structure_node_type: (kind == SyntaxKind::Structure).then_some(syntaxes::NodeType::Section),
+            structure_body_mode: (kind == SyntaxKind::Structure).then_some(syntaxes::DynamicStructureBodyMode::Trigger),
+            entry_validator: None, handler: "test.effect-adoption".into(), metadata: BTreeMap::new(),
+            component_load_order: 1, declaration_order,
+        };
+        DynamicSyntaxSnapshot {
+            document_id: "file:///workspace/effect-adoption.sk".into(), document_revision: 1, registry_revision: 1,
+            definitions: BTreeMap::from([
+                (effect_id.clone(), definition(effect_id.clone(), SyntaxKind::Effect, "typed %objects%", 0)),
+                (root_id.clone(), definition(root_id.clone(), SyntaxKind::Structure, "root", 1)),
+            ]),
+            overrides: BTreeMap::new(),
+            candidates: vec![
+                RankedSyntaxCandidate { source: SyntaxCandidateSource::Dynamic(effect_id), kind: SyntaxKind::Effect, overrides: vec![] },
+                RankedSyntaxCandidate { source: SyntaxCandidateSource::Dynamic(root_id), kind: SyntaxKind::Structure, overrides: vec![] },
+            ],
+        }
+    }
+
+    #[test]
+    fn rejected_typed_capture_effect_rolls_back_matching_state_and_keeps_its_trace() {
+        let catalog = effect_fixture();
+        let dynamic = snapshot(&catalog);
+        let source = MappedSource::identity("typed input");
+        let node = simple_node(&source);
+        let mut environment = Environment::default();
+        environment.inner.reject_effect = true;
+        let result = parse_effect_with_snapshot(&catalog, Some(&dynamic), EffectParseRequest {
+            source: &source, node: &node, context: event_context(&["fixture.Event"]),
+        }, &mut environment, EffectParserConfig::default()).unwrap();
+        assert!(result.selected.is_none());
+        let unknown = result.unknown.expect("semantic rejection remains diagnosable");
+        assert_eq!(unknown.source, "typed input");
+        assert!(unknown.failures.primary().unwrap().matched.trace.root_cause().failure.reasons.iter().any(|reason|
+            matches!(reason, PatternFailureReason::HookRejected { reason } if reason == "owned test Effect rejection")));
+        assert!(environment.semantic_calls > 0, "exercise semantic rejection after a structural match");
+        assert!(environment.inner.nested_context_seen, "the matching RHS actually parsed");
+        assert!(environment.inner.adopted.is_empty(), "a rejected Effect cannot retain its matching RHS effect");
+        assert!(environment.inner.checkpoints.is_empty());
+    }
+
+    #[test]
+    fn errored_or_cancelled_typed_capture_effect_unwinds_matching_adoption() {
+        let catalog = effect_fixture();
+        let dynamic = snapshot(&catalog);
+        let source = MappedSource::identity("typed input");
+        let node = simple_node(&source);
+        for mode in ["error", "cancel"] {
+            let mut environment = Environment::default();
+            environment.inner.fail_effect = mode == "error";
+            environment.inner.cancel_after_adoption = mode == "cancel";
+            let error = parse_effect_with_snapshot(&catalog, Some(&dynamic), EffectParseRequest {
+                source: &source, node: &node, context: event_context(&["fixture.Event"]),
+            }, &mut environment, EffectParserConfig::default()).expect_err(mode);
+            if mode == "error" { assert!(error.to_string().contains("owned test Effect failure")); }
+            assert!(environment.inner.nested_context_seen);
+            assert!(environment.inner.adopted.is_empty(), "{mode} cannot retain matching RHS state");
+            assert!(environment.inner.checkpoints.is_empty(), "{mode} closes every nested scope");
+        }
+    }
+
+    #[test]
+    fn selected_typed_capture_effect_preserves_its_matching_adoption() {
+        let catalog = effect_fixture();
+        let dynamic = snapshot(&catalog);
+        let source = MappedSource::identity("typed input");
+        let node = simple_node(&source);
+        let mut environment = Environment::default();
+        let result = parse_effect_with_snapshot(&catalog, Some(&dynamic), EffectParseRequest {
+            source: &source, node: &node, context: event_context(&["fixture.Event"]),
+        }, &mut environment, EffectParserConfig::default()).unwrap();
+        assert!(result.selected.is_some());
+        assert_eq!(environment.inner.adopted, vec![1]);
+        assert!(environment.inner.checkpoints.is_empty());
+    }
+
+    #[test]
+    fn failed_then_selected_effect_in_one_session_reacquires_a_current_capture() {
+        let catalog = effect_fixture();
+        let dynamic = snapshot(&catalog);
+        let source = MappedSource::identity("root:\n    typed input\n    typed input\n");
+        let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+        let mut environment = Environment { reject_first: true, ..Default::default() };
+        let document = skript_parser::parse_structures_with_snapshot(&catalog, Some(&dynamic), skript_parser::StructureParseRequest {
+            source: &source, tree: &tree, context: event_context(&["fixture.Event"]),
+        }, &mut environment, skript_parser::StructureParserConfig::default()).unwrap();
+        let selected = document.roots.iter().find_map(|node| match node {
+            skript_parser::StructureDocumentNode::Structure(matches) => matches.selected.as_ref(),
+            _ => None,
+        }).expect("the containing native trigger remains available");
+        let skript_parser::StructureBody::Trigger(body) = &selected.body else { panic!("native trigger") };
+        assert_eq!(body.len(), 2);
+        let skript_parser::SectionBodyNode::Effect(first) = &body[0] else { panic!("first Effect") };
+        let skript_parser::SectionBodyNode::Effect(second) = &body[1] else { panic!("second Effect") };
+        assert!(first.selected.is_none() && first.unknown.is_some());
+        assert!(second.selected.is_some(), "failed capture cleanup must not poison the next statement");
+        assert!(!document.diagnostics.is_empty(), "the first rejection remains visible");
+        assert_eq!(environment.semantic_calls, 2);
+        assert_eq!(environment.inner.adopted, vec![1], "retain only the selected second statement's RHS");
+        assert!(environment.inner.checkpoints.is_empty());
+    }
+}

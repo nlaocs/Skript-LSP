@@ -331,6 +331,23 @@ pub(crate) fn parse_effect_range_with_session<E: ExpressionParseEnvironment>(
     depth: usize,
 ) -> Result<EffectMatches, EffectParseError> {
     session.ensure_depth(depth)?;
+    // Captures can accept provider effects before Effect semantics run. A
+    // rejected parent must not retain that RHS state or its writer receipts.
+    // The existing boundary also unwinds cancellation/errors and stale memo.
+    let checkpoint=session.begin_recovery_scope().map_err(|message|session.environment_error(message))?;
+    let result=parse_effect_candidate_range_with_session(session,range,raw_node_id,depth);
+    let accepted=result.as_ref().is_ok_and(|matches|matches.selected.is_some()
+        || matches!(&matches.native_function,NativeFunctionMatch::Selected {..}));
+    session.finish_recovery_scope(checkpoint,accepted).map_err(|message|session.environment_error(message))?;
+    result
+}
+
+fn parse_effect_candidate_range_with_session<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    range: TextRange,
+    raw_node_id: RawNodeId,
+    depth: usize,
+) -> Result<EffectMatches, EffectParseError> {
     match crate::function::parse_function_statement(session, range, depth)? {
         crate::function::FunctionStatementParse::Selected(node) => {
             return Ok(EffectMatches {
