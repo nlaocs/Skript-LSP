@@ -82,7 +82,7 @@ fn entry_plans_never_adopt_a_native_single_duplicate_or_steal_a_known_entry() {
 }
 
 #[derive(Default)]
-struct Environment {seen:Vec<ExpressionParseContext>,reject:bool}
+struct Environment {seen:Vec<ExpressionParseContext>,reject:bool,fatal_get:bool,raw_set:bool,scopes:Vec<(u64,bool,bool)>,scope_contexts:Vec<ExpressionParseContext>}
 impl PatternMatchEnvironment for Environment {
     fn resolve_type(&mut self,_:TypeExpressionRequest<'_>)->Result<TypeExpressionOutcome,String>{Ok(Default::default())}
     fn dispatch_hook(&mut self,_:PatternHookEvent<'_>)->Result<PatternHookControl,String>{Ok(PatternHookControl::Continue)}
@@ -96,12 +96,22 @@ impl ExpressionParseEnvironment for Environment {
             let root=request.tree.get(candidate.raw_node_id).unwrap();
             let mut value=wire(root.id.get(),root.children[0].get(),0,false,"test.Get");
             value["entries"].as_array_mut().unwrap().push(wire(root.id.get(),root.children[1].get(),1,true,"test.Change")["entries"][0].clone());
+            if self.raw_set {value["entries"][1]["mode"]="raw".into();value["entries"][1]["context"]=json!({"eventClasses":null,"values":[]});}
             attach(&mut candidate,value);StructureBodyMode::Entries
         }else{StructureBodyMode::Trigger};
         Ok(StructureHookDecision::Accept {context:request.context.clone(),body_mode:mode,entry_body_modes:BTreeMap::new(),metadata:candidate.metadata})
     }
+    fn enter_structure_entry_scope(&mut self,request:StructureEntryScopeRequest<'_>)->Option<u64> {
+        assert_eq!(request.owner,"example.owner");assert_eq!(request.native_lease,"17");assert_eq!(request.mode,SectionBodyMode::Trigger);
+        assert_eq!(request.tree.get(request.entry).unwrap().parent,Some(request.root));
+        self.scope_contexts.push(request.context.clone());self.scopes.push((request.entry.get(),true,true));Some(request.entry.get())
+    }
+    fn exit_structure_entry_scope(&mut self,ticket:Option<u64>,completed:bool) {
+        if let Some(id)=ticket {self.scopes.push((id,false,completed));}
+    }
     fn resolve_effect_candidate(&mut self,request:EffectSemanticRequest<'_>)->Result<EffectSemanticDecision,String> {
         self.seen.push(request.context.clone());
+        if self.fatal_get&&request.context.event_classes==vec![ClassName("test.Get".into())] {return Err("fixture fatal body failure".into());}
         if self.reject && request.context.event_classes==vec![ClassName("test.Get".into())] {
             return Ok(EffectSemanticDecision::Reject {reason:"fixture rejects this body statement".into(),diagnostics:vec![]});
         }
@@ -120,6 +130,10 @@ fn entry_plans_scope_get_change_and_following_structure_even_after_rejection() {
         let result=parse_structures(&model(),StructureParseRequest {source:&source,tree:&tree,context},&mut env,StructureParserConfig::default()).unwrap();
         assert_eq!(result.diagnostics.is_empty(),!reject);
         assert_eq!(env.seen.len(),3);
+        assert_eq!(env.scopes.len(),4);assert_eq!(env.scope_contexts.len(),2);
+        assert_eq!(env.scopes[1],(env.scopes[0].0,false,true));assert_eq!(env.scopes[3],(env.scopes[2].0,false,true));
+        assert_eq!(env.scope_contexts[0].event_classes,vec![ClassName("test.Get".into())]);
+        assert_eq!(env.scope_contexts[1].event_classes,vec![ClassName("test.Change".into())]);
         for (context,event) in env.seen.iter().zip(["test.Get","test.Change","test.Outer"]) {
             assert_eq!(context.event_classes,vec![ClassName(event.into())]);assert_eq!(context.syntax_context,42);
             assert_eq!(context.values.get("parser.delay-state").map(String::as_str),Some("false"));
@@ -142,4 +156,24 @@ fn raw_data_adoption_is_current_and_cannot_smuggle_a_context_patch() {
         let mut bad=good.clone();bad["entries"][0]["context"]=context;let mut candidate=base.clone();attach(&mut candidate,bad);
         assert!(validated_structure_entry_plans(&candidate,&tree,StructureBodyMode::Entries).is_err());
     }
+}
+
+
+#[test]
+fn native_entry_scope_is_closed_before_a_fatal_body_error_propagates() {
+    let source=MappedSource::identity("root:\n    get:\n        probe\n    set number:\n        probe\nafter:\n    probe\n");
+    let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));let mut env=Environment {fatal_get:true,..Default::default()};
+    let result=parse_structures(&model(),StructureParseRequest {source:&source,tree:&tree,context:ExpressionParseContext::default()},&mut env,StructureParserConfig::default());
+    assert!(result.is_err(),"the fatal environment failure cannot silently become a complete parse");
+    assert_eq!(env.scopes.len(),2);assert_eq!(env.scopes[1],(env.scopes[0].0,false,false));
+}
+
+#[test]
+fn raw_entry_data_never_creates_an_executable_semantic_scope() {
+    let source=MappedSource::identity("root:\n    get:\n        probe\n    set values:\n        first alias\n        second alias\nafter:\n    probe\n");
+    let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));let mut env=Environment {raw_set:true,..Default::default()};
+    let mut context=ExpressionParseContext::default();context.event_classes=vec![ClassName("test.Outer".into())];
+    let result=parse_structures(&model(),StructureParseRequest {source:&source,tree:&tree,context},&mut env,StructureParserConfig::default()).unwrap();
+    assert!(result.diagnostics.is_empty());assert_eq!(env.scopes.len(),2);assert_eq!(env.seen.len(),2);
+    assert_eq!(env.seen[1].event_classes,vec![ClassName("test.Outer".into())]);
 }

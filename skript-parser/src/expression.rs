@@ -1496,6 +1496,14 @@ pub trait ExpressionParseEnvironment: PatternMatchEnvironment {
         })
     }
 
+    /// Brackets an actually parsed direct entry after applying its validated context.
+    /// The opaque ticket belongs only to this native environment, not source metadata.
+    fn enter_structure_entry_scope(&mut self, _request: crate::StructureEntryScopeRequest<'_>) -> Option<u64> { None }
+
+    /// Always called before context restoration, including a fatal body error.
+    /// Completion alone is not candidate adoption or permission to certify facts.
+    fn exit_structure_entry_scope(&mut self, _ticket: Option<u64>, _completed: bool) {}
+
     /// Observes the completed Structure body while its parse state is still transactional.
     fn exit_structure(
         &mut self,

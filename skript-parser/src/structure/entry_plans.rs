@@ -47,6 +47,8 @@ pub struct StructureEntryPlan {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct StructureEntryPlans {
     pub owner: Option<String>,
+    /// Exact accepted native layout lease; absent when no entry plan was admitted.
+    pub native_lease: Option<String>,
     pub entries: BTreeMap<RawNodeId, StructureEntryPlan>,
 }
 
@@ -101,7 +103,7 @@ pub fn decode_structure_entry_plans(metadata: &BTreeMap<String,String>, root: Ra
         return Err("entry plan has a stale or foreign native layout lease".into());
     }
     if wire.entries.len() > MAX_ENTRIES { return Err("entry plan count limit".into()); }
-    let mut output = StructureEntryPlans {owner:Some(owner.to_owned()),entries:BTreeMap::new()};
+    let mut output = StructureEntryPlans {owner:Some(owner.to_owned()),native_lease:Some(wire.token),entries:BTreeMap::new()};
     for entry in wire.entries {
         let mode = match entry.mode.as_str() {"trigger"=>StructureEntryBodyMode::Trigger,"conditions"=>StructureEntryBodyMode::Conditions,"raw"=>StructureEntryBodyMode::Raw,_=>return Err("invalid entry plan body mode".into())};
         if mode==StructureEntryBodyMode::Raw && (entry.context.event_classes.is_some() || !entry.context.values.is_empty()) {

@@ -143,6 +143,29 @@ pub struct StructureHookRequest<'a> {
     pub default_body_mode: StructureBodyMode,
 }
 
+/// An actual validated entry body. This native callback cannot be synthesized
+/// by a public context key, an approximate source range or an addon parse request.
+pub struct StructureEntryScopeRequest<'a> {
+    /// Current native tree containing both the accepted root and direct entry.
+    pub tree: &'a RawTree,
+    /// Current Structure root; the entry must be its direct child.
+    pub root: RawNodeId,
+    /// Actual direct entry, not a flattened/defaulted EntryData index.
+    pub entry: RawNodeId,
+    /// Index in this root's immutable EntryValidator.
+    pub declaration_index: usize,
+    /// Owner of the already validated entry plan.
+    pub owner: &'a str,
+    /// Fresh lease from the exact accepted header alternative.
+    pub native_lease: &'a str,
+    /// Executable native parser selected by the plan. Raw entries never enter.
+    pub mode: crate::SectionBodyMode,
+    /// Actual context after applying the entry's plan.
+    pub context: &'a ExpressionParseContext,
+    /// Exact native entry header geometry.
+    pub entry_span: &'a MatchSpan,
+}
+
 /// Addon decision made before parsing a selected Structure body.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StructureHookDecision {
@@ -1455,6 +1478,8 @@ fn parse_validator_entries<E: ExpressionParseEnvironment>(
             data,
             entry_body_modes,
             if path.is_empty() {entry_plans.entries.get(child_id)} else {None},
+            if path.is_empty() {entry_plans.owner.as_deref()} else {None},
+            if path.is_empty() {entry_plans.native_lease.as_deref()} else {None},
             &entry_path,
             depth,
         )?;
@@ -1508,6 +1533,8 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     data: &EntryData,
     entry_body_modes: &BTreeMap<Vec<String>, crate::SectionBodyMode>,
     entry_plan: Option<&StructureEntryPlan>,
+    entry_scope_owner: Option<&str>,
+    entry_scope_lease: Option<&str>,
     path: &[String],
     depth: usize,
 ) -> Result<(StructureEntry, Vec<StructureDiagnostic>, bool), StructureParseError> {
@@ -1539,8 +1566,15 @@ fn parse_entry<E: ExpressionParseEnvironment>(
     let value = if let Some(plan)=entry_plan {
         if let Some(mode)=plan.mode.parser_mode() {
             let context=plan.context.apply(session.context());
-            let previous=session.replace_context(context);
+            let previous=session.replace_context(context.clone());
+            let ticket=match (node.parent,entry_scope_owner,entry_scope_lease) {
+                (Some(root),Some(owner),Some(native_lease))=>session.environment_mut().enter_structure_entry_scope(StructureEntryScopeRequest {
+                    tree,root,entry:node.id,declaration_index,owner,native_lease,mode,context:&context,entry_span:&span,
+                }),
+                _=>None,
+            };
             let parsed=crate::section::parse_section_body(session,tree,node,mode,depth);
+            session.environment_mut().exit_structure_entry_scope(ticket,parsed.is_ok());
             session.replace_context(previous);
             let (body,section_diagnostics)=parsed.map_err(nested_structure_error)?;
             diagnostics.extend(section_diagnostics.into_iter().map(section_diagnostic_to_structure));

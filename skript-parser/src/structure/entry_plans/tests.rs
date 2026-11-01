@@ -30,7 +30,7 @@ fn entry_context_is_restored_before_fault_or_cancellation_escapes() {
     for cancel in [false,true] {
         let mut environment=Environment {cancel,requested:false};
         let mut session=ExpressionSession::new(catalog,None,&source,&mut environment,original.clone(),Default::default());
-        let parsed=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),&["code".into()],1);
+        let parsed=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),None,None,&["code".into()],1);
         assert!(parsed.is_err(),"fault/cancel must escape");
         assert_eq!(session.context(),&original,"restore precedes propagation, including nullable context removals");
     }
@@ -51,7 +51,7 @@ fn raw_entry_adoption_keeps_data_children_without_running_effects() {
     // This environment asserts a different context if any Effect is executed.
     let mut environment=Environment {cancel:false,requested:false};
     let mut session=ExpressionSession::new(catalog,None,&source,&mut environment,original.clone(),Default::default());
-    let (entry,diagnostics,valid)=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),&["data".into()],1).unwrap();
+    let (entry,diagnostics,valid)=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),None,None,&["data".into()],1).unwrap();
     assert!(valid);assert!(diagnostics.is_empty());
     assert_eq!(entry.value,StructureEntryValue::Section(node.children.clone()));
     assert_eq!(session.context(),&original);
