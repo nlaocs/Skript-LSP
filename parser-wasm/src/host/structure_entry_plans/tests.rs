@@ -335,3 +335,22 @@ fn raw_data_plans_need_a_separate_mandatory_capability() {
     assert!(crate::validate_compatibility(crate::AbiVersion::new(31,0),crate::AbiVersion::new(31,0),
         &[crate::CapabilityRequirement::required(crate::CAPABILITY_STRUCTURE_ENTRY_DATA,1)],&old).is_err());
 }
+
+
+#[test]
+fn key_alias_requires_the_explicit_mandatory_host_capability_in_addition_to_data_scope() {
+    let prior=HookPayload::Structure(payload());let mut next=payload();let mut record=plan();
+    let mut wire:serde_json::Value=serde_json::from_str(&record.value).unwrap();
+    wire["entries"][0]["mode"]="raw".into();wire["entries"][0]["adoptUnknown"]=true.into();wire["entries"][0]["keyAlias"]="alternate".into();
+    wire["entries"][0]["context"]=serde_json::json!({"eventClasses":null,"values":[]});record.value=wire.to_string();
+    next.candidate.metadata.push(record);let next=HookPayload::Structure(next);
+    let requirement=|id:&str,required|wit::CapabilityRequirement {id:id.into(),minimum_version:1,required};
+    let mut claims=vec![requirement(crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,true),requirement(crate::CAPABILITY_STRUCTURE_ENTRY_DATA,true),requirement(CAPABILITY_CONTEXT_UPDATES,true)];
+    assert!(validate_owner_requirements(&prior,&next,"example.owner",&claims).is_err());
+    claims.push(requirement(crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,false));
+    assert!(validate_owner_requirements(&prior,&next,"example.owner",&claims).is_err());
+    claims.last_mut().unwrap().required=true;validate_owner_requirements(&prior,&next,"example.owner",&claims).unwrap();
+    let old=host_capabilities().into_iter().filter(|cap|cap.id!=crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES).collect::<Vec<_>>();
+    assert!(crate::validate_compatibility(crate::AbiVersion::new(31,0),crate::AbiVersion::new(31,0),
+        &[crate::CapabilityRequirement::required(crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,1)],&old).is_err());
+}

@@ -177,3 +177,60 @@ fn raw_entry_data_never_creates_an_executable_semantic_scope() {
     assert!(result.diagnostics.is_empty());assert_eq!(env.scopes.len(),2);assert_eq!(env.seen.len(),2);
     assert_eq!(env.seen[1].event_classes,vec![ClassName("test.Outer".into())]);
 }
+
+
+fn alias_wire(root:RawNodeId,node:RawNodeId,alias:&str)->serde_json::Value {
+    json!({"version":1,"token":"17","structureNode":root.get(),"entries":[{"node":node.get(),"declarationIndex":0,
+        "mode":"raw","adoptUnknown":true,"keyAlias":alias,"context":{"eventClasses":null,"values":[]}}]})
+}
+#[test]
+fn key_alias_admission_rejects_foreign_context_kind_separator_and_source_claims() {
+    let source=MappedSource::identity("root:\n    値😀: 123\n    nested:\n        値😀: 456\nafter:\n    値😀: 789\n");
+    let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));let catalog=model();
+    let mut base=header(&source,&tree,&catalog);base.entry_validator=Some(EntryValidator {entry_data:vec![entry("canonical",EntryKind::KeyValue)]});
+    let root=tree.get(base.raw_node_id).unwrap();let node=root.children[0];let good=alias_wire(root.id,node,"値😀");
+    let mut current=base.clone();attach(&mut current,good.clone());
+    let plans=validated_structure_entry_plans(&current,&tree,StructureBodyMode::Entries).unwrap();
+    assert_eq!(structure_entry_index_with_plans(current.entry_validator.as_ref().unwrap(),tree.get(node).unwrap(),&Default::default(),&plans),Some(0));
+    for case in 0..17 {
+        let mut candidate=base.clone();let mut value=good.clone();
+        match case {
+            0=>value["token"]="stale".into(),
+            1=>value["entries"][0]["node"]=tree.get(root.children[1]).unwrap().children[0].get().into(),
+            2=>value["entries"][0]["node"]=tree.get(tree.roots[1]).unwrap().children[0].get().into(),
+            3=>value["entries"][0]["node"]=root.children[1].get().into(),
+            4=>candidate.entry_validator.as_mut().unwrap().entry_data[0].kind=EntryKind::Expression,
+            5=>candidate.entry_validator.as_mut().unwrap().entry_data[0].separator=Some(" = ".into()),
+            6=>value["entries"][0]["keyAlias"]="値".into(),
+            7=>value["entries"][0]["keyAlias"]="canonical".into(),
+            8=>value["entries"][0]["keyAlias"]="".into(),
+            9=>value["entries"][0]["keyAlias"]="x".repeat(257).into(),
+            10=>value["entries"][0]["keyAlias"]="値\n".into(),
+            11=>value["entries"][0]["mode"]="trigger".into(),
+            12=>value["entries"][0]["adoptUnknown"]=false.into(),
+            13=>value["entries"][0]["context"]["eventClasses"]=json!([]),
+            14=>value["entries"][0]["context"]["values"]=json!([{"key":"scope","value":"changed"}]),
+            15=>candidate.entry_validator.as_mut().unwrap().entry_data.push(entry("値😀",EntryKind::KeyValue)),
+            _=>{value["entries"].as_array_mut().unwrap().push(good["entries"][0].clone());},
+        }
+        attach(&mut candidate,value);
+        assert!(validated_structure_entry_plans(&candidate,&tree,StructureBodyMode::Entries).is_err(),"case {case}");
+    }
+}
+#[test]
+fn key_alias_and_canonical_spelling_share_single_or_multiple_cardinality_in_both_orders() {
+    for multiple in [false,true] {for spellings in [["alias","canonical"],["canonical","alias"],["alias","alias"]] {
+        let source=MappedSource::identity(format!("root:\n    {}: first\n    {}: second\n",spellings[0],spellings[1]));
+        let tree=parse_raw_tree(&source,RawTreeOptions::for_skript_version(2,15));let catalog=model();
+        let mut candidate=header(&source,&tree,&catalog);let mut data=entry("canonical",EntryKind::KeyValue);data.multiple=multiple;
+        candidate.entry_validator=Some(EntryValidator {entry_data:vec![data]});let root=tree.get(candidate.raw_node_id).unwrap();
+        let mut value=alias_wire(root.id,root.children[0],"alias");value["entries"]=json!([]);
+        for (i,key) in spellings.iter().enumerate() {if *key=="alias" {value["entries"].as_array_mut().unwrap().push(alias_wire(root.id,root.children[i],key)["entries"][0].clone());}}
+        attach(&mut candidate,value);
+        let plans=validated_structure_entry_plans(&candidate,&tree,StructureBodyMode::Entries);
+        if !multiple&&spellings[1]=="alias" {assert!(plans.is_err());continue;}
+        let plans=plans.unwrap();let validator=candidate.entry_validator.as_ref().unwrap();let mut seen=Default::default();
+        assert_eq!(structure_entry_index_with_plans(validator,tree.get(root.children[0]).unwrap(),&seen,&plans),Some(0));seen.insert(0);
+        assert_eq!(structure_entry_index_with_plans(validator,tree.get(root.children[1]).unwrap(),&seen,&plans),multiple.then_some(0));
+    }}
+}

@@ -776,6 +776,32 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn key_alias_prepared_selection_uses_actual_unicode_frontier_and_revokes_with_owner() {
+        for alias in ["event-values","値😀"] {
+            let source:Arc<str>=Arc::from(format!("# Unicode 😀\nroot:\n    {alias}: 123"));
+            let mapped=skript_parser::MappedSource::identity(Arc::clone(&source));
+            let index=PreparedDocument::test_fixture(Arc::clone(&source)).document.index;
+            let tree=skript_parser::parse_raw_tree(&mapped,index.raw_options);
+            let root_index=tree.roots.iter().position(|id|tree.get(*id).unwrap().text=="root").unwrap();
+            let mut owner=candidate(&tree,root_index,Some(EntryValidator {entry_data:vec![entry("event values",EntryKind::KeyValue)]}));
+            let raw=tree.get(owner.raw_node_id).unwrap();let node=raw.children[0];
+            owner.metadata.insert(skript_parser::STRUCTURE_ENTRY_LAYOUT_METADATA.into(),skript_parser::structure_entry_layout(&owner,"17").unwrap());
+            owner.metadata.insert(format!("example.owner/{}",skript_parser::STRUCTURE_ENTRY_PLANS_METADATA),serde_json::json!({"version":1,"token":"17","structureNode":raw.id.get(),"entries":[{
+                "node":node.get(),"declarationIndex":0,"mode":"raw","adoptUnknown":true,"keyAlias":alias,
+                "context":{"eventClasses":null,"values":[]}}]}).to_string());
+            let plans=skript_parser::validated_structure_entry_plans(&owner,&tree,StructureBodyMode::Entries).unwrap();
+            assert_eq!(skript_parser::structure_entry_index_with_plans(owner.entry_validator.as_ref().unwrap(),tree.get(node).unwrap(),&Default::default(),&plans),Some(0));
+            let mut view=PreparedDocument::new(source,index,&mapped,&tree,&[StructureHeaderPreparation {attempt_id:1,candidate:&owner,body_mode:StructureBodyMode::Entries,ambiguous:false}]).unwrap();
+            let document=&view.document;let line=document.context.get(&2).unwrap();let offset=line.range.end;
+            assert!(matches!(line.scope,Scope::Entries(_)));
+            let query=document.structure_query_line(line,offset);
+            assert!(matches!(query.scope,Scope::Raw));assert_eq!(&document.source[query.code_start..line.range.end],"123");
+            assert_eq!(query.code_start,line.code_start+alias.len()+2);
+            assert!(view.revoke(&OwnerAttempt {root:owner.raw_node_id,registration:owner.matched.registration_id.clone(),pattern:owner.matched.pattern_index,attempt_id:1}));
+            assert!(matches!(view.at(Position::new(2,(4+alias.encode_utf16().count()+2+3) as u32),false).unwrap(),PreparedQuery::NeedsAnalysis));
+        }
+    }
     fn section_candidate(
         tree: &skript_parser::RawTree,
         line: usize,
@@ -1234,7 +1260,7 @@ fn prepare_entries(
             seen.insert(index);
             present.push((index, *id));
             let data = &validator.entry_data[index];
-            if path.is_empty() && let Some(plan)=plans.entries.get(id) {
+            if path.is_empty() && let Some(plan)=plans.entries.get(id).filter(|plan|plan.key_alias.is_none()) {
                 scopes.insert(*id,match plan.mode {skript_parser::StructureEntryBodyMode::Trigger=>Scope::Statements,skript_parser::StructureEntryBodyMode::Conditions=>Scope::Conditions,skript_parser::StructureEntryBodyMode::Raw=>Scope::Raw});
                 continue;
             }
@@ -1270,6 +1296,10 @@ fn prepare_entries(
         scopes.insert(parent, Scope::Entries(output.len()));
         output.push(EntryScope {
             declarations: validator.entry_data.clone(),
+            aliases: present.iter().filter_map(|(index,id)| {
+                let plan=path.is_empty().then(||plans.entries.get(id)).flatten()?;
+                (plan.declaration_index==*index).then(||plan.key_alias.clone()).flatten().map(|key|(*id,key))
+            }).collect(),
             present,
             registration: registration.into(),
         });

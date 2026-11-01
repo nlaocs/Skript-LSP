@@ -15,6 +15,7 @@ pub(super) enum Scope {
 pub(super) struct EntryScope {
     pub(super) declarations: Vec<EntryData>,
     pub(super) present: Vec<(usize, RawNodeId)>,
+    pub(super) aliases: HashMap<RawNodeId,String>,
     pub(super) registration: String,
 }
 
@@ -45,8 +46,9 @@ pub(super) fn apply(
         if exact_native(&raw.line.span).is_none() {
             continue;
         }
+        let entry_plans=skript_parser::validated_structure_entry_plans(candidate,&result.raw_tree,skript_parser::StructureBodyMode::Entries).ok();
         if let StructureBody::Entries(values) = &candidate.body {
-            if let Ok(plans)=skript_parser::validated_structure_entry_plans(candidate,&result.raw_tree,skript_parser::StructureBodyMode::Entries) {
+            if let Some(plans)=&entry_plans {
                 condition_entries.extend(plans.entries.iter().filter_map(|(id,plan)|(plan.mode==skript_parser::StructureEntryBodyMode::Conditions).then_some(*id)));
             }
             condition_entry_ids(
@@ -65,6 +67,7 @@ pub(super) fn apply(
                         validator,
                         values,
                         &candidate.matched.registration_id,
+                        entry_plans.as_ref(),
                         &mut scopes,
                         &mut entries,
                         context,
@@ -102,6 +105,7 @@ fn validator_scope(
     validator: &EntryValidator,
     values: &[skript_parser::StructureEntry],
     registration: &str,
+    plans: Option<&skript_parser::StructureEntryPlans>,
     scopes: &mut HashMap<RawNodeId, Scope>,
     entries: &mut Vec<EntryScope>,
     context: &mut BTreeMap<u32, Line>,
@@ -116,6 +120,11 @@ fn validator_scope(
     scopes.insert(parent, Scope::Entries(entries.len()));
     entries.push(EntryScope {
         declarations: validator.entry_data.clone(),
+        aliases: values.iter().filter_map(|entry| {
+            let id=entry.raw_node_id?;
+            let plan=plans?.entries.get(&id)?;
+            (plan.declaration_index==entry.declaration_index).then(||plan.key_alias.clone()).flatten().map(|key|(id,key))
+        }).collect(),
         present,
         registration: registration.to_owned(),
     });
@@ -135,6 +144,7 @@ fn validator_scope(
                         nested,
                         children,
                         registration,
+                        None,
                         scopes,
                         entries,
                         context,
@@ -228,16 +238,17 @@ impl Document {
                 ) {
                     continue;
                 }
+                let actual_key=selected.and_then(|_|line.node.and_then(|id|scope.aliases.get(&id))).map(String::as_str).unwrap_or(&data.key);
                 let separator = data.separator.as_deref().unwrap_or(": ");
-                let Some(key) = text.get(..data.key.len()) else {
+                let Some(key) = text.get(..actual_key.len()) else {
                     continue;
                 };
-                if !key.eq_ignore_ascii_case(&data.key)
-                    || !text[data.key.len()..].starts_with(separator)
+                if !key.eq_ignore_ascii_case(actual_key)
+                    || !text[actual_key.len()..].starts_with(separator)
                 {
                     continue;
                 }
-                let start = line.code_start + data.key.len() + separator.len();
+                let start = line.code_start + actual_key.len() + separator.len();
                 if offset < start {
                     continue;
                 }
@@ -408,6 +419,7 @@ mod tests {
             &validator,
             &values,
             "owner",
+            None,
             &mut scopes,
             &mut document.entry_scopes,
             &mut document.context,
@@ -481,6 +493,7 @@ mod tests {
         document.entry_scopes.push(EntryScope {
             declarations: vec![raw, expression],
             present: vec![(1, node)],
+            aliases: HashMap::new(),
             registration: "owner".into(),
         });
         let line = document.context.get_mut(&2).unwrap();

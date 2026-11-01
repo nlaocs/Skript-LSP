@@ -1550,20 +1550,21 @@ fn parse_entry<E: ExpressionParseEnvironment>(
         .map_or(node.span.virtual_range.start, |span| {
             span.virtual_range.start
         });
-    let key_range = TextRange::new(start, start + data.key.len());
+    let actual_key=entry_plan.and_then(|plan|plan.key_alias.as_deref()).unwrap_or(&data.key);
+    let key_range = TextRange::new(start, start + actual_key.len());
     let key_span = key_range
         .slice(session.source().virtual_source())
-        .filter(|text| text.eq_ignore_ascii_case(&data.key))
+        .filter(|text| text.eq_ignore_ascii_case(actual_key))
         .map(|_| session.map_range(key_range))
         .transpose()?;
-    let value_range = entry_value_range(node, data)?;
+    let value_range = entry_value_range(node, data, actual_key)?;
     let raw_value = value_range
         .and_then(|range| range.slice(session.source().virtual_source()))
         .unwrap_or_default()
         .to_owned();
     let mut diagnostics = Vec::new();
     let mut valid = true;
-    let value = if let Some(plan)=entry_plan {
+    let value = if let Some(plan)=entry_plan.filter(|plan|plan.key_alias.is_none()) {
         if let Some(mode)=plan.mode.parser_mode() {
             let context=plan.context.apply(session.context());
             let previous=session.replace_context(context.clone());
@@ -1750,19 +1751,23 @@ pub fn structure_entry_index(
 }
 
 pub fn structure_entry_matches(data: &EntryData, node: &RawNode) -> bool {
+    structure_entry_matches_key(data,node,&data.key)
+}
+
+fn structure_entry_matches_key(data: &EntryData, node: &RawNode, key:&str) -> bool {
     match data.kind {
         EntryKind::Trigger | EntryKind::Container | EntryKind::Section => {
-            node.kind == RawNodeKind::Section && node.text.eq_ignore_ascii_case(&data.key)
+            node.kind == RawNodeKind::Section && node.text.eq_ignore_ascii_case(key)
         }
         EntryKind::Unknown if node.kind == RawNodeKind::Section => {
-            node.text.eq_ignore_ascii_case(&data.key)
+            node.text.eq_ignore_ascii_case(key)
         }
         _ => {
             if node.kind != RawNodeKind::Simple {
                 return false;
             }
             let separator = data.separator.as_deref().unwrap_or(": ");
-            let Some(rest) = strip_prefix_ignore_ascii_case(&node.text, &data.key) else {
+            let Some(rest) = strip_prefix_ignore_ascii_case(&node.text, key) else {
                 return false;
             };
             rest.starts_with(separator)
@@ -1773,6 +1778,7 @@ pub fn structure_entry_matches(data: &EntryData, node: &RawNode) -> bool {
 fn entry_value_range(
     node: &RawNode,
     data: &EntryData,
+    key: &str,
 ) -> Result<Option<TextRange>, StructureParseError> {
     if matches!(
         data.kind,
@@ -1787,7 +1793,7 @@ fn entry_value_range(
         .ok_or(StructureParseError::MissingCodeSpan { node_id: node.id })?
         .virtual_range;
     let separator = data.separator.as_deref().unwrap_or(": ");
-    let offset = data.key.len() + separator.len();
+    let offset = key.len() + separator.len();
     Ok(Some(TextRange::new(code.start + offset, code.end)))
 }
 

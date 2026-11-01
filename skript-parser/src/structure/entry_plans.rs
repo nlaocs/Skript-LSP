@@ -40,6 +40,8 @@ pub struct StructureEntryPlan {
     pub declaration_index: usize,
     pub mode: StructureEntryBodyMode,
     pub adopt_unknown: bool,
+    /// Exact alternate spelling for one current KeyValue source node; no body scope.
+    pub key_alias: Option<String>,
     pub context: StructureEntryContext,
 }
 
@@ -57,7 +59,7 @@ pub struct StructureEntryPlans {
 struct WirePlans { version: u32, token: String, structure_node: u64, entries: Vec<WireEntry> }
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
-struct WireEntry { node: u64, declaration_index: usize, mode: String, adopt_unknown: bool, context: WireContext }
+struct WireEntry { node: u64, declaration_index: usize, mode: String, adopt_unknown: bool, #[serde(default)] key_alias: Option<String>, context: WireContext }
 #[derive(Deserialize)]
 #[serde(rename_all="camelCase", deny_unknown_fields)]
 struct WireContext { event_classes: Option<Vec<String>>, values: Vec<WireValue> }
@@ -109,6 +111,13 @@ pub fn decode_structure_entry_plans(metadata: &BTreeMap<String,String>, root: Ra
         if mode==StructureEntryBodyMode::Raw && (entry.context.event_classes.is_some() || !entry.context.values.is_empty()) {
             return Err("raw entry plans cannot change parser context".into());
         }
+        if let Some(alias)=&entry.key_alias {
+            if alias.is_empty()||alias.len()>256||alias.chars().any(char::is_control)
+                ||mode!=StructureEntryBodyMode::Raw||!entry.adopt_unknown
+                ||entry.context.event_classes.is_some()||!entry.context.values.is_empty() {
+                return Err("entry key aliases require bounded data-only raw plans".into());
+            }
+        }
         let classes = entry.context.event_classes.map(|values| {
             if values.len() > 8 || values.iter().any(|v|v.is_empty() || v.len()>512) { return Err("entry event class limit".to_owned()); }
             Ok(values.into_iter().map(ClassName).collect())
@@ -121,7 +130,7 @@ pub fn decode_structure_entry_plans(metadata: &BTreeMap<String,String>, root: Ra
                 || values.insert(value.key,value.value).is_some() { return Err("invalid or duplicate entry context value".into()); }
         }
         if output.entries.insert(RawNodeId::new(entry.node), StructureEntryPlan {
-            declaration_index:entry.declaration_index,mode,adopt_unknown:entry.adopt_unknown,
+            declaration_index:entry.declaration_index,mode,adopt_unknown:entry.adopt_unknown,key_alias:entry.key_alias,
             context:StructureEntryContext {event_classes:classes,values},
         }).is_some() { return Err("duplicate entry plan node".into()); }
     }
@@ -145,6 +154,14 @@ pub fn validated_structure_entry_plans(candidate: &StructureCandidate, tree: &Ra
         let index = if let Some(plan) = plans.entries.get(id) {
             visited.insert(*id);
             let data = validator.entry_data.get(plan.declaration_index).ok_or("entry plan declaration index is absent")?;
+            if let Some(alias)=&plan.key_alias {
+                if child.kind!=RawNodeKind::Simple||!child.children.is_empty()||child.parent!=Some(root.id)
+                    ||data.kind!=EntryKind::KeyValue||!data.multiple&&seen.contains(&plan.declaration_index)
+                    ||selected.is_some()||validator.entry_data.iter().any(|d|structure_entry_matches(d,child))
+                    ||alias.eq_ignore_ascii_case(&data.key)||!structure_entry_matches_key(data,child,alias) {
+                    return Err("entry alias steals a selected, duplicate, foreign or non-KeyValue entry".into());
+                }
+            }else{
             if child.kind != RawNodeKind::Section || child.parent != Some(root.id)
                 || !data.multiple && seen.contains(&plan.declaration_index)
                 || selected.is_some_and(|index|index!=plan.declaration_index)
@@ -157,12 +174,13 @@ pub fn validated_structure_entry_plans(candidate: &StructureCandidate, tree: &Ra
                 EntryKind::Trigger if !plan.adopt_unknown && selected==Some(plan.declaration_index) && plan.mode==StructureEntryBodyMode::Trigger => {},
                 _ => return Err("entry plan cannot adopt this EntryData kind".into()),
             }
+            }
             if candidate.entry_body_modes.contains_key(&vec![data.key.clone()]) { return Err("entry plan conflicts with an entry body mode".into()); }
             Some(plan.declaration_index)
         } else { selected };
         if let Some(index) = index { seen.insert(index); }
     }
-    if visited.len()!=plans.entries.len() { return Err("entry plan references a missing, nested, or foreign Section".into()); }
+    if visited.len()!=plans.entries.len() { return Err("entry plan references a missing, nested, or foreign entry".into()); }
     Ok(plans)
 }
 

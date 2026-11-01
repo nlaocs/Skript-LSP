@@ -393,7 +393,7 @@ mod tests {
         inserted.replace_range(doc.lines.offset(&source,edit.range.start).unwrap()..doc.lines.offset(&source,edit.range.end).unwrap(),&edit.new_text);
         let valid:Arc<str>=inserted.into();
         let mut baseline=None;
-        for (revision,text,expected) in [(2,valid.to_string(),true),(3,valid.replace("event values: string","event values: number"),false),(4,valid.to_string(),true)] {
+        for (revision,text,expected) in [(2,valid.to_string(),true),(3,valid.replace("event values: string","event values: number"),false),(4,valid.replace("event values:","event-values:"),true),(5,valid.replace("event values: string","event-values: number"),false),(6,valid.to_string(),true)] {
             let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,revision,text.clone()),Default::default()).unwrap();
             assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
             assert_eq!(result.syntax.diagnostics.is_empty(),expected,"{:?}",result.syntax.diagnostics);
@@ -421,7 +421,7 @@ mod tests {
                 if let Some(old)=&baseline {assert_eq!(&serialized,old);}else{baseline=Some(serialized);}
             }else{assert_ne!(label("{_message}"),Some(": string?".into()),"old declaration cannot survive type-list edits");}
         }
-        assert!(host.release_document("file:///event-value-editor",uri,4).unwrap());
+        assert!(host.release_document("file:///event-value-editor",uri,6).unwrap());
         let reopened=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///event-value-editor",uri,1,valid.to_string()),Default::default()).unwrap();
         assert!(reopened.syntax.diagnostics.is_empty());
         let semantic=crate::lsp::semantic::Document::from_result(&reopened,valid,uri.parse().unwrap(),catalog).unwrap();

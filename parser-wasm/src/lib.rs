@@ -192,6 +192,8 @@ pub const STRUCTURE_ENTRY_BODY_MODES_METADATA: &str = "structure.entry-body-mode
 pub const CAPABILITY_STRUCTURE_ENTRY_PLANS: &str = "parser.structure-entry-plans";
 /// Explicit raw/data entry adoption; it confers no executable body or context updates.
 pub const CAPABILITY_STRUCTURE_ENTRY_DATA: &str = "parser.structure-entry-data";
+/// Exact alternate KeyValue spellings bound to a current native entry lease/node.
+pub const CAPABILITY_STRUCTURE_ENTRY_ALIASES: &str = "parser.structure-entry-aliases";
 /// Owned outline metadata on an accepted AST node. JSON v1 contains a nonempty
 /// name, an LSP SymbolKind number (1..=26), optional detail, and selection
 /// {start,end} UTF-8 offsets relative to the node's native header. Consumers

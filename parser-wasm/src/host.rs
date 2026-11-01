@@ -14002,6 +14002,7 @@ pub fn host_capabilities() -> Vec<Capability> {
         CAPABILITY_STRUCTURE_PARSER,
         crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
         crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
+        crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,
     ]
     .map(|id| {
         Capability::new(
@@ -14290,6 +14291,13 @@ fn validate_manifest(
         for id in [crate::CAPABILITY_STRUCTURE_ENTRY_DATA,crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,CAPABILITY_CONTEXT_UPDATES] {
             if !manifest.capabilities.iter().any(|c|c.id==id && c.required && c.minimum_version==1) {
                 return Err(HostError::InvalidManifest {message:format!("raw entry adoption requires mandatory {id} v1")});
+            }
+        }
+    }
+    if manifest.capabilities.iter().any(|claim|claim.id==crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES) {
+        for id in [crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,crate::CAPABILITY_STRUCTURE_ENTRY_DATA,crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,CAPABILITY_CONTEXT_UPDATES] {
+            if !manifest.capabilities.iter().any(|c|c.id==id && c.required && c.minimum_version==1) {
+                return Err(HostError::InvalidManifest {message:format!("entry key aliases require mandatory {id} v1")});
             }
         }
     }
@@ -19502,6 +19510,7 @@ mod tests {
                 CAPABILITY_STRUCTURE_PARSER,
                 crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
                 crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
+                crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,
             ]
         );
     }

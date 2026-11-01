@@ -25,7 +25,7 @@ fn entry_context_is_restored_before_fault_or_cancellation_escapes() {
         kind:EntryKind::Section,separator:None,value_type:None,string_mode:None,return_types:vec![],flags:None,nested_validator:None};
     let mut original=ExpressionParseContext::default();original.syntax_context=37;original.event_classes=vec![ClassName("test.Outer".into())];
     original.values.insert("outer".into(),"retained".into());
-    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Trigger,adopt_unknown:false,
+    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Trigger,adopt_unknown:false,key_alias:None,
         context:StructureEntryContext {event_classes:Some(vec![ClassName("test.Entry".into())]),values:BTreeMap::from([("outer".into(),None),("entry".into(),Some("local".into()))])}};
     for cancel in [false,true] {
         let mut environment=Environment {cancel,requested:false};
@@ -47,7 +47,7 @@ fn raw_entry_adoption_keeps_data_children_without_running_effects() {
     let data=EntryData {key:"data".into(),default_value:None,optional:true,multiple:false,entry_data_class:ClassName("test.Data".into()),
         kind:EntryKind::Unknown,separator:None,value_type:None,string_mode:None,return_types:vec![],flags:None,nested_validator:None};
     let mut original=ExpressionParseContext::default();original.event_classes=vec![ClassName("test.Outer".into())];
-    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Raw,adopt_unknown:true,context:Default::default()};
+    let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Raw,adopt_unknown:true,key_alias:None,context:Default::default()};
     // This environment asserts a different context if any Effect is executed.
     let mut environment=Environment {cancel:false,requested:false};
     let mut session=ExpressionSession::new(catalog,None,&source,&mut environment,original.clone(),Default::default());
@@ -55,4 +55,29 @@ fn raw_entry_adoption_keeps_data_children_without_running_effects() {
     assert!(valid);assert!(diagnostics.is_empty());
     assert_eq!(entry.value,StructureEntryValue::Section(node.children.clone()));
     assert_eq!(session.context(),&original);
+}
+
+
+#[test]
+fn key_alias_data_keeps_canonical_identity_and_actual_unicode_byte_spans() {
+    let fixture=std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../syntax-pattern-parser/tests/data/corpus/multi-addon-2.15.4");
+    let snapshot=ssg::load(fixture).unwrap();let catalog=snapshot.catalog();
+    for alias in ["event-values","値😀"] {
+        let text=format!("# Unicode 😀\nroot:\n    {alias}: 123\n");
+        let source=crate::MappedSource::identity(text.as_str());
+        let tree=crate::parse_raw_tree(&source,crate::RawTreeOptions::for_skript_version(2,15));
+        let root=tree.iter().find(|n|n.text=="root").unwrap();let node=tree.get(root.children[0]).unwrap();
+        let data=EntryData {key:"event values".into(),default_value:None,optional:true,multiple:false,entry_data_class:ClassName("test.Data".into()),
+            kind:EntryKind::KeyValue,separator:Some(": ".into()),value_type:None,string_mode:None,return_types:vec![],flags:None,nested_validator:None};
+        let plan=StructureEntryPlan {declaration_index:0,mode:StructureEntryBodyMode::Raw,adopt_unknown:true,key_alias:Some(alias.into()),context:Default::default()};
+        let mut environment=Environment {cancel:false,requested:false};
+        let mut session=ExpressionSession::new(catalog,None,&source,&mut environment,Default::default(),Default::default());
+        let (entry,diagnostics,valid)=super::super::parse_entry(&mut session,&tree,node,0,&data,&BTreeMap::new(),Some(&plan),None,None,&[data.key.clone()],1).unwrap();
+        assert!(valid&&diagnostics.is_empty());assert_eq!(entry.kind,EntryKind::KeyValue);
+        assert_eq!(entry.key,"event values");assert_eq!(entry.entry_data_class,data.entry_data_class);
+        assert_eq!(entry.value,StructureEntryValue::Raw("123".into()));
+        assert_eq!(entry.key_span.unwrap().mapped.virtual_range.slice(source.virtual_source()),Some(alias));
+        let range=super::super::entry_value_range(node,&data,alias).unwrap().unwrap();
+        assert_eq!(range.slice(source.virtual_source()),Some("123"));
+    }
 }
