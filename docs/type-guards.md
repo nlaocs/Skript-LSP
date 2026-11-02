@@ -1,6 +1,7 @@
 # Fixed-name simple type guards
 
-Status: verified bounded offline candidate. Product source 8cd5883; final
+Status: bounded local candidate; the if/else extension is in else-flow.md.
+The original simple-guard checkpoint used source 8cd5883; final
 capability-test correction 5d2f09d3 / reflect 9e8bda96.
 The separate test-repair checkpoint remains 2b05a876 / reflect 30a9b250.
 The original pause/resume boundary remains in type-guard-plan.md. No deployment.
@@ -18,10 +19,13 @@ includes the wrapper, rather than falsely treating the unwrapped type as stored.
 Both written instanceof forms are false for unset input. Negative class exclusion
 is deliberately not implemented; only justified presence and positive bounds.
 
-Core's audited simple runtime if publishes control-flow v2 (condition capture,
-body truth edge). Each branch is evaluated with its own facts and then joined
-with the bypass. Else/elseif false-edge chaining, standalone condition success
-fallthrough, compound predicates, list and interpolated subjects are not refined.
+Core's audited simple runtime if/else publishes control-flow v3 with native
+condition capture/truth and start/else roles. Current authenticated adjacent
+siblings can pass the false input into else and join only the two branch exits;
+old v1/v2 and unpaired branches keep their conservative bypass join.
+See else-flow.md for the bounded candidate and validation status. Elseif,
+standalone condition success fallthrough, compound predicates, list and
+interpolated subjects are not refined.
 
 ## Checked value and lifetime
 
@@ -57,12 +61,13 @@ and read checks. Selected static RHS evidence is semantic data, not presentation
 Requests/results are bounded in count, bytes and traversal. Current guard-specific
 intrinsic claims are not imported through body receipts; unsupported reuse falls
 back rather than rebasing old authority. Ordinary non-guard bodies keep their
-existing reuse path. The new host capability parser.semantic-type-guards v1 is
-required by the new Core/reflect components. WIT 0.49 / ABI 31 and 20M fuel stay.
+existing reuse path. The original guard delivery introduced parser.semantic-type-guards v1 and used
+WIT 0.49 / ABI31. Those are historical checkpoint versions; current if/else uses
+WIT 0.50 / ABI32 as described in else-flow.md. The 20M fuel budget is unchanged.
 
-## Verification checkpoint
+## Original guard verification checkpoint (historical)
 
-The release candidate passes public RPC with 27 ordinary editing cases,
+The original guard release candidate passed public RPC with 27 ordinary editing cases,
 6 existing edit/reopen observations, 6 guard edit/reopen observations and
 negated-instance true/false-edge assertions. Isolated Neovim verifies both new
 guards through actual menu acceptance and insertion. Saved actual snapshot
@@ -76,10 +81,10 @@ Native tests also exercise unknown types, mismatched owners/tokens/captures,
 intervening effects, same-bound writebacks, legacy descriptors and stale lifetime.
 Final focused and full aggregate outcomes are recorded in the closing checkpoint.
 
-One existing limit was reproduced with the same source and fixture on old and
+At that original checkpoint, a limit was reproduced on the same source and fixture on old and
 current binaries: a non-guard chance section with a mixed-provider body can
 lose its whole-section flow contract and analyze its body from Unknown facts.
-This phase does not widen authentication for all sections or change ordinary
+That original phase did not widen authentication for all sections or change ordinary
 body-cache policy. Guard removal into that path must produce Unknown, never a
 stale positive refinement. Negated presence separately verifies known-unset.
 

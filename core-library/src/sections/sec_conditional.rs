@@ -182,13 +182,10 @@ pub(super) fn resolve(
 
     // Runtime walk only tests the single header Condition and selects a branch.
     // Parse-time/multiline condition collections are deliberately not certified.
-    if !semantics.parse_if
-        && !semantics.multiline
-        && crate::catalog::standard_section_source(
-            &payload.candidate,
-            "ch.njol.skript.sections.SecConditional",
-        )
-    {
+    let standard_runtime=!semantics.parse_if && !semantics.multiline
+        && crate::catalog::standard_section_source(&payload.candidate,
+            "ch.njol.skript.sections.SecConditional");
+    if standard_runtime {
         crate::public_data::publish_metadata(
             &mut payload.candidate.metadata,
             crate::public_data::preserve_evaluation_context(),
@@ -268,14 +265,10 @@ pub(super) fn resolve(
         });
     }
 
-    let flow=if semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
-        && semantics.expected_conditions==1&&payload.candidate.regex_captures.len()==1
-        && crate::catalog::standard_section_source(&payload.candidate,"ch.njol.skript.sections.SecConditional") {
-        serde_json::json!({"version":2,"kind":"branch","conditionCapture":condition_binding().capture_index,"bodyWhen":true}).to_string()
-    }else{r#"{"version":1,"kind":"branch"}"#.to_owned()};
-    if entering&&semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
+    let (flow,chained)=conditional_flow(semantics,standard_runtime,payload.candidate.regex_captures.len());
+    if entering && (chained || semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
         &&payload.candidate.parsed_captures.iter().any(|c|c.capture_index==condition_binding().capture_index
-            &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard"))) {
+            &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard")))) {
         let mut keys=vec!["skript.semantic.control-flow"];
         for key in ["skript.semantic.binding-values","skript.semantic.local-effects","skript.semantic.operand-evaluation","skript.semantic.evaluation-context"] {
             if payload.candidate.metadata.iter().filter(|m|m.key==key).count()==1 {keys.push(key);}
@@ -302,6 +295,25 @@ pub(super) fn resolve(
     continue_with_section_context(&context, payload, metadata, updates)
 }
 
+// Audited against Skript 2.15.4 SecConditional patterns/init/walk. The
+// existing source check binds this role to the current registered syntax.
+fn conditional_flow(semantics:ConditionalSemantics,standard:bool,captures:usize)->(String,bool) {
+    let role=if standard&&!semantics.parse_if&&!semantics.multiline {
+        match semantics.kind {
+            ConditionalKind::If if semantics.expected_conditions==1&&captures==1=>Some("start"),
+            ConditionalKind::Else if semantics.expected_conditions==0&&captures==0=>Some("else"),
+            _=>None,
+        }
+    }else{None};
+    if let Some(role)=role {
+        let mut flow=serde_json::json!({"version":3,"kind":"branch","chain":role});
+        if role=="start" {
+            flow["conditionCapture"]=serde_json::json!(condition_binding().capture_index);
+            flow["bodyWhen"]=serde_json::json!(true);
+        }
+        (flow.to_string(),true)
+    }else{(r#"{"version":1,"kind":"branch"}"#.to_owned(),false)}
+}
 fn chain_delay_before(payload: &SectionPayload, kind: ConditionalKind) -> &'static str {
     if kind == ConditionalKind::If {
         return delay_state(&payload.context);
@@ -1071,5 +1083,34 @@ mod tests {
             merge_delay_states(ConditionalKind::If, "true", "true", None),
             ("true", "true")
         );
+    }
+}
+
+
+#[cfg(test)]
+mod flow_chain_tests {
+    use super::*;
+    #[test]
+    fn only_current_simple_runtime_if_and_else_publish_a_chain_role() {
+        for (kind,count,captures,parse,multiline,source,role) in [
+            (ConditionalKind::If,1,1,false,false,true,Some("start")),
+            (ConditionalKind::Else,0,0,false,false,true,Some("else")),
+            (ConditionalKind::ElseIf,1,1,false,false,true,None),
+            (ConditionalKind::Then,0,0,false,false,true,None),
+            (ConditionalKind::If,1,1,true,false,true,None),
+            (ConditionalKind::If,2,0,false,true,true,None),
+            (ConditionalKind::If,1,0,false,false,true,None),
+            (ConditionalKind::Else,0,1,false,false,true,None),
+            (ConditionalKind::If,1,1,false,false,false,None),
+        ] {
+            let semantics=ConditionalSemantics {kind,parse_if:parse,if_any:false,multiline,expected_conditions:count,implicit:false};
+            let (json,chained)=conditional_flow(semantics,source,captures);
+            let value:serde_json::Value=serde_json::from_str(&json).unwrap();
+            assert_eq!(chained,role.is_some());
+            assert_eq!(value["chain"].as_str(),role);
+            if role==Some("else") {assert!(value.get("conditionCapture").is_none());assert!(value.get("bodyWhen").is_none());}
+            if role==Some("start") {assert_eq!(value["conditionCapture"],0);assert_eq!(value["bodyWhen"],true);}
+            assert_eq!(value["version"],if role.is_some(){3}else{1});
+        }
     }
 }

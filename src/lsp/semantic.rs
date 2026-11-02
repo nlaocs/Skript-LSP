@@ -1191,7 +1191,33 @@ struct Flow {
     kind: String,
     #[serde(default,rename="conditionCapture")] condition_capture:Option<u64>,
     #[serde(default,rename="bodyWhen")] body_when:Option<bool>,
+    #[serde(default)] chain:Option<BranchRole>,
 }
+#[derive(Clone,Copy,Deserialize,PartialEq,Eq)]
+#[serde(rename_all="kebab-case")]
+enum BranchRole { Start, Else }
+impl Flow {
+    fn read(node:&AstNode)->Option<Self> {
+        let flow:Self=serde_json::from_str(unique_metadata(node,FLOW)?).ok()?;
+        match flow.version {
+            1|2 if flow.chain.is_none()=>Some(flow),
+            3 if node.kind==SyntaxKind::Section && flow.kind=="branch"
+                && match flow.chain {
+                    Some(BranchRole::Start)=>flow.condition_capture.is_some()&&flow.body_when.is_some(),
+                    Some(BranchRole::Else)=>flow.condition_capture.is_none()&&flow.body_when.is_none(),
+                    None=>false,
+                }=>Some(flow),
+            _=>None,
+        }
+    }
+    fn alternative(node:&AstNode)->bool {
+        Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Else))
+            && body_nodes(node).is_ok_and(|body|node.children.iter().all(|id|body.contains(id)))
+    }
+}
+#[derive(Clone,Copy,PartialEq,Eq)]
+enum BranchMode { Independent, Capture, Alternative }
+struct BranchExit { owner:String, taken:Facts, bypass:Facts }
 
 struct Engine<'a,'r> {
     guards:guards::State,
@@ -1213,6 +1239,10 @@ struct Engine<'a,'r> {
 }
 impl Engine<'_,'_> {
     fn node(&mut self, id: u64, scope: u64, facts: &mut Facts) -> Result<InferredType, String> {
+        self.node_with_flow(id,scope,facts,BranchMode::Independent).map(|(ty,_)|ty)
+    }
+    fn node_with_flow(&mut self,id:u64,scope:u64,facts:&mut Facts,mode:BranchMode)
+        ->Result<(InferredType,Option<BranchExit>),String> {
         if !self.visiting.insert(id) {
             return Err("cyclic semantic AST".into());
         }
@@ -1236,10 +1266,11 @@ impl Engine<'_,'_> {
         } else if !self.preserves_evaluation_context(node, &mut HashSet::new()) {
             self.evaluation_context = None;
         }
-        let answer = self.node_inner(node, scope, facts, completion_owner);
+        let mut branch_exit=None;
+        let answer = self.node_inner(node, scope, facts, completion_owner,mode,&mut branch_exit);
         if node.kind==SyntaxKind::Structure {shared::expire(facts,self.exact(node));self.shared_isolated=previous_shared_scope;}
         self.visiting.remove(&id);
-        answer
+        answer.map(|ty|(ty,branch_exit))
     }
     fn preserves_evaluation_context(
         &mut self,
@@ -1283,6 +1314,8 @@ impl Engine<'_,'_> {
         scope: u64,
         facts: &mut Facts,
         completion_owner: Option<CompletionOwner>,
+        branch_mode:BranchMode,
+        branch_exit:&mut Option<BranchExit>,
     ) -> Result<InferredType, String> {
         let range = self.exact(node);
         if self.evaluation_range(node).is_none() {
@@ -1570,32 +1603,37 @@ impl Engine<'_,'_> {
                 if !shared::declared(node) {invalidate(facts, range, Invalidation::Provider);}
             }
         }
-        if !body.is_empty() {
+        let flow=Flow::read(node);
+        // Empty current branches still carry an edge and editing inputs.
+        if !body.is_empty() || flow.as_ref().is_some_and(|f|f.version==3) {
             if node.kind == SyntaxKind::Structure {
                 self.body(node, &body, scope, facts)?;
-            } else {
-                let flow = unique_metadata(node, FLOW)
-                    .and_then(|json| serde_json::from_str::<Flow>(json).ok())
-                    .filter(|flow| matches!(flow.version,1|2));
-                if flow.as_ref().is_some_and(|flow| flow.kind == "branch") {
-                    let before = facts.clone();
-                    let mut branch = before.clone();
-                    let mut bypass=before.clone();
-                    if let Some(flow)=flow.as_ref().filter(|f|f.version==2)
-                        && let (Some(capture),Some(truth))=(flow.condition_capture,flow.body_when)
-                        && let Some(condition)=capture_node(node,capture,&self.nodes)
-                        && nonbody==[condition]&&self.nodes[&condition].kind==SyntaxKind::Condition {
-                        self.guard_edge(condition,truth,&mut branch);
-                        self.guard_edge(condition,!truth,&mut bypass);
-                    }
-                    self.body(node, &body, scope, &mut branch)?;
-                    *facts = join_facts(&bypass, &branch);
-                } else {
-                    // Loops may re-enter; other extension control flow is opaque.
-                    let mut nested = Facts::new();
-                    self.body(node, &body, scope, &mut nested)?;
-                    invalidate(facts, range, Invalidation::ControlFlow);
+            } else if branch_mode==BranchMode::Alternative && Flow::alternative(node) {
+                self.body(node,&body,scope,facts)?;
+            } else if flow.as_ref().is_some_and(|flow|flow.kind=="branch") {
+                let mut branch=facts.clone();
+                let mut bypass=facts.clone();
+                let condition=flow.as_ref().filter(|f|matches!(f.version,2|3))
+                    .and_then(|f|Some((capture_node(node,f.condition_capture?,&self.nodes)?,f.body_when?)))
+                    .filter(|(id,_)|nonbody==[*id]&&self.nodes[id].kind==SyntaxKind::Condition);
+                if let Some((condition,truth))=condition {
+                    // Materialize both paths now. Never rewind the guard epoch
+                    // after evaluating the taken body.
+                    self.guard_edge(condition,truth,&mut branch);
+                    self.guard_edge(condition,!truth,&mut bypass);
                 }
+                self.body(node,&body,scope,&mut branch)?;
+                *facts=join_facts(&bypass,&branch);
+                if branch_mode==BranchMode::Capture && condition.is_some()
+                    && flow.as_ref().is_some_and(|f|f.chain==Some(BranchRole::Start))
+                    && let Some(owner)=metadata_owner(node,FLOW) {
+                    *branch_exit=Some(BranchExit {owner:owner.to_owned(),taken:branch,bypass});
+                }
+            } else {
+                // Loops may re-enter; other extension control flow is opaque.
+                let mut nested=Facts::new();
+                self.body(node,&body,scope,&mut nested)?;
+                invalidate(facts,range,Invalidation::ControlFlow);
             }
         }
         let ty = match node.summary.as_ref().map(|summary| summary.kind.as_str()) {
@@ -1706,6 +1744,7 @@ impl Engine<'_,'_> {
         editing.sort_by_key(|input|input.line_span().virtual_range.start);
         let mut editing=editing.into_iter().peekable();
         let mut barrier = 0;
+        let mut branch_exit:Option<BranchExit>=None;
         for (id, start) in ordered {
             while editing.peek().is_some_and(|input|start.is_none_or(|at|input.line_span().virtual_range.start<=at as u64)) {
                 let input=editing.next().expect("peeked input");
@@ -1714,6 +1753,7 @@ impl Engine<'_,'_> {
                 }
             }
             if opaque {
+                branch_exit=None;
                 invalidate(facts, self.exact(owner), Invalidation::Source);
                 self.evaluation_context = None;
             }
@@ -1721,6 +1761,7 @@ impl Engine<'_,'_> {
                 .get(barrier)
                 .is_some_and(|(at, _)| start.is_none_or(|start| *at < start))
             {
+                branch_exit=None;
                 invalidate(
                     facts,
                     barriers[barrier].1,
@@ -1729,7 +1770,18 @@ impl Engine<'_,'_> {
                 self.evaluation_context = None;
                 barrier += 1;
             }
-            self.node(id, scope, facts)?;
+            let node=self.nodes[&id];
+            let previous=branch_exit.take().filter(|previous|!opaque
+                && metadata_owner(node,FLOW)==Some(previous.owner.as_str())
+                && Flow::alternative(node));
+            if let Some(previous)=previous {
+                *facts=previous.bypass;
+                self.node_with_flow(id,scope,facts,BranchMode::Alternative)?;
+                *facts=join_facts(&previous.taken,facts);
+            } else {
+                let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Capture)?;
+                branch_exit=next;
+            }
         }
         for input in editing {
             if !barriers.get(barrier).is_some_and(|(at,_)|(*at as u64)<input.line_span().virtual_range.start) {
