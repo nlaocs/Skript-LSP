@@ -345,6 +345,60 @@ mod tests {
 
 
     #[test]
+    #[ignore="requires the explicit static computed-GET profile and matching guest Component"]
+    fn current_computed_getters_keep_body_hints_scoped_across_edits_and_reopen() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let uri="file:///computed-getter-editor/value.sk";
+        for (revision,value,class,label,delayed,reopen) in [
+            (1,"123","java.lang.Long",": long",false,false),
+            (2,"\"changed\"","java.lang.String",": string",false,false),
+            (3,"123","java.lang.Long",": long",true,false),
+            (1,"123","java.lang.Long",": long",false,true),
+        ] {
+            if reopen {assert!(host.release_document("file:///computed-getter-editor",uri,3).unwrap());}
+            let wait=if delayed {"        wait 1 tick\n"}else{""};
+            let source:Arc<str>=format!("# Unicode \u{65e5}\u{672c}\u{1f600}\noption review value:\n    get:\n        set {{_temporary}} to {value}\n        set {{_copy}} to {{_temporary}}\n{wait}        return {{_copy}}\non load:\n    set {{_outside}} to {{_temporary}}\n    set {{_unresolved}} to \"{{@review value}}\"\n    set {{_control}} to 789\n").into();
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///computed-getter-editor",uri,revision,source.to_string()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            assert_eq!(result.ast.nodes.iter().any(|n|n.kind==parser_wasm::host::SyntaxKind::Effect&&n.text=="return {_copy}"),!delayed,"{:?}",result.syntax.diagnostics);
+            assert_eq!(result.dependency_unavailable.len(),1);
+            let semantic=crate::lsp::semantic::Document::from_result_with_host(&result,source.clone(),uri.parse().unwrap(),catalog.clone(),&mut host,None).unwrap();
+            let lines=crate::lsp::positions::LineIndex::new(&source);
+            for name in ["{_temporary}","{_copy}"] {
+                let at=lines.position(&source,source.find(name).unwrap()+name.len()).unwrap();
+                assert!(semantic.write_type_hints().iter().any(|h|h.position==at&&matches!(&h.label,lsp_types::InlayHintLabel::String(text) if text==label)),"{name}: {:?}",semantic.write_type_hints());
+            }
+            let needle="set {_copy} to {_temporary}";
+            let inside=source.find(needle).unwrap()+needle.find("{_temporary}").unwrap()+1;
+            let (_,ty)=semantic.type_at(lines.position(&source,inside).unwrap()).expect("current GET local read");
+            assert!(matches!(ty,crate::lsp::semantic::InferredType::Values {classes,..} if classes.contains(class)),"{ty:?}");
+            let outside=lines.position(&source,source.rfind("{_temporary}").unwrap()+1).unwrap();
+            assert!(matches!(semantic.type_at(outside).expect("outside read").1,crate::lsp::semantic::InferredType::Unknown),"GET locals cannot reach an ordinary event");
+            let control=lines.position(&source,source.find("{_control}").unwrap()+"{_control}".len()).unwrap();
+            assert!(semantic.write_type_hints().iter().any(|h|h.position==control&&matches!(&h.label,lsp_types::InlayHintLabel::String(text) if text==": long")));
+        }
+        for (index,entries) in ["    unknown: entry\n","    get:\n        return\n    get:\n        return\n"].into_iter().enumerate() {
+            let source:Arc<str>=format!("option editing value:\n{entries}on load:\n    set {{_bad_control}} to 789\n").into();
+            let bad_uri="file:///computed-getter-editor/bad.sk";
+            let bad=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///computed-getter-editor",bad_uri,index as u64+1,source.to_string()),Default::default()).unwrap();
+            assert!(bad.component_failures.is_empty());assert!(!bad.syntax.diagnostics.is_empty());
+            let semantic=crate::lsp::semantic::Document::from_result_with_host(&bad,source.clone(),bad_uri.parse().unwrap(),catalog.clone(),&mut host,None).unwrap();
+            let at=crate::lsp::positions::LineIndex::new(&source).position(&source,source.find("{_bad_control}").unwrap()+"{_bad_control}".len()).unwrap();
+            assert!(semantic.write_type_hints().iter().any(|h|h.position==at&&matches!(&h.label,lsp_types::InlayHintLabel::String(text) if text==": long")),"ordinary invalid declaration must not erase a healthy inlay: {:?}",semantic.write_type_hints());
+        }
+        let source:Arc<str>="on load:\n    set {_removed} to {_temporary}\n    set {_control} to 789\n".into();
+        let removed=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///computed-getter-editor",uri,2,source.to_string()),Default::default()).unwrap();
+        assert!(removed.component_failures.is_empty());assert!(removed.dependency_unavailable.is_empty());
+        let semantic=crate::lsp::semantic::Document::from_result_with_host(&removed,source.clone(),uri.parse().unwrap(),catalog.clone(),&mut host,None).unwrap();
+        let at=crate::lsp::positions::LineIndex::new(&source).position(&source,source.find("{_temporary}").unwrap()+1).unwrap();
+        assert!(matches!(semantic.type_at(at).expect("fresh outside read").1,crate::lsp::semantic::InferredType::Unknown));
+    }
+
+    #[test]
     #[ignore="requires the explicit computed-option profile and matching current guest Component"]
     fn current_computed_options_mask_quoted_values_and_expire_old_local_facts() {
         let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
