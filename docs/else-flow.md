@@ -1,5 +1,9 @@
 # Simple runtime if/else flow
 
+This records the else-only checkpoint. Current Core extends it with flow v4
+start/next/else; see [conditional continuations](elseif-flow.md). The v3 reader
+and the conservative fallback described below remain supported.
+
 Status: bounded local candidate; the cache regression repair has passed focused verification. This extends the guard contract;
 it does not add elseif or compound predicates, and has not been deployed.
 

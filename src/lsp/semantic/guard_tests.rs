@@ -12,18 +12,20 @@ impl Resolver for Reads {
             source_writeback:None,effects:BindingEffects::Preserve}))
     }
 }
-fn read(f:&mut Fixture,row:usize)->u64 {
-    let id=f.var(row,"{_value}","value",true,false);
+fn read(f:&mut Fixture,row:usize)->u64 {read_named(f,row,"{_value}","value")}
+fn read_named(f:&mut Fixture,row:usize,spelling:&str,name:&str)->u64 {
+    let id=f.var(row,spelling,name,true,false);
     f.nodes[id as usize].metadata.retain(|m|m.key!=VARIABLE_READ);
     f.nodes[id as usize].metadata.extend([
         metadata(VARIABLE_READ,json!({"version":3,"requestedTypes":["java.lang.Object"],"mayRefreshPlayer":true,"noRefreshTypes":[],"missingValue":"empty"})),
         metadata(parser_wasm::host::semantic_transfer::METADATA,json!({"version":3,"operation":"authored.read","parameters":"{}","outputUse":"flow","valueRelation":"same-source-when-unchanged","bindingValues":"preserve"})),
     ]);id
 }
-fn init(f:&mut Fixture,row:usize,types:&[&str],nullable:bool)->u64 {
-    let id=f.assign(row,"{_value}","value","initial",types[0],true,false,"set");
+fn init(f:&mut Fixture,row:usize,types:&[&str],nullable:bool)->u64 {init_named(f,row,"{_value}","value",types,nullable)}
+fn init_named(f:&mut Fixture,row:usize,spelling:&str,name:&str,types:&[&str],nullable:bool)->u64 {
+    let id=f.assign(row,spelling,name,"initial",types[0],true,false,"set");
     f.nodes[id as usize].metadata.retain(|m|m.key!=CHANGE);
-    f.nodes[id as usize].metadata.push(metadata(CHANGE,json!({"version":3,"mode":"set","targetCapture":0,"valueCapture":1,
+    f.nodes[id as usize].metadata.push(metadata(CHANGE,json!({"version":3,"mode":"set","targetCapture":0,"valueCapture":1,"targetOnly":true,
         "storageResult":{"version":1,"scope":"local-scalar","types":types,"complete":true,"multiple":false,"maybeUnset":nullable,"preservesLocalBindings":true}})));
     id
 }
@@ -214,7 +216,7 @@ fn reflect_guard_copy_remains_narrowed_in_the_project_capable_component() {
 #[cfg(test)]
 mod else_flow {
     use super::*;
-    fn branch(f:&mut Fixture,row:usize,condition:Option<u64>,body:&[u64])->u64 {
+    pub(super) fn branch(f:&mut Fixture,row:usize,condition:Option<u64>,body:&[u64])->u64 {
         let id=if let Some(condition)=condition {section(f,row,condition,body)}
             else {f.container(row,SyntaxKind::Section,body,Some("branch"))};
         f.nodes[id as usize].metadata.retain(|m|m.key!=FLOW);
@@ -229,11 +231,11 @@ mod else_flow {
         }
         id
     }
-    fn run(f:Fixture,ids:&[u64])->Document {
+    pub(super) fn run(f:Fixture,ids:&[u64])->Document {
         let mut f=f;let root=f.container(0,SyntaxKind::Structure,ids,None);
         finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()})
     }
-    fn present(d:&Document,row:u32)->bool {
+    pub(super) fn present(d:&Document,row:u32)->bool {
         matches!(observed(d,row),InferredType::Values {maybe_unset:false,..})
     }
     #[test]
@@ -310,7 +312,7 @@ mod else_flow {
             let inside=inspect(&mut f,6);let alternate=branch(&mut f,5,None,&[inside]);
             for m in f.nodes[alternate as usize].metadata.iter_mut().filter(|m|m.key==FLOW) {
                 if bad=="owner" {m.owner_component_id=Some("another.provider".into());}
-                if bad=="version" {m.value=json!({"version":4,"kind":"branch","chain":"else"}).to_string();}
+                if bad=="version" {m.value=json!({"version":99,"kind":"branch","chain":"else"}).to_string();}
                 if bad=="missing-role" {m.value=json!({"version":3,"kind":"branch"}).to_string();}
                 if bad=="ordinary-v2" {m.value=json!({"version":2,"kind":"branch"}).to_string();}
             }
@@ -390,9 +392,7 @@ mod else_flow {
             }
         }
     }
-    #[test]
-    #[ignore="requires the explicit existing reflect snapshot/data and current candidate"]
-    fn current_else_flow_mixed_provider_uses_only_current_header_and_branch_proofs() {
+    pub(super) fn mixed_host()->(Arc<Catalog>,parser_wasm::ParserHost) {
         use sha2::{Digest,Sha256};
         use parser_wasm::host::{AddonDataPin,AddonDataSource};
         let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").unwrap();
@@ -411,6 +411,12 @@ mod else_flow {
         let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),addon_data_sources:vec![data],
             runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},..Default::default()}).unwrap();
         host.load_addon(&candidate).unwrap();
+        (catalog,host)
+    }
+    #[test]
+    #[ignore="requires the explicit existing reflect snapshot/data and current candidate"]
+    fn current_else_flow_mixed_provider_uses_only_current_header_and_branch_proofs() {
+        let (catalog,mut host)=mixed_host();
         let source:Arc<str>=Arc::from("function mixedelse(value: text):\n    if {_value} is not set:\n        set {_copy} to 123\n    else:\n        set {_copy} to {_value}\n    set {_after} to {_copy}\n");
         let uri:Uri="file:///guards/mixed-else.sk".parse().unwrap();
         let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),1,source.as_ref()),Default::default()).unwrap();
@@ -455,7 +461,187 @@ mod else_flow {
                 let at=d.lines.position(&d.source,at).unwrap();
                 assert!(matches!(d.type_at(at).unwrap().1,InferredType::Unknown),"deleted else must not initialize the bypass");
             }
-            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":3"))).count(),if has_else {2}else{1});
+            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":4"))).count(),if has_else {2}else{1});
         }
+    }
+}
+
+
+#[cfg(test)]
+mod elseif_flow {
+    use super::*;
+    use super::else_flow::{branch,run,present};
+    fn chain(f:&mut Fixture,row:usize,condition:Option<u64>,body:&[u64],role:&str)->u64 {
+        let id=branch(f,row,condition,body);
+        let mut flow=json!({"version":4,"kind":"branch","chain":role});
+        if condition.is_some(){flow["conditionCapture"]=json!(0);flow["bodyWhen"]=json!(true);}
+        f.nodes[id as usize].metadata.iter_mut().find(|m|m.key==FLOW).unwrap().value=flow.to_string();id
+    }
+    fn inspect_name(f:&mut Fixture,row:usize,spelling:&str,name:&str)->u64 {
+        let subject=read_named(f,row,spelling,name);let id=f.push(SyntaxKind::Effect,"effect",f.line(row));f.seal(id,&[(0,subject)]);
+        f.nodes[id as usize].metadata.extend([metadata(LOCAL_EFFECTS,json!({"version":1,"kind":"preserve"})),
+            metadata(OPERANDS,json!({"version":1,"prefix":[0]})),metadata(shared::BINDINGS,json!({"version":1,"local":"preserve","shared":"preserve"}))]);id
+    }
+    #[test]
+    fn continued_false_facts_are_independent_of_taken_assignments_suspension_and_opaque_effects() {
+        for operation in ["preserve","reassign","suspend","opaque"] {
+            let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    if {_value} checked:\n        bind {_value} = initial\n    else if {_other} checked:\n        inspect {_value}\n    else:\n        inspect {_value}\n    inspect {_value}");
+            let value=init(&mut f,1,&["java.lang.String"],true);
+            let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+            let subject=read(&mut f,3);let c=condition(&mut f,3,subject,presence(false));
+            let effect=if operation=="reassign" {init(&mut f,4,&["java.lang.Long"],false)}else{
+                let id=f.push(SyntaxKind::Effect,"effect",f.line(4));
+                if operation!="opaque" {f.nodes[id as usize].metadata.extend([
+                    metadata(LOCAL_EFFECTS,json!({"version":1,"kind":"preserve"})),
+                    metadata(shared::BINDINGS,json!({"version":1,"local":"preserve","shared":if operation=="suspend"{"suspend"}else{"preserve"}})),
+                ]);}id
+            };
+            let first=chain(&mut f,3,Some(c),&[effect],"start");
+            let subject=read_named(&mut f,5,"{_other}","other");let c=condition(&mut f,5,subject,presence(false));
+            let inside=inspect(&mut f,6);let next=chain(&mut f,5,Some(c),&[inside],"next");
+            let inside=inspect(&mut f,8);let last=chain(&mut f,7,None,&[inside],"else");
+            let after=inspect(&mut f,9);let d=run(f,&[value,other,first,next,last,after]);
+            for row in [6,8] {assert!(matches!(observed(&d,row),InferredType::Values {classes,maybe_unset:false,..}
+                if *classes==BTreeSet::from(["java.lang.String".into()])),"{operation}: {row}: {:?}",observed(&d,row));}
+            if operation=="opaque" {assert!(matches!(observed(&d,9),InferredType::Unknown));}
+            if operation=="reassign" {assert!(matches!(observed(&d,9),InferredType::Values {classes,maybe_unset:false,..}
+                if *classes==BTreeSet::from(["java.lang.Long".into(),"java.lang.String".into()])));}
+        }
+    }
+    #[test]
+    fn every_taken_exit_and_the_unconsumed_false_path_reach_the_join() {
+        for with_else in [false,true] {
+            let ending=if with_else {"    else:\n        bind {_result} = initial\n    inspect {_result}"}else{"    inspect {_result}"};
+            let source=format!("owner:\n    bind {{_value}} = initial\n    bind {{_other}} = initial\n    bind {{_result}} = initial\n    if {{_value}} checked:\n        bind {{_result}} = initial\n    else if {{_other}} checked:\n        bind {{_result}} = initial\n{ending}");
+            let mut f=Fixture::new(&source);let value=init(&mut f,1,&["java.lang.String"],true);
+            let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+            let result=init_named(&mut f,3,"{_result}","result",&["java.lang.Boolean"],false);
+            let subject=read(&mut f,4);let c=condition(&mut f,4,subject,presence(false));
+            let left=init_named(&mut f,5,"{_result}","result",&["java.lang.Long"],false);let first=chain(&mut f,4,Some(c),&[left],"start");
+            let subject=read_named(&mut f,6,"{_other}","other");let c=condition(&mut f,6,subject,presence(false));
+            let middle=init_named(&mut f,7,"{_result}","result",&["java.lang.String"],false);let next=chain(&mut f,6,Some(c),&[middle],"next");
+            let mut ids=vec![value,other,result,first,next];
+            if with_else {let right=init_named(&mut f,9,"{_result}","result",&["java.lang.Double"],false);ids.push(chain(&mut f,8,None,&[right],"else"));}
+            let row=if with_else {10}else{8};ids.push(inspect_name(&mut f,row,"{_result}","result"));let d=run(f,&ids);
+            let expected=BTreeSet::from(["java.lang.Long".into(),"java.lang.String".into(),if with_else{"java.lang.Double".into()}else{"java.lang.Boolean".into()}]);
+            assert!(matches!(observed(&d,row as u32),InferredType::Values {classes,maybe_unset:false,..}if *classes==expected),"{with_else}: {:?}",observed(&d,row as u32));
+        }
+    }
+    #[test]
+    fn a_third_condition_does_not_drop_earlier_taken_exits_or_the_last_false_exit() {
+        let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    bind {_third} = initial\n    bind {_result} = initial\n    if {_value} checked:\n        bind {_result} = initial\n    else if {_other} checked:\n        bind {_result} = initial\n    else if {_third} checked:\n        bind {_result} = initial\n    inspect {_result}");
+        let value=init(&mut f,1,&["java.lang.String"],true);let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);let third=init_named(&mut f,3,"{_third}","third",&["java.lang.String"],true);let result=init_named(&mut f,4,"{_result}","result",&["java.lang.Boolean"],false);
+        let subject=read(&mut f,5);let c=condition(&mut f,5,subject,presence(false));let assigned=init_named(&mut f,6,"{_result}","result",&["java.lang.Long"],false);let first=chain(&mut f,5,Some(c),&[assigned],"start");
+        let subject=read_named(&mut f,7,"{_other}","other");let c=condition(&mut f,7,subject,presence(false));let assigned=init_named(&mut f,8,"{_result}","result",&["java.lang.String"],false);let next=chain(&mut f,7,Some(c),&[assigned],"next");
+        let subject=read_named(&mut f,9,"{_third}","third");let c=condition(&mut f,9,subject,presence(false));let assigned=init_named(&mut f,10,"{_result}","result",&["java.lang.Double"],false);let last=chain(&mut f,9,Some(c),&[assigned],"next");let after=inspect_name(&mut f,11,"{_result}","result");
+        let d=run(f,&[value,other,third,result,first,next,last,after]);let expected=BTreeSet::from(["java.lang.Boolean".into(),"java.lang.Long".into(),"java.lang.String".into(),"java.lang.Double".into()]);
+        assert!(matches!(observed(&d,11),InferredType::Values {classes,maybe_unset:false,..}if *classes==expected));
+    }
+    #[test]
+    fn nested_outcomes_in_a_continuation_do_not_replace_the_outer_false_path() {
+        let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    if {_value} checked:\n        bind {_value} = initial\n    else if {_other} checked:\n        if {_other} checked:\n            bind {_value} = initial\n        else:\n            bind {_value} = initial\n    else:\n        inspect {_value}\n    inspect {_value}");
+        let value=init(&mut f,1,&["java.lang.String"],true);let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+        let subject=read(&mut f,3);let c=condition(&mut f,3,subject,presence(false));let assigned=init(&mut f,4,&["java.lang.Long"],false);let first=chain(&mut f,3,Some(c),&[assigned],"start");
+        let subject=read_named(&mut f,6,"{_other}","other");let c=condition(&mut f,6,subject,presence(true));let assigned=init(&mut f,7,&["java.lang.Double"],false);let inner=chain(&mut f,6,Some(c),&[assigned],"start");let assigned=init(&mut f,9,&["java.lang.Boolean"],false);let inner_else=chain(&mut f,8,None,&[assigned],"else");
+        let subject=read_named(&mut f,5,"{_other}","other");let c=condition(&mut f,5,subject,presence(false));let next=chain(&mut f,5,Some(c),&[inner,inner_else],"next");
+        let inside=inspect(&mut f,11);let last=chain(&mut f,10,None,&[inside],"else");let after=inspect(&mut f,12);let d=run(f,&[value,other,first,next,last,after]);
+        assert!(matches!(observed(&d,11),InferredType::Values {classes,maybe_unset:false,..}if *classes==BTreeSet::from(["java.lang.String".into()])));
+        let expected=BTreeSet::from(["java.lang.Long".into(),"java.lang.Double".into(),"java.lang.Boolean".into(),"java.lang.String".into()]);assert!(matches!(observed(&d,12),InferredType::Values {classes,maybe_unset:false,..}if *classes==expected));
+    }
+    #[test]
+    fn invalid_or_unpaired_continuations_do_not_consume_or_create_a_chain() {
+        for bad in ["owner","old-role","mixed-version","capture","kind","operand","barrier","unpaired"] {
+            let gap=if bad=="barrier" {"unparsed statement"}else{"# gap"};
+            let source=format!("owner:\n    bind {{_value}} = initial\n    bind {{_other}} = initial\n    if {{_value}} checked:\n        # empty\n    {gap}\n    else if {{_other}} checked:\n        inspect {{_value}}\n    else:\n        inspect {{_value}}");
+            let mut f=Fixture::new(&source);let value=init(&mut f,1,&["java.lang.String"],true);
+            let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+            let subject=read(&mut f,3);let c=condition(&mut f,3,subject,presence(false));let first=chain(&mut f,3,Some(c),&[],if bad=="unpaired"{"next"}else{"start"});
+            let subject=read_named(&mut f,6,"{_other}","other");let c=condition(&mut f,6,subject,presence(false));
+            let inside=inspect(&mut f,7);let next=chain(&mut f,6,Some(c),&[inside],"next");
+            let metadata=f.nodes[next as usize].metadata.iter_mut().find(|m|m.key==FLOW).unwrap();
+            if bad=="owner" {metadata.owner_component_id=Some("another.provider".into());}
+            if bad=="old-role" {metadata.value=json!({"version":3,"kind":"branch","chain":"next","conditionCapture":0,"bodyWhen":true}).to_string();}
+            if bad=="capture" {metadata.value=json!({"version":4,"kind":"branch","chain":"next","conditionCapture":99,"bodyWhen":true}).to_string();}
+            if bad=="mixed-version" {f.nodes[first as usize].metadata.iter_mut().find(|m|m.key==FLOW).unwrap().value=json!({"version":3,"kind":"branch","chain":"start","conditionCapture":0,"bodyWhen":true}).to_string();}
+            if bad=="kind" {f.nodes[c as usize].kind=SyntaxKind::Expression;}
+            if bad=="operand" {let extra=f.push(SyntaxKind::Expression,"literal",f.part(6,"checked"));f.nodes[next as usize].children.push(extra);}
+            let inside=inspect(&mut f,9);let last=chain(&mut f,8,None,&[inside],"else");let d=run(f,&[value,other,first,next,last]);
+            for row in [7,9] {assert!(!present(&d,row),"{bad}: {row}: {:?}",observed(&d,row));}
+        }
+    }
+    #[test]
+    fn parser_context_is_not_restored_from_a_runtime_false_path() {
+        let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    if {_value} checked:\n        opaque operation\n    else if {_other} checked:\n        inspect {_value}");
+        let value=init(&mut f,1,&["java.lang.String"],true);let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+        let subject=read(&mut f,3);let c=condition(&mut f,3,subject,presence(false));let effect=f.push(SyntaxKind::Effect,"effect",f.line(4));let first=chain(&mut f,3,Some(c),&[effect],"start");
+        let subject=read_named(&mut f,5,"{_other}","other");let c=condition(&mut f,5,subject,presence(false));let inside=inspect(&mut f,6);let next=chain(&mut f,5,Some(c),&[inside],"next");
+        f.nodes[next as usize].metadata.iter_mut().find(|m|m.key==OPERANDS).unwrap().value=json!({"version":1,"prefix":[0],"requiredContext":{"key":"entry","value":"current"}}).to_string();
+        let root=f.container(0,SyntaxKind::Structure,&[value,other,first,next],None);
+        f.nodes[root as usize].metadata.push(metadata(EVALUATION_CONTEXT,json!({"version":1,"kind":"scope","key":"entry","value":"current"})));
+        let d=finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()});assert!(matches!(observed(&d,6),InferredType::Unknown));
+    }
+
+    #[test]
+    fn binding_effects_without_a_target_only_contract_do_not_keep_other_facts() {
+        for target_only in [false,true] {
+            let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    inspect {_value}");let value=init(&mut f,1,&["java.lang.String"],false);let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],false);
+            let entry=f.nodes[other as usize].metadata.iter_mut().find(|m|m.key==CHANGE).unwrap();let mut contract:serde_json::Value=serde_json::from_str(&entry.value).unwrap();contract["targetOnly"]=json!(target_only);entry.value=contract.to_string();
+            let after=inspect(&mut f,3);let d=run(f,&[value,other,after]);if target_only {assert!(present(&d,3));}else{assert!(matches!(observed(&d,3),InferredType::Unknown));}
+        }
+    }
+    #[test]
+    fn a_taken_raw_barrier_expires_parser_context_without_restoring_it_on_false_input() {
+        for barrier in [false,true] {
+            let text=if barrier {"unparsed statement"}else{"# empty body"};
+            let source=format!("owner:\n    bind {{_value}} = initial\n    bind {{_other}} = initial\n    if {{_value}} checked:\n        {text}\n    else if {{_other}} checked:\n        inspect {{_value}}");
+            let mut f=Fixture::new(&source);let value=init(&mut f,1,&["java.lang.String"],true);let other=init_named(&mut f,2,"{_other}","other",&["java.lang.String"],true);
+            let subject=read(&mut f,3);let c=condition(&mut f,3,subject,presence(false));let first=chain(&mut f,3,Some(c),&[],"start");
+            let subject=read_named(&mut f,5,"{_other}","other");let c=condition(&mut f,5,subject,presence(false));let inside=inspect(&mut f,6);let next=chain(&mut f,5,Some(c),&[inside],"next");
+            f.nodes[next as usize].metadata.iter_mut().find(|m|m.key==OPERANDS).unwrap().value=json!({"version":1,"prefix":[0],"requiredContext":{"key":"entry","value":"current"}}).to_string();
+            // Every published node preserves parser/init context. Only the
+            // missing raw statement inside the first taken body can expire it.
+            for n in &mut f.nodes {n.metadata.push(metadata(EVALUATION_CONTEXT,json!({"version":1,"kind":"preserve"})));}
+            let root=f.container(0,SyntaxKind::Structure,&[value,other,first,next],None);
+            f.nodes[root as usize].metadata.push(metadata(EVALUATION_CONTEXT,json!({"version":1,"kind":"scope","key":"entry","value":"current"})));
+            let d=finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()});
+            if barrier {assert!(matches!(observed(&d,6),InferredType::Unknown));}else{assert!(present(&d,6));}
+        }
+    }
+
+    fn exercise_current_elseif(host:&mut parser_wasm::ParserHost,catalog:Arc<Catalog>,suffix:&str) {
+        let uri:Uri=format!("file:///guards/{suffix}.sk").parse().unwrap();
+        let body="function chaincopy(value: text, other: text):\n    if {_value} is not set:\n        set {_result} to 123\n    else if {_other} is not set:\n        set {_result} to {_value}\n    else:\n        set {_result} to {_other}\n    set {_after} to {_result}\n";
+        for (revision,prefix,has_else,reopen) in [(1,"",true,false),(2,"# Unicode \u{1f980}\r\n",true,false),(4,"",false,false),(0,"",true,true)] {
+            if revision==4 {let token=parser_wasm::DocumentCancellationToken::new();token.cancel();let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),3,body),parser_wasm::DocumentParserConfig {cancellation:token,..Default::default()});assert!(matches!(result,Err(parser_wasm::DocumentParseError::Cancelled {..})));}
+            if reopen {assert!(host.release_document("file:///guards",uri.as_str(),4).unwrap());}
+            let body=if has_else {body.to_owned()}else{body.replace("    else:\n        set {_result} to {_other}\n","")};let source:Arc<str>=format!("{prefix}{body}").into();
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),revision,source.as_ref()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);assert!(result.syntax.diagnostics.is_empty(),"{:?}",result.syntax.diagnostics);
+            let d=Arc::new(Document::from_result_with_host(&result,source,uri.clone(),catalog.clone(),host,None).unwrap());let delta=u32::from(!prefix.is_empty());let hints=d.write_type_hints();
+            assert!(hints.iter().any(|h|h.position.line==4+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s==": string")),"{hints:?}");
+            if has_else {assert!(hints.iter().any(|h|h.position.line==6+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s==": string")),"{hints:?}");assert!(hints.iter().any(|h|h.position.line==7+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s.contains("long")&&s.contains("string")&&!s.contains('?'))),"{hints:?}");}
+            else {let at=d.source.rfind("{_result}").unwrap()+3;assert!(matches!(d.type_at(d.lines.position(&d.source,at).unwrap()).unwrap().1,InferredType::Unknown),"missing else must retain uninitialized false exit");}
+            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":4"))).count(),if has_else {3}else{2});
+            let start=d.source.rfind("{_value}").unwrap();let edit=TextRange::new(start,start+"{_value}".len());let position=d.lines.position(&d.source,start+3).unwrap();
+            let (_,fields)=d.hover_fields(position).unwrap();assert!(fields.iter().any(|(key,value)|*key=="Current type"&&value=="string"),"{fields:?}");
+            let (ty,_,_)=d.completion_input(&d.source,edit,"value").expect("current adopted operand completion boundary");assert!(matches!(ty,InferredType::Values {maybe_unset:false,classes,..}if *classes==BTreeSet::from(["java.lang.String".into()])));
+            let mut index=crate::lsp::completion::CatalogIndex::with_documentation_format(&catalog,skript_parser::RawTreeOptions::for_skript_version(2,15),lsp_types::MarkupKind::PlainText);index.certify_types(host);
+            let mut view=crate::lsp::completion::Document::from_result(&result,Arc::clone(&d.source),Arc::new(index)).unwrap();view.semantic_types=Some(Arc::clone(&d));
+            let cursor=d.lines.position(&d.source,start+"{_val".len()).unwrap();let list=view.at(cursor,false).unwrap();let item=list.items.iter().find(|i|i.label=="{_value}").expect("the current parameter candidate");
+            let Some(lsp_types::CompletionTextEdit::Edit(insert))=&item.text_edit else {panic!("variable candidate requires a plain current edit")};
+            let from=d.lines.offset(&d.source,insert.range.start).unwrap();let to=d.lines.offset(&d.source,insert.range.end).unwrap();let mut accepted=d.source.to_string();accepted.replace_range(from..to,&insert.new_text);assert_eq!(accepted,d.source.as_ref(),"completion must preserve the existing suffix and braces");
+
+        }
+    }
+    #[test]
+    fn current_elseif_flow_core_component_and_lsp_follow_false_edges_edits_and_reopen() {
+        let catalog=Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},..Default::default()}).unwrap();
+        exercise_current_elseif(&mut host,catalog,"core-elseif");
+    }
+    #[test]
+    #[ignore="requires the explicit existing reflect snapshot/data and current candidate"]
+    fn current_elseif_flow_mixed_provider_keeps_fresh_branch_proofs() {
+        let (catalog,mut host)=super::else_flow::mixed_host();exercise_current_elseif(&mut host,catalog,"mixed-elseif");
     }
 }

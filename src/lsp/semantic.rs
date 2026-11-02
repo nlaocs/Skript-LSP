@@ -1195,15 +1195,16 @@ struct Flow {
 }
 #[derive(Clone,Copy,Deserialize,PartialEq,Eq)]
 #[serde(rename_all="kebab-case")]
-enum BranchRole { Start, Else }
+enum BranchRole { Start, Next, Else }
 impl Flow {
     fn read(node:&AstNode)->Option<Self> {
         let flow:Self=serde_json::from_str(unique_metadata(node,FLOW)?).ok()?;
         match flow.version {
             1|2 if flow.chain.is_none()=>Some(flow),
-            3 if node.kind==SyntaxKind::Section && flow.kind=="branch"
+            3|4 if node.kind==SyntaxKind::Section && flow.kind=="branch"
                 && match flow.chain {
                     Some(BranchRole::Start)=>flow.condition_capture.is_some()&&flow.body_when.is_some(),
+                    Some(BranchRole::Next)=>flow.version==4&&flow.condition_capture.is_some()&&flow.body_when.is_some(),
                     Some(BranchRole::Else)=>flow.condition_capture.is_none()&&flow.body_when.is_none(),
                     None=>false,
                 }=>Some(flow),
@@ -1214,10 +1215,21 @@ impl Flow {
         Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Else))
             && body_nodes(node).is_ok_and(|body|node.children.iter().all(|id|body.contains(id)))
     }
+    fn condition(&self,node:&AstNode,nodes:&HashMap<u64,&AstNode>)->Option<(u64,bool)> {
+        if !matches!(self.version,2|3|4){return None;}
+        let body=body_nodes(node).ok()?;
+        let id=capture_node(node,self.condition_capture?,nodes)?;
+        let operands=node.children.iter().copied().filter(|id|!body.contains(id)).collect::<Vec<_>>();
+        (operands==[id]&&nodes.get(&id)?.kind==SyntaxKind::Condition).then_some((id,self.body_when?))
+    }
+    fn continuation(node:&AstNode,nodes:&HashMap<u64,&AstNode>)->bool {
+        Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Next)
+            &&flow.condition(node,nodes).is_some())
+    }
 }
 #[derive(Clone,Copy,PartialEq,Eq)]
-enum BranchMode { Independent, Capture, Alternative }
-struct BranchExit { owner:String, taken:Facts, bypass:Facts }
+enum BranchMode { Independent, Capture, Continuation, Alternative }
+struct BranchExit { owner:String, version:u32, taken:Facts, bypass:Facts }
 
 struct Engine<'a,'r> {
     guards:guards::State,
@@ -1605,7 +1617,7 @@ impl Engine<'_,'_> {
         }
         let flow=Flow::read(node);
         // Empty current branches still carry an edge and editing inputs.
-        if !body.is_empty() || flow.as_ref().is_some_and(|f|f.version==3) {
+        if !body.is_empty() || flow.as_ref().is_some_and(|f|matches!(f.version,3|4)) {
             if node.kind == SyntaxKind::Structure {
                 self.body(node, &body, scope, facts)?;
             } else if branch_mode==BranchMode::Alternative && Flow::alternative(node) {
@@ -1613,9 +1625,7 @@ impl Engine<'_,'_> {
             } else if flow.as_ref().is_some_and(|flow|flow.kind=="branch") {
                 let mut branch=facts.clone();
                 let mut bypass=facts.clone();
-                let condition=flow.as_ref().filter(|f|matches!(f.version,2|3))
-                    .and_then(|f|Some((capture_node(node,f.condition_capture?,&self.nodes)?,f.body_when?)))
-                    .filter(|(id,_)|nonbody==[*id]&&self.nodes[id].kind==SyntaxKind::Condition);
+                let condition=flow.as_ref().and_then(|f|f.condition(node,&self.nodes));
                 if let Some((condition,truth))=condition {
                     // Materialize both paths now. Never rewind the guard epoch
                     // after evaluating the taken body.
@@ -1624,10 +1634,12 @@ impl Engine<'_,'_> {
                 }
                 self.body(node,&body,scope,&mut branch)?;
                 *facts=join_facts(&bypass,&branch);
-                if branch_mode==BranchMode::Capture && condition.is_some()
-                    && flow.as_ref().is_some_and(|f|f.chain==Some(BranchRole::Start))
-                    && let Some(owner)=metadata_owner(node,FLOW) {
-                    *branch_exit=Some(BranchExit {owner:owner.to_owned(),taken:branch,bypass});
+                if let Some(flow)=flow.as_ref().filter(|f|condition.is_some()&&match f.chain {
+                    Some(BranchRole::Start)=>branch_mode==BranchMode::Capture,
+                    Some(BranchRole::Next)=>branch_mode==BranchMode::Continuation,
+                    _=>false,
+                }) && let Some(owner)=metadata_owner(node,FLOW) {
+                    *branch_exit=Some(BranchExit {owner:owner.to_owned(),version:flow.version,taken:branch,bypass});
                 }
             } else {
                 // Loops may re-enter; other extension control flow is opaque.
@@ -1771,13 +1783,33 @@ impl Engine<'_,'_> {
                 barrier += 1;
             }
             let node=self.nodes[&id];
+            let flow=Flow::read(node);
+            let alternative=Flow::alternative(node);
+            let continuation=Flow::continuation(node,&self.nodes);
             let previous=branch_exit.take().filter(|previous|!opaque
                 && metadata_owner(node,FLOW)==Some(previous.owner.as_str())
-                && Flow::alternative(node));
+                && flow.as_ref().is_some_and(|flow|flow.version==previous.version)
+                && (alternative||continuation));
             if let Some(previous)=previous {
                 *facts=previous.bypass;
-                self.node_with_flow(id,scope,facts,BranchMode::Alternative)?;
-                *facts=join_facts(&previous.taken,facts);
+                // This is another path, not another use of the taken body's
+                // checked/read links. Advance; never restore an old epoch.
+                self.guards.changed();
+                if alternative {
+                    self.node_with_flow(id,scope,facts,BranchMode::Alternative)?;
+                    *facts=join_facts(&previous.taken,facts);
+                } else {
+                    let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Continuation)?;
+                    if let Some(mut next)=next {
+                        next.taken=join_facts(&previous.taken,&next.taken);
+                        // Keep a conservative exit at every continuation, even
+                        // when editing leaves no final alternative.
+                        *facts=join_facts(&next.taken,&next.bypass);
+                        branch_exit=Some(next);
+                    } else {
+                        *facts=join_facts(&previous.taken,facts);
+                    }
+                }
             } else {
                 let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Capture)?;
                 branch_exit=next;
