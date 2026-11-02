@@ -1279,3 +1279,47 @@ fn prepared_source_generation_fences_actual_core_body_reuse() {
     let expected=run(&mut cold,source,3);assert_equivalent(&changed,&expected);
     run(&mut host,source,4);assert!(host.incremental_metrics().body_hits>0);
 }
+
+
+#[test]
+fn real_core_nonguard_if_else_keeps_body_reuse_and_current_cold_equivalence() {
+    let source="# edit:a\nfunction publicRewardCount(streak: number) :: number:\n    if {_streak} >= 7:\n        return 8\n    else:\n        return 2\nfunction publicRewardLabel(streak: number) :: text:\n    if {_streak} >= 3:\n        return \"regular\"\n    else:\n        return \"starter\"\n";
+    let fixture="skript-2.15.4-type-runtime";
+    let mut host=actual_host_with_fixture(fixture);
+    host.components[0].manifest.incremental_local_subscriptions.clear();
+    host.components[0].manifest.incremental_header_handlers.clear();
+    let initial=run(&mut host,source,1);
+    assert!(initial.syntax.diagnostics.is_empty(),"{:?}",initial.syntax.diagnostics);
+    assert_eq!(host.incremental_metrics().body_stored,2);
+    let current=source.replace("# edit:a","# edit:b");
+    let before=guest_calls(&host);
+    let warm=run(&mut host,&current,2);
+    let calls=guest_calls(&host)-before;
+    assert_eq!(host.incremental_metrics().body_hits,2);
+    let mut cold=actual_host_with_fixture(fixture);
+    cold.components[0].manifest.incremental_local_subscriptions.clear();
+    cold.components[0].manifest.incremental_header_handlers.clear();
+    cold.components[0].manifest.incremental_body_subscriptions.clear();
+    cold.components[0].manifest.incremental_body_handler_subscriptions.clear();
+    let before=guest_calls(&cold);let clean=run(&mut cold,&current,2);
+    assert_equivalent(&warm,&clean);
+    assert!(calls<guest_calls(&cold)-before);
+}
+#[test]
+fn real_core_guard_if_else_keeps_intrinsic_receipts_cold() {
+    let source="function guardedReward(streak: number) :: number:\n    if {_streak} is not set:\n        return 2\n    else:\n        return 8\n";
+    let mut host=actual_host_with_fixture("skript-2.15.4-type-runtime");
+    host.components[0].manifest.incremental_local_subscriptions.clear();
+    host.components[0].manifest.incremental_header_handlers.clear();
+    for revision in [1,2] {
+        let before=guest_calls(&host);
+        let result=run(&mut host,source,revision);
+        assert!(result.syntax.diagnostics.is_empty(),"{:?}",result.syntax.diagnostics);
+        assert_eq!(result.ast.nodes.iter().filter(|n|n.kind==crate::host::SyntaxKind::Section&&n.metadata.iter().any(|m|
+            m.key=="parser.semantic.intrinsic-facts.v1"&&m.owner_component_id.as_deref()==Some("nlaocs.core-library"))).count(),2,
+            "the current If and Else must each request their own intrinsic claim");
+        assert_eq!(host.incremental_metrics().body_stored,0);
+        assert_eq!(host.incremental_metrics().body_hits,0);
+        assert!(guest_calls(&host)>before);
+    }
+}

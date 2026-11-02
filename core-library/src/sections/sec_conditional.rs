@@ -266,9 +266,14 @@ pub(super) fn resolve(
     }
 
     let (flow,chained)=conditional_flow(semantics,standard_runtime,payload.candidate.regex_captures.len());
-    if entering && (chained || semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
+    let guarded_start=semantics.kind==ConditionalKind::If&&!semantics.parse_if&&!semantics.multiline
         &&payload.candidate.parsed_captures.iter().any(|c|c.capture_index==condition_binding().capture_index
-            &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard")))) {
+            &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard")));
+    // Guard-bearing headers need selected intrinsic claims in a mixed tree.
+    // Ordinary branches keep the existing whole-contributor/replay path.
+    let guarded_else=chained&&semantics.kind==ConditionalKind::Else
+        &&payload.preceding_siblings.last().is_some_and(|previous|previous_refinement_start(&previous.metadata));
+    if entering && (guarded_start||guarded_else) {
         let mut keys=vec!["skript.semantic.control-flow"];
         for key in ["skript.semantic.binding-values","skript.semantic.local-effects","skript.semantic.operand-evaluation","skript.semantic.evaluation-context"] {
             if payload.candidate.metadata.iter().filter(|m|m.key==key).count()==1 {keys.push(key);}
@@ -295,6 +300,21 @@ pub(super) fn resolve(
     continue_with_section_context(&context, payload, metadata, updates)
 }
 
+// Routing only: ask for a fresh claim on this Else when the immediate start
+// requested one. Never copy, adopt or interpret the preceding draft as proof.
+fn previous_refinement_start(metadata:&[MetadataEntry])->bool {
+    let owned=|key:&str| {
+        let mut entries=metadata.iter().filter(|m|m.key==key);
+        let entry=entries.next()?;
+        (entries.next().is_none()&&entry.owner_component_id.as_deref()==Some(crate::COMPONENT_ID)
+            &&entry.value.len()<=16*1024).then_some(entry)
+    };
+    let Some(flow)=owned("skript.semantic.control-flow").filter(|m|m.value.len()<=1024)
+        .and_then(|m|serde_json::from_str::<serde_json::Value>(&m.value).ok())else{return false;};
+    flow["version"].as_u64()==Some(3)&&flow["kind"].as_str()==Some("branch")
+        &&flow["chain"].as_str()==Some("start")
+        &&owned("parser.semantic.intrinsic-facts.v1").is_some()
+}
 // Audited against Skript 2.15.4 SecConditional patterns/init/walk. The
 // existing source check binds this role to the current registered syntax.
 fn conditional_flow(semantics:ConditionalSemantics,standard:bool,captures:usize)->(String,bool) {
@@ -1090,6 +1110,25 @@ mod tests {
 #[cfg(test)]
 mod flow_chain_tests {
     use super::*;
+    #[test]
+    fn prior_intrinsic_draft_is_only_current_owned_start_routing_not_imported_proof() {
+        for bad in ["valid","missing-draft","foreign","duplicate-flow","duplicate-draft","old","else","missing-owner"] {
+            let mut entries=vec![
+                MetadataEntry {key:"skript.semantic.control-flow".into(),
+                    value:serde_json::json!({"version":3,"kind":"branch","chain":"start","conditionCapture":0,"bodyWhen":true}).to_string(),owner_component_id:Some(crate::COMPONENT_ID.into())},
+                MetadataEntry {key:"parser.semantic.intrinsic-facts.v1".into(),
+                    value:serde_json::json!({"version":1,"metadataKeys":["skript.semantic.control-flow"],"inputs":[]}).to_string(),owner_component_id:Some(crate::COMPONENT_ID.into())},
+            ];
+            if bad=="missing-draft" {entries.pop();}
+            if bad=="foreign" {entries[1].owner_component_id=Some("another.provider".into());}
+            if bad=="missing-owner" {entries[0].owner_component_id=None;}
+            if bad=="duplicate-flow" {entries.push(entries[0].clone());}
+            if bad=="duplicate-draft" {entries.push(entries[1].clone());}
+            if bad=="old" {entries[0].value=serde_json::json!({"version":2,"kind":"branch","conditionCapture":0,"bodyWhen":true}).to_string();}
+            if bad=="else" {entries[0].value=serde_json::json!({"version":3,"kind":"branch","chain":"else"}).to_string();}
+            assert_eq!(previous_refinement_start(&entries),bad=="valid","{bad}");
+        }
+    }
     #[test]
     fn only_current_simple_runtime_if_and_else_publish_a_chain_role() {
         for (kind,count,captures,parse,multiline,source,role) in [

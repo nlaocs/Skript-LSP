@@ -1,6 +1,6 @@
 # Simple runtime if/else flow
 
-Status: bounded local candidate with focused verification. This extends the guard contract;
+Status: bounded local candidate; the cache regression repair has passed focused verification. This extends the guard contract;
 it does not add elseif or compound predicates, and has not been deployed.
 
 ## Provider contract
@@ -47,6 +47,14 @@ Parse-if, multiline conditions, ElseIf and Then do not. Core's intrinsic proof
 selects only its own current header contracts, not the child condition or body.
 A condition provider retains ownership of its presence/type predicate.
 
+Additional intrinsic claims are requested only by guard If and its immediate
+Else. The preceding unique Core-owned v3 start and own DRAFT are routing inputs
+for a fresh Else claim, never copied/adopted proof. Ordinary nonguard branches
+retain their existing contributor proof and body replay path. Intrinsic guard
+receipts remain cold; host replay guards and hit expectations are unchanged.
+Nonguard mixed sections can retain the previous proof limitation and remain
+Unknown when current evidence is unavailable.
+
 WIT 0.50 / ABI32 and the 20M guest-call budget are unchanged. This is a versioned
 metadata extension: older consumers treat v3 conservatively. Use a matching
 Core/consumer pair to observe the new refinement. No old runtime success,
@@ -61,7 +69,17 @@ branch, and current Component/LSP body editing, pre-cancellation and release/reo
 Authored-provider fixtures test the common contract; saved SSG data and a separate
 mixed-provider profile test actual Core/reflect integration without live capture.
 
-Focused verification: Core conditional unit13 passed; guard/native/Component/LSP15 passed, with the two explicit mixed-provider cases also passed. The first misfiltered zero-case run is not validation.
+Before the cache repair, focused verification: Core conditional unit13 passed; guard/native/Component/LSP15 passed, with the two explicit mixed-provider cases also passed. The first misfiltered zero-case run is not validation.
+
+The first full run at the initial else candidate exposed seven ordinary-edit
+body-cache regressions (2300 passed/7 failed/36 ignored). Those results remain
+preserved. The repair keeps v3 roles but asks for extra intrinsic claims only
+for guard If and its immediate Else; no host replay guard or old hit expectation
+was weakened. Repaired-Core checks pass: Core conditional14, guard15, explicit
+mixed2, incremental24 (one manual measurement ignored), and LSP worker19. The
+ordinary If+Else test retains stored/hit2, cold equality and fewer guest calls;
+the guard pair stays cold and requests fresh claims on both headers. No actual
+UI latency improvement is claimed.
 
 Final results are recorded only after the final-source focused and workspace
 checks plus independent review. Dedicated client RPC/Neovim, live server/oracle,
