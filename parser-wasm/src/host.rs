@@ -28,6 +28,7 @@ mod body_admission_measurement;
 mod body_shadow;
 #[cfg(test)]
 mod tree_macro_measurement;
+mod macro_dependencies;
 mod tree_view;
 mod tree_access;
 #[cfg(test)]
@@ -59,7 +60,7 @@ mod structure_entry_plans;
 
 pub use ast_macro::{AstMacroCall, AstMacroRequest, AstMacroResult};
 pub use document::{
-    DependencyUnavailableRegion, DocumentCancellationToken, DocumentExecutionStatus,
+    DependencyUnavailableKind, DependencyUnavailableRegion, DocumentCancellationToken, DocumentExecutionStatus,
     DocumentParseError, DocumentParseRequest, DocumentParseResult, DocumentParseStage,
     DocumentParserConfig, ExtensionFaultRegion,
 };
@@ -971,6 +972,11 @@ pub struct TreeMacroCall {
 #[derive(Debug)]
 /// Final tree/source provenance and transactional Tree macro metadata.
 pub struct TreeMacroResult {
+    pub declaration_calls: Vec<HookCall>,
+    pub declaration_failures: Vec<ComponentFailure>,
+    pub discovery_complete: bool,
+    pub unavailable: Vec<DependencyUnavailableRegion>,
+    pub unavailable_all: bool,
     pub decision: HookDecision,
     pub source: MappedSource,
     pub tree: ParserRawTree,
@@ -988,6 +994,14 @@ struct TreeMacroCycleKey {
 }
 
 struct TreeMacroPipeline {
+    snapshot: Arc<macro_dependencies::Snapshot>,
+    root_signature: Vec<(ParserRawNodeKind,String,u64,usize)>,
+    discovery_active: bool,
+    preparation_work: usize,
+    declaration_calls: Vec<HookCall>,
+    declaration_failures: Vec<ComponentFailure>,
+    unavailable: Vec<DependencyUnavailableRegion>,
+    unavailable_all: bool,
     generation: u64,
     effects: HookEffects,
     calls: Vec<TreeMacroCall>,
@@ -1000,6 +1014,10 @@ struct TreeMacroPipeline {
 impl TreeMacroPipeline {
     fn new() -> Self {
         Self {
+            snapshot: Arc::new(macro_dependencies::Snapshot::empty()),
+            root_signature: Vec::new(), discovery_active:false, preparation_work:0,
+            declaration_calls:Vec::new(), declaration_failures:Vec::new(),
+            unavailable:Vec::new(), unavailable_all:false,
             generation: 0,
             effects: empty_effects(),
             calls: Vec::new(),
@@ -1012,6 +1030,8 @@ impl TreeMacroPipeline {
 }
 
 enum TreeWalk {
+    Unavailable,
+    Blocked { sibling_count: usize },
     Continue { sibling_count: usize },
     Reject(HookDecision),
 }
@@ -4554,6 +4574,7 @@ impl ExpressionParseEnvironment for WasmExpressionEnvironment<'_> {
     ) {
         if let Some(regions) = self.hooks.host.native_dependency_unavailable.as_mut() {
             regions.push(DependencyUnavailableRegion {
+                kind: DependencyUnavailableKind::FunctionNamespace,
                 span: mapped_span_to_wit(span),
                 name: unavailable.name.clone(),
             });
@@ -11761,6 +11782,18 @@ impl ParserHost {
         let state_savepoint = transaction.savepoint()?;
         let result = self.expand_tree_with_transaction(transaction, request);
         match result {
+            Ok(mut result) if result.unavailable_all => {
+                transaction.rollback_to(&state_savepoint)?;
+                mark_tree_macro_result_rolled_back(&original_source,&original_tree,&mut result);
+                result.effects.parse_results.clear();result.decision=HookDecision::ContinueProcessing;
+                result.unavailable=vec![DependencyUnavailableRegion {
+                    kind:DependencyUnavailableKind::SourceMacro,
+                    span:mapped_span_to_wit(original_source.map_range(ParserTextRange::new(0,original_source.virtual_source().len()))
+                        .map_err(|e|HostError::SourceMapping {message:e.to_string()})?),
+                    name:"macro declaration set changed during expansion".into(),
+                }];
+                Ok(result)
+            }
             Ok(mut result) if matches!(result.decision, HookDecision::Reject(_)) => {
                 transaction.rollback_to(&state_savepoint)?;
                 mark_tree_macro_result_rolled_back(&original_source, &original_tree, &mut result);
@@ -11788,6 +11821,11 @@ impl ParserHost {
         let mut source = request.source;
         let mut tree = Arc::new(request.tree);
         let mut pipeline = TreeMacroPipeline::new();
+        let prepared=self.prepare_macro_declarations(transaction,&request.context,&source,Arc::clone(&tree),self.config.max_tree_macro_calls)?;
+        pipeline.root_signature=if prepared.active {macro_dependencies::root_signature(&tree)}else{Vec::new()};
+        pipeline.snapshot=prepared.snapshot;pipeline.discovery_active=prepared.active;pipeline.preparation_work=prepared.work;
+        pipeline.declaration_calls=prepared.calls;pipeline.declaration_failures=prepared.failures;
+        merge_effects(&mut pipeline.effects,prepared.effects);
         let mut root_index = 0usize;
         let mut decision = HookDecision::ContinueProcessing;
 
@@ -11803,9 +11841,10 @@ impl ParserHost {
                 0,
                 &mut pipeline,
             )? {
-                TreeWalk::Continue { sibling_count } => {
+                TreeWalk::Continue { sibling_count } | TreeWalk::Blocked { sibling_count } => {
                     root_index = root_index.saturating_add(sibling_count);
                 }
+                TreeWalk::Unavailable => break,
                 TreeWalk::Reject(rejection) => {
                     decision = rejection;
                     break;
@@ -11818,6 +11857,10 @@ impl ParserHost {
         }
 
         Ok(TreeMacroResult {
+            declaration_calls:pipeline.declaration_calls,
+            declaration_failures:pipeline.declaration_failures,
+            discovery_complete:pipeline.snapshot.complete && !pipeline.unavailable_all,
+            unavailable:pipeline.unavailable,unavailable_all:pipeline.unavailable_all,
             decision,
             source,
             tree: Arc::unwrap_or_clone(tree),
@@ -11858,7 +11901,14 @@ impl ParserHost {
             });
         };
 
+        if pipeline.unavailable_all {return Ok(TreeWalk::Unavailable);}
         let target_state = transaction.savepoint()?;
+        let target_source=source.clone();let target_tree=Arc::clone(tree);
+        let target_snapshot=Arc::clone(&pipeline.snapshot);let target_signature=pipeline.root_signature.clone();
+        let target_call_start=pipeline.calls.len();
+        let target_unavailable_start=pipeline.unavailable.len();
+        let target_handled=pipeline.handled;
+        let mut target_changed=false;
         let target_effects = pipeline.effects.clone();
         let failure_count = pipeline.failures.len();
         let mut stop_current_node = false;
@@ -11889,7 +11939,7 @@ impl ParserHost {
                 restore_macro_semantic_effects(&mut pipeline.effects, &target_effects);
                 return Ok(TreeWalk::Continue { sibling_count: 1 });
             }
-            if pipeline.calls.len() >= self.config.max_tree_macro_calls {
+            if pipeline.calls.len().saturating_add(pipeline.preparation_work) >= self.config.max_tree_macro_calls {
                 return Err(HostError::TreeMacroCallQuotaExceeded {
                     limit: self.config.max_tree_macro_calls,
                 });
@@ -11953,7 +12003,8 @@ impl ParserHost {
             context.syntax_context = u64::from(node.syntax_context.get());
             let lease = tree_view::Lease::new(
                 Arc::clone(tree), pipeline.generation, self.native_cancellation.clone(),
-            ).map_err(|error| StateError::Internal { message: error.to_string() })?;
+            ).map_err(|error| StateError::Internal { message: error.to_string() })?
+                .with_macro_snapshot(Arc::clone(&pipeline.snapshot));
             let input = TreeMacroInput {
                 context,
                 tree: tree_access::reference(lease.reference()),
@@ -12008,15 +12059,15 @@ impl ParserHost {
                         .call_expand(&mut entry.store, &input);
                     #[cfg(test)]
                     drop(boundary);
-                    entry.store.data_mut().tree_view.take();
+                    let macro_reads=entry.store.data_mut().tree_view.take().expect("tree view lives through callback").macro_reads();
                     let state_invocation =
                         entry.store.data_mut().invocation.take().expect(
                             "the invocation remains installed for the duration of the call",
                         );
-                    (call, state_invocation)
+                    (call, state_invocation, macro_reads)
                 };
 
-            let (call, state_invocation) = call;
+            let (call, state_invocation, macro_reads) = call;
             if call.is_ok()
                 && self
                     .native_cancellation
@@ -12133,10 +12184,41 @@ impl ParserHost {
             }
 
             let TreeMacroOutput {
+                unavailable,
                 decision,
                 edit,
                 mut effects,
             } = output;
+            if !unavailable.is_empty() {
+                let checked=(||->Result<Vec<String>,String>{
+                    if !component_promises(&self.components[candidate.component_index].manifest.capabilities,crate::CAPABILITY_MACRO_DEPENDENCIES)
+                        ||!matches!(decision,HookDecision::ContinueProcessing)||edit.is_some()
+                        ||!effects.diagnostics.is_empty()||!effects.context_updates.is_empty()
+                        ||!effects.parse_requests.is_empty()||!effects.parse_results.is_empty() {
+                        return Err("unavailable macro output requires the dependency capability, ContinueProcessing and no edit/effects".into());
+                    }
+                    pipeline.snapshot.adopt(&macro_reads,&unavailable)
+                })();
+                state_invocation.rollback();pipeline.active.pop();
+                pipeline.calls.push(TreeMacroCall {component_id:component_id.clone(),subscription_id:subscription_id.clone(),target:current_target,
+                    accepted:false,expansion:None,state_accesses:accesses});
+                let names=match checked {
+                    Ok(names)=>names,
+                    Err(message)=>{pipeline.failures.push(ComponentFailure {affected_span:Some(mapped_span_to_wit(node.span.clone())),
+                        component_id:component_id.clone(),subscription_id:subscription_id.clone(),
+                        error:HostError::InvalidTreeMacroOutput {component_id,subscription_id,message}});continue;}
+                };
+                // Withdraw earlier providers' edits and State on this target.
+                transaction.rollback_to(&target_state)?;
+                pipeline.effects=target_effects;pipeline.handled=target_handled;
+                *source=target_source;*tree=target_tree;
+                pipeline.snapshot=target_snapshot;pipeline.root_signature=target_signature;
+                for call in &mut pipeline.calls[target_call_start..] {call.accepted=false;call.expansion=None;}
+                let original=tree.get(raw_node_at_path(tree,path).expect("restored target" )).expect("restored node");
+                pipeline.unavailable.push(DependencyUnavailableRegion {kind:DependencyUnavailableKind::SourceMacro,
+                    span:mapped_span_to_wit(original.span.clone()),name:names.join(", ")});
+                return Ok(TreeWalk::Blocked {sibling_count:1});
+            }
             if matches!(decision, HookDecision::NotApplicable) {
                 state_invocation.rollback();
                 pipeline.active.pop();
@@ -12261,6 +12343,7 @@ impl ParserHost {
             *source = application.source;
             *tree = Arc::new(application.tree);
             pipeline.generation = generation;
+            target_changed=true;
             pipeline.calls.push(TreeMacroCall {
                 component_id,
                 subscription_id,
@@ -12273,6 +12356,21 @@ impl ParserHost {
             if matches!(decision, HookDecision::Handled) {
                 pipeline.handled = true;
                 stop_current_node = true;
+            }
+
+            if pipeline.discovery_active {
+                let signature=macro_dependencies::root_signature(tree);
+                if signature!=pipeline.root_signature {
+                    let remaining=self.config.max_tree_macro_calls.saturating_sub(pipeline.calls.len().saturating_add(pipeline.preparation_work));
+                    let prepared=self.prepare_macro_declarations(transaction,request_context,source,Arc::clone(tree),remaining)?;
+                    pipeline.preparation_work=pipeline.preparation_work.saturating_add(prepared.work);
+                    pipeline.declaration_calls.extend(prepared.calls);pipeline.declaration_failures.extend(prepared.failures);
+                    merge_effects(&mut pipeline.effects,prepared.effects);
+                    if !pipeline.snapshot.same_meaning(&prepared.snapshot) {
+                        pipeline.unavailable_all=true;pipeline.active.pop();return Ok(TreeWalk::Unavailable);
+                    }
+                    pipeline.snapshot=prepared.snapshot;pipeline.root_signature=signature;
+                }
             }
 
             if replaces_node {
@@ -12299,6 +12397,19 @@ impl ParserHost {
                         TreeWalk::Continue { sibling_count } => {
                             final_count = final_count.saturating_add(sibling_count);
                         }
+                        TreeWalk::Blocked {..} => {
+                            let names=pipeline.unavailable[target_unavailable_start..].iter().map(|r|r.name.as_str()).collect::<Vec<_>>().join(", ");
+                            transaction.rollback_to(&target_state)?;
+                            pipeline.effects=target_effects.clone();pipeline.handled=target_handled;*source=target_source.clone();*tree=Arc::clone(&target_tree);
+                            pipeline.snapshot=Arc::clone(&target_snapshot);pipeline.root_signature=target_signature.clone();
+                            for call in &mut pipeline.calls[target_call_start..] {call.accepted=false;call.expansion=None;}
+                            pipeline.unavailable.truncate(target_unavailable_start);
+                            let original=tree.get(raw_node_at_path(tree,path).expect("restored generated target")).expect("restored node");
+                            pipeline.unavailable.push(DependencyUnavailableRegion {kind:DependencyUnavailableKind::SourceMacro,
+                                span:mapped_span_to_wit(original.span.clone()),name:names});
+                            pipeline.active.pop();return Ok(TreeWalk::Blocked {sibling_count:1});
+                        }
+                        TreeWalk::Unavailable => {pipeline.active.pop();return Ok(TreeWalk::Unavailable);}
                         TreeWalk::Reject(rejection) => {
                             pipeline.active.pop();
                             return Ok(TreeWalk::Reject(rejection));
@@ -12323,6 +12434,7 @@ impl ParserHost {
             return Ok(TreeWalk::Continue { sibling_count: 0 });
         };
         let mut child_index = 0usize;
+        let mut has_blocked_child=false;
         while child_index
             < tree
                 .get(current_target)
@@ -12343,11 +12455,29 @@ impl ParserHost {
                 TreeWalk::Continue { sibling_count } => {
                     child_index = child_index.saturating_add(sibling_count);
                 }
+                TreeWalk::Blocked {sibling_count} => {
+                    if target_changed {
+                            let names=pipeline.unavailable[target_unavailable_start..].iter().map(|r|r.name.as_str()).collect::<Vec<_>>().join(", ");
+                            transaction.rollback_to(&target_state)?;
+                            pipeline.effects=target_effects.clone();pipeline.handled=target_handled;*source=target_source.clone();*tree=Arc::clone(&target_tree);
+                            pipeline.snapshot=Arc::clone(&target_snapshot);pipeline.root_signature=target_signature.clone();
+                            for call in &mut pipeline.calls[target_call_start..] {call.accepted=false;call.expansion=None;}
+                            pipeline.unavailable.truncate(target_unavailable_start);
+                            let original=tree.get(raw_node_at_path(tree,path).expect("restored generated target")).expect("restored node");
+                            pipeline.unavailable.push(DependencyUnavailableRegion {kind:DependencyUnavailableKind::SourceMacro,
+                                span:mapped_span_to_wit(original.span.clone()),name:names});
+                        return Ok(TreeWalk::Blocked {sibling_count:1});
+                    }
+                    has_blocked_child=true;
+                    child_index=child_index.saturating_add(sibling_count);
+                }
+                TreeWalk::Unavailable => return Ok(TreeWalk::Unavailable),
                 TreeWalk::Reject(rejection) => return Ok(TreeWalk::Reject(rejection)),
             }
         }
 
-        Ok(TreeWalk::Continue { sibling_count: 1 })
+        if has_blocked_child {Ok(TreeWalk::Blocked {sibling_count:1})}
+        else {Ok(TreeWalk::Continue { sibling_count: 1 })}
     }
     fn execute_parse_requests(
         &mut self,
@@ -12882,6 +13012,7 @@ impl ParserHost {
                 }
                 #[cfg(test)]
                 let prepared = self.measurement_scope("dispatch.invocation_prepare");
+                let macro_prior=(capability_id==crate::CAPABILITY_MACRO_DECLARATIONS).then(||payload.clone());
                 let mut context = request.context.clone();
                 context.subscription_id = subscription_id.clone();
                 let mut invocation =
@@ -12942,7 +13073,7 @@ impl ParserHost {
                     .transpose()?
                     .flatten();
                 let cache_hit = cached_output.is_some();
-                let dynamic_update = if is_dynamic_prepass_phase(request.phase) {
+                let dynamic_update = if is_dynamic_prepass_phase(request.phase) && capability_id!=crate::CAPABILITY_MACRO_DECLARATIONS {
                     self.dynamic_syntax_registry
                         .as_ref()
                         .map(|registry| {
@@ -12969,10 +13100,11 @@ impl ParserHost {
                         let lease = tree_view::Lease::new(Arc::clone(tree),
                             request.context.document_revision, self.native_cancellation.clone())
                             .map_err(|error| StateError::Internal { message: error.to_string() })?;
+                        let lease=if capability_id==crate::CAPABILITY_MACRO_DECLARATIONS {lease.for_macro_headers()}else{lease};
                         declaration_prepass::bind_tree_reference(&mut invocation.payload, lease.reference())?;
                         Some(lease)
                     } else { None };
-                    let project_invocation = if component_promises(&self.components[candidate.component_index].manifest.capabilities, crate::CAPABILITY_PROJECT_DECLARATIONS) {
+                    let project_invocation = if capability_id==crate::CAPABILITY_DOCUMENT_DECLARATIONS && component_promises(&self.components[candidate.component_index].manifest.capabilities, crate::CAPABILITY_PROJECT_DECLARATIONS) {
                         if let (Some(frame), Some(view)) = (&self.project_declarations, &declaration_view) {
                             Some(project_declarations::Invocation::prepare_with_conflicts(Arc::clone(frame), &self.project_sources,
                                 &component_id, &subscription_id, view.reference(),
@@ -12981,7 +13113,7 @@ impl ParserHost {
                         } else { None }
                     } else { None };
                     let entry = &mut self.components[candidate.component_index];
-                    entry.store.data_mut().editor_readonly = self.editor_context.is_some();
+                    let old_readonly=entry.store.data().editor_readonly;
                     entry.store.data_mut().incremental_impure_call = false;
                     if entry.store.data().invocation.is_some()
                         || entry.store.data().dynamic_syntax_update.is_some()
@@ -12995,6 +13127,7 @@ impl ParserHost {
                         }
                         .into());
                     }
+                    entry.store.data_mut().editor_readonly = self.editor_context.is_some() || capability_id==crate::CAPABILITY_MACRO_DECLARATIONS;
                     entry.store.data_mut().invocation = Some(state_invocation);
                     entry.store.data_mut().dynamic_syntax_update = dynamic_update;
                     entry.store.data_mut().project_declaration = project_invocation;
@@ -13028,6 +13161,7 @@ impl ParserHost {
                         entry.store.data_mut().dynamic_syntax_update.take();
                         entry.store.data_mut().project_declaration.take();
                         if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
+                        entry.store.data_mut().editor_readonly=old_readonly;
                         return Err(error);
                     }
                     #[cfg(test)]
@@ -13050,6 +13184,7 @@ impl ParserHost {
                         .bindings
                         .nlaocs_skript_parser_addon_hooks()
                         .call_invoke(&mut entry.store, &invocation);
+                    entry.store.data_mut().editor_readonly=old_readonly;
                     // Revoke on every return/trap, before cancellation and
                     // output handling can take another path.
                     if declaration_tree.is_some() { entry.store.data_mut().tree_view.take(); }
@@ -13194,14 +13329,17 @@ impl ParserHost {
                     continue 'candidate;
                 }
 
-                let declaration_validation = if capability_id != crate::CAPABILITY_DOCUMENT_DECLARATIONS {
+                let declaration_validation = if capability_id==crate::CAPABILITY_MACRO_DECLARATIONS {
+                    declaration_tree.as_deref().ok_or_else(||"macro declaration tree is unavailable".to_owned()).and_then(|tree|
+                        macro_dependencies::validate_output(&payload,macro_prior.as_ref().expect("macro prior"),&mut output,&component_id,tree,&state_invocation.read_write_set()))
+                } else if capability_id != crate::CAPABILITY_DOCUMENT_DECLARATIONS {
                     Ok(())
                 } else if let Some(invocation) = &project_invocation {
                     dynamic_update.as_mut().ok_or_else(|| "project declaration has no registry transaction".to_owned())
                         .and_then(|update| invocation.consume_status(&mut output, update))
                         .and_then(|()| declaration_prepass::validate_output(&output))
                 } else { declaration_prepass::validate_output(&output) };
-                if capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS
+                if matches!(capability_id,crate::CAPABILITY_DOCUMENT_DECLARATIONS|crate::CAPABILITY_MACRO_DECLARATIONS)
                     && let Err(message) = declaration_validation
                 {
                     state_invocation.rollback();
@@ -14003,6 +14141,8 @@ pub fn host_capabilities() -> Vec<Capability> {
         crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
         crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
         crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,
+        crate::CAPABILITY_MACRO_DECLARATIONS,
+        crate::CAPABILITY_MACRO_DEPENDENCIES,
     ]
     .map(|id| {
         Capability::new(
@@ -14323,6 +14463,9 @@ fn validate_manifest(
         }
         if subscription.capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS {
             declaration_prepass::validate_subscription(manifest, subscription)?;
+        }
+        if subscription.capability_id==crate::CAPABILITY_MACRO_DECLARATIONS {
+            macro_dependencies::validate_subscription(manifest,subscription)?;
         }
         if let HookTarget::Parser(parser_id) = &subscription.target {
             if parser_id.starts_with(editor_completion::ROUTE_PREFIX) {
@@ -16025,6 +16168,10 @@ fn tree_macro_output_size(output: &TreeMacroOutput) -> usize {
         .as_ref()
         .map_or(0, wit_tree_edit_size)
         .saturating_add(hook_effects_size(&output.effects))
+        .saturating_add(output.unavailable.iter().fold(32usize,|size,value|size.saturating_add(match value {
+            crate::bindings::nlaocs::skript_parser_addon::types::MacroUnavailability::Binding(_)=>32,
+            crate::bindings::nlaocs::skript_parser_addon::types::MacroUnavailability::IncompleteNamespace(name)=>64usize.saturating_add(name.len()),
+        })))
         .saturating_add(match &output.decision {
             HookDecision::Reject(rejection) => rejection_size(rejection),
             HookDecision::NotApplicable
@@ -18252,7 +18399,7 @@ mod tests {
     fn captured_static_order_is_an_explicit_dynamic_v2_requirement() {
         use crate::bindings::nlaocs::skript_parser_addon::types::{AbiVersion,CapabilityRequirement};
         let manifest=ComponentManifest {
-            component_id:"test.dynamic-order-v2".into(),component_version:"1".into(),abi:AbiVersion {major:31,minor:0},
+            component_id:"test.dynamic-order-v2".into(),component_version:"1".into(),abi:AbiVersion {major:crate::ABI_VERSION.major,minor:crate::ABI_VERSION.minor},
             capabilities:vec![CapabilityRequirement {id:CAPABILITY_DYNAMIC_SYNTAX.into(),minimum_version:2,required:true}],
             subscriptions:vec![],registered_syntax_handlers:vec![],catalog_annotations:vec![],state_namespaces:vec![],
             incremental_body_handler_subscriptions:vec![],incremental_body_subscriptions:vec![],
@@ -19511,6 +19658,8 @@ mod tests {
                 crate::CAPABILITY_STRUCTURE_ENTRY_PLANS,
                 crate::CAPABILITY_STRUCTURE_ENTRY_DATA,
                 crate::CAPABILITY_STRUCTURE_ENTRY_ALIASES,
+                crate::CAPABILITY_MACRO_DECLARATIONS,
+                crate::CAPABILITY_MACRO_DEPENDENCIES,
             ]
         );
     }

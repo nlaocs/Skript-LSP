@@ -37,7 +37,7 @@ pub(super) fn bind_tree_reference(
         }
         .into());
     };
-    if request.parser_id != PARSER_ID
+    if !matches!(request.parser_id.as_str(),PARSER_ID|super::macro_dependencies::PARSER_ID)
         || request.request_id != 0
         || !request.input.is_empty()
         || !request.expected_types.is_empty()

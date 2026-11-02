@@ -35,7 +35,7 @@ pub use host::{
 pub use state::{ParseTransaction, StateError, StateStore};
 
 /// Exact host/guest handshake version implemented by this crate.
-pub const ABI_VERSION: AbiVersion = AbiVersion::new(31, 0);
+pub const ABI_VERSION: AbiVersion = AbiVersion::new(32, 0);
 
 /// Owner-authenticated, data-only transfers of current public type bounds.
 pub const CAPABILITY_SEMANTIC_TRANSFER: &str = "parser.semantic-transfer";
@@ -194,6 +194,10 @@ pub const CAPABILITY_STRUCTURE_ENTRY_PLANS: &str = "parser.structure-entry-plans
 pub const CAPABILITY_STRUCTURE_ENTRY_DATA: &str = "parser.structure-entry-data";
 /// Exact alternate KeyValue spellings bound to a current native entry lease/node.
 pub const CAPABILITY_STRUCTURE_ENTRY_ALIASES: &str = "parser.structure-entry-aliases";
+/// Header-derived, readonly unavailable macro name discovery before expansion.
+pub const CAPABILITY_MACRO_DECLARATIONS: &str = "parser.macro-declarations";
+/// Current Tree view unavailable-name reads and typed dependency results.
+pub const CAPABILITY_MACRO_DEPENDENCIES: &str = "parser.macro-dependencies";
 /// Owned outline metadata on an accepted AST node. JSON v1 contains a nonempty
 /// name, an LSP SymbolKind number (1..=26), optional detail, and selection
 /// {start,end} UTF-8 offsets relative to the node's native header. Consumers

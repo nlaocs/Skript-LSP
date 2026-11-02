@@ -87,6 +87,9 @@ impl StoreData {
             token: reference.token, generation: reference.generation,
         }).map_err(access_error)
     }
+    fn require_full_tree(&self)->Result<(),TreeError> {
+        if self.tree_view.as_ref().is_some_and(|lease|lease.macro_headers_only()) {Err(TreeError::Unavailable)}else{Ok(())}
+    }
     fn reserve_tree_response(&mut self, bytes: usize) -> Result<(), TreeError> {
         self.tree_view.as_mut().ok_or(TreeError::Unavailable)?
             .reserve_response(bytes).map_err(access_error)
@@ -106,24 +109,31 @@ impl StoreData {
 impl wire::Host for StoreData {
     fn info(&mut self, reference: TreeReference) -> Result<TreeInfo, TreeError> {
         let tree = self.read_tree(reference)?;
+        self.require_full_tree()?;
         self.reserve_tree_response(256usize.saturating_add(tree.indentation.as_ref().map_or(0, |i| i.unit.len())))?;
         Ok(TreeInfo { node_count: tree.nodes.len() as u64, root_count: tree.roots.len() as u64,
             diagnostic_count: tree.diagnostics.len() as u64, indentation: indentation(&tree) })
     }
     fn node(&mut self, reference: TreeReference, id: u64) -> Result<Option<NodeSummary>, TreeError> {
         let tree = self.read_tree(reference)?;
+        if self.tree_view.as_ref().is_some_and(|lease|lease.macro_headers_only())
+            && !tree.roots.iter().any(|root|root.get()==id&&node(&tree,id).is_some_and(|n|!matches!(n.kind,ParserRawNodeKind::Blank|ParserRawNodeKind::Comment))) {
+            return Err(TreeError::Unavailable);
+        }
         let Some(node) = node(&tree, id) else { self.reserve_tree_response(64)?; return Ok(None); };
         self.reserve_tree_response(512usize.saturating_add(node.text.len()))?;
         Ok(Some(summary(node)))
     }
     fn details(&mut self, reference: TreeReference, id: u64) -> Result<Option<NodeDetails>, TreeError> {
         let tree = self.read_tree(reference)?;
+        self.require_full_tree()?;
         let Some(node) = node(&tree, id) else { self.reserve_tree_response(64)?; return Ok(None); };
         self.reserve_tree_response(detail_size(node)?)?;
         Ok(Some(details(node)))
     }
     fn span(&mut self, reference: TreeReference, id: u64, kind: NodeSpanKind) -> Result<Option<MappedSpan>, TreeError> {
         let tree = self.read_tree(reference)?;
+        self.require_full_tree()?;
         let selected = node(&tree, id).and_then(|node| match kind {
             NodeSpanKind::Node => Some(&node.span), NodeSpanKind::Code => node.code_span.as_ref(),
             NodeSpanKind::Header => node.header_span.as_ref(), NodeSpanKind::Body => node.body_span.as_ref(),
@@ -133,16 +143,21 @@ impl wire::Host for StoreData {
     }
     fn roots(&mut self, reference: TreeReference, cursor: u64, limit: u32) -> Result<NodePage, TreeError> {
         let tree = self.read_tree(reference)?;
-        self.node_page(&tree, &tree.roots, cursor, limit)
+        if self.tree_view.as_ref().is_some_and(|lease|lease.macro_headers_only()) {
+            let roots=tree.roots.iter().copied().filter(|id|tree.get(*id).is_some_and(|n|!matches!(n.kind,ParserRawNodeKind::Blank|ParserRawNodeKind::Comment))).collect::<Vec<_>>();
+            self.node_page(&tree,&roots,cursor,limit)
+        }else{self.node_page(&tree, &tree.roots, cursor, limit)}
     }
     fn children(&mut self, reference: TreeReference, parent: u64, cursor: u64, limit: u32)
         -> Result<Option<NodePage>, TreeError> {
         let tree = self.read_tree(reference)?;
+        self.require_full_tree()?;
         let Some(node) = node(&tree, parent) else { self.reserve_tree_response(64)?; return Ok(None); };
         self.node_page(&tree, &node.children, cursor, limit).map(Some)
     }
     fn diagnostics(&mut self, reference: TreeReference, cursor: u64, limit: u32) -> Result<DiagnosticPage, TreeError> {
         let tree = self.read_tree(reference)?;
+        self.require_full_tree()?;
         let start = usize::try_from(cursor).map_err(|_| TreeError::InvalidPage)?;
         if start > tree.diagnostics.len() || limit == 0 || limit as usize > tree_view::MAX_PAGE {
             return Err(TreeError::InvalidPage);
@@ -164,6 +179,20 @@ impl wire::Host for StoreData {
         let end = start + count;
         Ok(DiagnosticPage { diagnostics: tree.diagnostics[start..end].iter().map(raw_diagnostic).collect(),
             next: (end < tree.diagnostics.len()).then_some(end as u64) })
+    }
+    fn unavailable_bindings(&mut self,reference:TreeReference,namespace:String,cursor:u64,limit:u32)->Result<MacroBindingPage,TreeError> {
+        let _tree=self.read_tree(reference)?;
+        self.require_full_tree()?;
+        if namespace.is_empty()||namespace.len()>256||namespace.chars().any(char::is_control)||limit==0||limit>128 {return Err(TreeError::InvalidPage);}
+        let snapshot=self.tree_view.as_ref().and_then(|lease|lease.macro_snapshot()).ok_or(TreeError::Unavailable)?;
+        let bindings=snapshot.namespace(&namespace);let start=usize::try_from(cursor).map_err(|_|TreeError::InvalidPage)?;
+        if start>bindings.len(){return Err(TreeError::InvalidPage);}
+        let end=start.saturating_add(limit as usize).min(bindings.len());let selected=&bindings[start..end];
+        let bytes=selected.iter().fold(128usize,|size,b|size.saturating_add(128).saturating_add(b.name.len()));
+        self.reserve_tree_response(bytes)?;
+        let page=MacroBindingPage {complete:snapshot.complete,bindings:selected.iter().map(|b|MacroBinding {id:b.id,name:b.name.clone()}).collect(),next:(end<bindings.len()).then_some(end as u64)};
+        self.tree_view.as_mut().ok_or(TreeError::Unavailable)?.observe_macro_page(&namespace,snapshot.complete,selected.iter().map(|b|b.id));
+        Ok(page)
     }
 }
 
@@ -242,6 +271,27 @@ mod tests {
         let reference = reference(lease.reference());
         store.data_mut().tree_view = Some(lease);
         (store, transaction, reference, directory)
+    }
+
+    #[test]
+    fn macro_declaration_header_view_excludes_body_trivia_and_unsupported_queries() {
+        let (mut store,transaction,reference,_directory)=fixture("# ignored\nfirst:\n    child\n\nsecond\n");
+        let lease=store.data_mut().tree_view.take().unwrap().for_macro_headers();store.data_mut().tree_view=Some(lease);
+        let first=wire::Host::roots(store.data_mut(),reference,0,1).unwrap();
+        let second=wire::Host::roots(store.data_mut(),reference,first.next.unwrap(),1).unwrap();
+        assert_eq!(first.nodes.len(),1);assert_eq!(second.nodes.len(),1);assert!(second.next.is_none());
+        assert_eq!(wire::Host::node(store.data_mut(),reference,first.nodes[0].id).unwrap().unwrap().text,"first");
+        assert_eq!(wire::Host::node(store.data_mut(),reference,second.nodes[0].id).unwrap().unwrap().text,"second");
+        for id in [0,2,3,u64::MAX] {assert!(matches!(wire::Host::node(store.data_mut(),reference,id),Err(TreeError::Unavailable)));}
+        assert!(matches!(wire::Host::info(store.data_mut(),reference),Err(TreeError::Unavailable)));
+        assert!(matches!(wire::Host::children(store.data_mut(),reference,first.nodes[0].id,0,1),Err(TreeError::Unavailable)));
+        assert!(matches!(wire::Host::details(store.data_mut(),reference,first.nodes[0].id),Err(TreeError::Unavailable)));
+        assert!(matches!(wire::Host::span(store.data_mut(),reference,first.nodes[0].id,NodeSpanKind::Node),Err(TreeError::Unavailable)));
+        assert!(matches!(wire::Host::diagnostics(store.data_mut(),reference,0,1),Err(TreeError::Unavailable)));
+        assert!(matches!(wire::Host::unavailable_bindings(store.data_mut(),reference,"test".into(),0,1),Err(TreeError::Unavailable)));
+        let mut stale=reference;stale.token=0;
+        assert!(matches!(wire::Host::children(store.data_mut(),stale,0,0,1),Err(TreeError::Stale)),"lease checks precede mode denial");
+        store.data_mut().invocation.take().unwrap().rollback();transaction.cancel().unwrap();
     }
 
     #[test]

@@ -44,7 +44,7 @@ implements the API but has no Catalog still retains Unknown.
 The component currently provides the integration foundation:
 
 - component ID `nlaocs.core-library`
-- WIT package `nlaocs:skript-parser-addon@0.49.0` and ABI `31.0`
+- WIT package `nlaocs:skript-parser-addon@0.50.0` and ABI `32.0`
 - ABI and capability negotiation during `addon.initialize`
 - retention of the accepted WIT `RuntimeProfile`, including Skript/Minecraft
   versions and the enabled plugin list

@@ -64,7 +64,7 @@ The executable is `target/release/skript-lsp` (`skript-lsp.exe` on Windows), or
 under the configured `CARGO_TARGET_DIR`. CoreLibrary is mandatory and embedded
 at compile time: rebuild the executable after updating that component. External
 parser addons must match the host contract, currently WIT
-`nlaocs:skript-parser-addon@0.49.0`, ABI `31.0`.
+`nlaocs:skript-parser-addon@0.50.0`, ABI `32.0`.
 The current Core also imports catalog-data v6's bounded `class-lineage` query;
 rebuild host and Core together. See [declared storage inference](docs/declared-storage-inference.md)
 for ordinary type bounds, storage conversions and the separate runtime guarantees.

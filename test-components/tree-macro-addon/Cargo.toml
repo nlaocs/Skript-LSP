@@ -9,6 +9,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 parser-wasm = { path = "../../parser-wasm", default-features = false }
 wit-bindgen = "0.59.0"
+serde_json = "1.0.145"
 
 [package.metadata.component]
 package = "nlaocs:skript-parser-addon"

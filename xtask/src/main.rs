@@ -138,8 +138,9 @@ fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("build-core-library") => build_core_library(),
         Some("build-test-components") => build_test_components(),
+        Some("build-tree-macro-addon") => build_components(&[&TREE_MACRO_ADDON]),
         Some(command) => bail!("unknown xtask command {command:?}"),
-        None => bail!("usage: cargo run -p xtask -- <build-core-library|build-test-components>"),
+        None => bail!("usage: cargo run -p xtask -- <build-core-library|build-test-components|build-tree-macro-addon>"),
     }
 }
 

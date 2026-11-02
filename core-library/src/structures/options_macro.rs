@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::nlaocs::skript_parser_addon::{tree_data, types::{
-    AddonError, AddonErrorKind, Diagnostic, DiagnosticSeverity, GeneratedRawNode,
+    AddonError, AddonErrorKind, Diagnostic, DiagnosticSeverity, GeneratedRawNode, MacroUnavailability,
     GeneratedRawNodeKind, GeneratedRawTree, HookDecision, HookEffects, NodePage,
     NodeHeader, NodeSpanKind, NodeSummary, RawNodeKind, ReplaceNodeEdit, RetainedChildren,
     RetainedChildrenPlacement, TextEdit, TextRange, TreeEdit, TreeError, TreeMacroInput, TreeMacroOutput, TreeReference,
@@ -32,8 +32,7 @@ fn pages(mut query: impl FnMut(u64) -> Result<NodePage, AddonError>) -> Result<V
 pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonError> {
     // The target header is constant-sized. Comments/generated nodes need no
     // owned tree, line, child list or origin vectors merely to decline expansion.
-    if input.target.syntax_context != 0
-        || !matches!(input.target.kind, RawNodeKind::Simple | RawNodeKind::Section)
+    if !matches!(input.target.kind, RawNodeKind::Simple | RawNodeKind::Section)
     {
         return Ok(unchanged(Vec::new()));
     }
@@ -44,6 +43,12 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
     if !target.text.contains("{@") || inside_options(&input.tree, &target)? {
         return Ok(unchanged(Vec::new()));
     }
+    let unavailable=unavailable_bindings(input.tree)?;
+    if let Some(dependency)=unavailable.used_by(&target.text) {return Ok(unevaluated(dependency));}
+    // Hygiene still forbids positive expansion in a foreign generated context.
+    // Negative unavailability is checked first: generated quoted markers cannot
+    // become known literals merely by crossing a macro boundary.
+    if input.target.syntax_context!=0 {return Ok(unchanged(Vec::new()));}
     let root_headers = pages(|cursor| tree_data::roots(input.tree, cursor, 128).map_err(access_error))?;
     let mut roots = Vec::with_capacity(root_headers.len());
     for header in root_headers {
@@ -65,6 +70,7 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
         &all_options
     };
     let first = replace_options(&target.text, options);
+    if let Some(dependency)=unavailable.used_by(&first.text) {return Ok(unevaluated(dependency));}
     let mut text = first.text;
     let mut missing = first.missing;
     let mut edits = Some(first.edits);
@@ -72,6 +78,7 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
     // Generated nodes still re-enter the normal host macro pipeline.
     if target.header.parent.is_none() && preload_replaces_options(&text) {
         let second = replace_options(&text, &all_options);
+        if let Some(dependency)=unavailable.used_by(&second.text) {return Ok(unevaluated(dependency));}
         // Second-pass substitutions can cross a generated/retained boundary.
         // Keep the established generated replacement until composition of that
         // case has an explicit source witness; never guess first-pass offsets.
@@ -94,7 +101,7 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
     if let Some(edits) = edits
         && edit_code_supported(&input.tree, &target)?
     {
-        return Ok(TreeMacroOutput {
+        return Ok(TreeMacroOutput { unavailable: Vec::new(),
             decision: HookDecision::ContinueProcessing,
             edit: Some(TreeEdit::EditCode(edits)), effects: effects(diagnostics),
         });
@@ -106,13 +113,42 @@ pub(crate) fn expand(input: TreeMacroInput) -> Result<TreeMacroOutput, AddonErro
         })),
         _ => return Ok(unchanged(diagnostics)),
     };
-    Ok(TreeMacroOutput { decision: HookDecision::ContinueProcessing,
+    Ok(TreeMacroOutput { unavailable: Vec::new(), decision: HookDecision::ContinueProcessing,
         edit: Some(TreeEdit::ReplaceNode(ReplaceNodeEdit {
             replacement: GeneratedRawTree { roots: vec![0], nodes: vec![GeneratedRawNode {
                 id: 0, kind, text, children: Vec::new(),
             }] }, retained_children,
         })), effects: effects(diagnostics),
     })
+}
+
+const OPTION_NAMESPACE:&str="skript.options";
+struct UnavailableOptions {complete:bool,names:HashMap<String,u64>}
+impl UnavailableOptions {
+    fn used_by(&self,text:&str)->Option<MacroUnavailability> {
+        let mut rest=text;
+        while let Some(start)=rest.find("{@") {
+            let marker=&rest[start+2..];let end=marker.find('}')?;
+            if !self.complete {return Some(MacroUnavailability::IncompleteNamespace(OPTION_NAMESPACE.into()));}
+            if let Some(id)=self.names.get(&marker[..end]) {return Some(MacroUnavailability::Binding(*id));}
+            rest=&marker[end+1..];
+        }
+        None
+    }
+}
+fn unavailable_bindings(tree:TreeReference)->Result<UnavailableOptions,AddonError> {
+    let mut cursor=0;let mut complete=true;let mut names=HashMap::new();
+    loop {
+        let page=tree_data::unavailable_bindings(tree,OPTION_NAMESPACE,cursor,128).map_err(access_error)?;
+        complete&=page.complete;
+        for binding in page.bindings {
+            if names.len()>=256||names.insert(binding.name,binding.id).is_some(){return Err(invalid("Unavailable options page count/identity mismatch"));}
+        }
+        match page.next {Some(next) if next>cursor=>cursor=next,None=>return Ok(UnavailableOptions {complete,names}),_=>return Err(invalid("Unavailable options cursor did not advance"))}
+    }
+}
+fn unevaluated(dependency:MacroUnavailability)->TreeMacroOutput {
+    TreeMacroOutput {decision:HookDecision::ContinueProcessing,edit:None,unavailable:vec![dependency],effects:effects(Vec::new())}
 }
 
 fn edit_code_supported(tree: &TreeReference, target: &NodeSummary) -> Result<bool, AddonError> {
@@ -236,7 +272,7 @@ fn replace_options(input: &str, options: &HashMap<String, String>) -> Replacemen
 }
 
 fn unchanged(diagnostics: Vec<Diagnostic>) -> TreeMacroOutput {
-    TreeMacroOutput {
+    TreeMacroOutput { unavailable: Vec::new(),
         decision: HookDecision::ContinueProcessing,
         edit: None,
         effects: effects(diagnostics),
@@ -255,6 +291,20 @@ fn effects(diagnostics: Vec<Diagnostic>) -> HookEffects {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unavailable_markers_are_not_constants_even_when_quoted_or_substituted() {
+        let unavailable=UnavailableOptions {complete:true,names:HashMap::from([("computed".into(),9)])};
+        for text in ["{@computed}","set {_x} to \"{@computed}\"","option {@computed}"] {
+            assert!(matches!(unavailable.used_by(text),Some(MacroUnavailability::Binding(9))),"{text}");
+        }
+        assert!(unavailable.used_by("{@missing}").is_none());
+        let first=replace_options("\"{@static}\"",&HashMap::from([("static".into(),"{@computed}".into())]));
+        assert!(matches!(unavailable.used_by(&first.text),Some(MacroUnavailability::Binding(9))));
+        let incomplete=UnavailableOptions {complete:false,names:HashMap::new()};
+        assert!(matches!(incomplete.used_by("{@known}"),Some(MacroUnavailability::IncompleteNamespace(_))));
+        assert!(incomplete.used_by("ordinary literal").is_none());
+    }
 
     #[test]
     fn replacement_edits_use_original_utf8_byte_offsets() {

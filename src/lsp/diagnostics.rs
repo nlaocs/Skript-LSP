@@ -534,13 +534,16 @@ pub(super) fn from_result(
                 range,
                 severity: Some(DiagnosticSeverity::INFORMATION),
                 code: Some(NumberOrString::String(
-                    "parser.function-namespace-incomplete".into(),
+                    match region.kind {
+                        parser_wasm::host::DependencyUnavailableKind::FunctionNamespace=>"parser.function-namespace-incomplete",
+                        parser_wasm::host::DependencyUnavailableKind::SourceMacro=>"parser.source-macro-unavailable",
+                    }.into(),
                 )),
                 source: Some("skript-lsp".into()),
-                message: format!(
-                    "Function {} remains unresolved because project discovery is incomplete",
-                    region.name
-                ),
+                message: match region.kind {
+                    parser_wasm::host::DependencyUnavailableKind::FunctionNamespace=>format!("Function {} remains unresolved because project discovery is incomplete",region.name),
+                    parser_wasm::host::DependencyUnavailableKind::SourceMacro=>format!("Source macro remains unevaluated: {}",region.name),
+                },
                 ..Default::default()
             });
         }

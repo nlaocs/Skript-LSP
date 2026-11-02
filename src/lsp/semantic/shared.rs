@@ -74,6 +74,29 @@ mod tests {
         assert_eq!(support.certainty,Certainty::Heuristic);assert!(!support.candidates_complete);
     }
     #[test]
+    fn unavailable_source_withdraws_local_shared_and_completion_only_candidates() {
+        let mut candidate_key=key(false);candidate_key.name="candidate-only".into();
+        let mut candidate_only=fact("java.lang.Long");
+        candidate_only.candidate=Candidate::new(&candidate_only.ty);
+        candidate_only.ty=InferredType::Unknown;
+        let mut facts=Facts::from([(key(true),fact("java.lang.String")),(key(false),fact("java.lang.Long")),(candidate_key.clone(),candidate_only)]);
+        facts.get_mut(&key(true)).unwrap().definitions.push(TextRange::new(0,4));
+        facts.get_mut(&key(false)).unwrap().definitions.push(TextRange::new(5,9));
+        let mut suspended=facts.clone();expire(&mut suspended,None);
+        assert!(suspended[&key(true)].ty.proven_types().is_some());
+        assert!(candidate_bound(&suspended[&key(false)]).is_some());
+        assert!(candidate_bound(&suspended[&candidate_key]).is_some());
+        invalidate(&mut facts,None,Invalidation::Source);
+        for fact in facts.values() {
+            assert!(matches!(fact.ty,InferredType::Unknown));
+            assert!(fact.definitions.is_empty());assert!(fact.candidate.is_none());
+            assert!(transfer::bound(&fact.ty).is_none());
+        }
+        assert!(!facts.contains_key(&candidate_key),"candidate-only knowledge is withdrawn, not historical proof");
+        assert!(facts[&key(true)].history.is_some());
+        assert!(facts[&key(false)].history.is_some());
+    }
+    #[test]
     fn candidates_join_across_branches_but_never_initialize_a_fact() {
         let mut left=Facts::new();let id=Identity {key:key(false),alias:None,list:false,edit_range:None};
         let output=transfer::Output {value:transfer::TypeBound {types:vec!["java.lang.String".into()],complete:true,multiple:false,maybe_unset:false},

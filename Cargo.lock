@@ -1846,6 +1846,7 @@ name = "tree-macro-addon"
 version = "0.1.0"
 dependencies = [
  "parser-wasm",
+ "serde_json",
  "wit-bindgen 0.59.0",
 ]
 

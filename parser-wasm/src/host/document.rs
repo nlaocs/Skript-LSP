@@ -243,10 +243,14 @@ pub struct ExtensionFaultRegion {
     pub fault: skript_parser::ExtensionFault,
 }
 
-/// A current-source recovery owner whose Function dependency is unavailable.
+/// A current-source recovery owner whose semantic dependency is unavailable.
 /// It is not a guest failure or an ordinary input syntax error.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DependencyUnavailableKind { FunctionNamespace, SourceMacro }
+
 #[derive(Debug, Clone)]
 pub struct DependencyUnavailableRegion {
+    pub kind: DependencyUnavailableKind,
     pub span: MappedSpan,
     pub name: String,
 }
@@ -319,6 +323,7 @@ impl DocumentParseResult {
 }
 
 struct UncommittedDocument {
+    macro_dependencies_complete: bool,
     dynamic_syntax: Arc<DynamicSyntaxSnapshot>,
     declaration_calls: Vec<HookCall>,
     fault_regions: Vec<ExtensionFaultRegion>,
@@ -547,7 +552,8 @@ impl ParserHost {
                 .native_bindings(&request.context.document_id, request.context.document_revision)?;
             let frame = frame.lock().map_err(|_| super::project_declarations::invalid("project declaration arena poisoned"))?;
             frame.finish(annotations, &super::project_declarations::ProviderStamp::capture(self),
-                parsed.component_failures.is_empty() && parsed.fault_regions.is_empty())
+                parsed.component_failures.is_empty() && parsed.fault_regions.is_empty() && parsed.macro_dependencies_complete
+                    && !dependency_unavailable.iter().any(|region|region.kind==DependencyUnavailableKind::SourceMacro))
                 .map(Some).map_err(super::project_declarations::invalid)
         })();
         let declaration_exports = match gathered {
@@ -577,7 +583,7 @@ impl ParserHost {
         self.finish_incremental_document(
             &request.context.document_id,
             request.context.document_revision,
-            project_cache_ready && parsed.component_failures.is_empty()
+            project_cache_ready && parsed.macro_dependencies_complete && parsed.component_failures.is_empty()
                 && parsed.fault_regions.is_empty()
                 && dependency_unavailable.is_empty(),
         );
@@ -592,7 +598,7 @@ impl ParserHost {
             static_name_rename: self.static_name_rename_certificate(),
             function_namespace_complete,
             dependency_unavailable: dependency_unavailable.clone(),
-            execution_status: if parsed.fault_regions.is_empty()
+            execution_status: if parsed.macro_dependencies_complete && parsed.fault_regions.is_empty()
                 && dependency_unavailable.is_empty()
             {
                 DocumentExecutionStatus::Complete
@@ -713,8 +719,12 @@ impl ParserHost {
             effects: tree_effects,
             calls: tree_macro_calls,
             failures: tree_failures,
+            declaration_calls:macro_declaration_calls,declaration_failures:macro_declaration_failures,
+            discovery_complete:macro_dependencies_complete,unavailable:macro_unavailable,unavailable_all:_,
         } = if global_macro_fault {
             TreeMacroResult {
+                declaration_calls:Vec::new(),declaration_failures:Vec::new(),discovery_complete:false,
+                unavailable:Vec::new(),unavailable_all:false,
                 decision: HookDecision::ContinueProcessing,
                 source,
                 tree: raw_tree,
@@ -749,10 +759,12 @@ impl ParserHost {
             &tree_failures,
             "TreeMacro",
         )?);
+        if let Some(regions)=self.native_dependency_unavailable.as_mut(){regions.extend(macro_unavailable.iter().cloned());}
         let mut syntax_tree = raw_tree.clone();
         for node in &mut syntax_tree.nodes {
             let node_span = mapped_span_to_wit(node.span.clone());
             if global_macro_fault
+                || macro_unavailable.iter().any(|region|macro_dependency_covers_node(&region.span,&node_span))
                 || fault_regions
                     .iter()
                     .any(|region| fault_contains(&region.span, &node_span))
@@ -764,7 +776,7 @@ impl ParserHost {
         // clone its node arena merely to expose bounded declaration queries.
         let mut syntax_tree = Arc::new(syntax_tree);
         let mut declaration_effects = empty_effects();
-        let mut declaration_calls = Vec::new();
+        let mut declaration_calls = macro_declaration_calls;
         let mut declaration_failures = Vec::new();
         if !global_macro_fault {
             self.begin_project_declarations(request, &config.declarations).map_err(|error|
@@ -778,7 +790,7 @@ impl ParserHost {
             ))?
         {
             declaration_effects = prepared.effects;
-            declaration_calls = prepared.calls;
+            declaration_calls.extend(prepared.calls);
             declaration_failures = prepared.failures;
         }
         check_cancelled(&request.context, &config.cancellation, DocumentParseStage::DocumentDeclarations)?;
@@ -926,6 +938,7 @@ impl ParserHost {
         merge_effects(&mut effects, ast_effects);
         let mut component_failures = text_failures;
         component_failures.extend(tree_failures);
+        component_failures.extend(macro_declaration_failures);
         component_failures.extend(declaration_failures);
         component_failures.extend(syntax_failures);
         component_failures.extend(ast_failures);
@@ -939,6 +952,7 @@ impl ParserHost {
             effects.parse_results.clear();
         }
         Ok(UncommittedDocument {
+            macro_dependencies_complete,
             dynamic_syntax,
             declaration_calls,
             fault_regions,
@@ -1032,6 +1046,26 @@ fn document_fault_regions(
     Ok(regions)
 }
 
+/// Negative macro evidence masks a whole native node only when its complete
+/// original extent is covered. A transformed ancestor has several origins; one
+/// contained child fragment must never erase that ancestor and its siblings.
+fn macro_dependency_covers_node(affected:&MappedSpan,node:&MappedSpan)->bool {
+    if node.origins.is_empty() {return false;}
+    let mut ranges=affected.origins.iter().map(|o|(o.original_range.start,o.original_range.end)).collect::<Vec<_>>();
+    ranges.sort_unstable();
+    node.origins.iter().all(|origin| {
+        let start=origin.original_range.start;let end=origin.original_range.end;
+        if start==end {return ranges.iter().any(|(a,b)|*a<=start&&start<=*b);}
+        let mut covered=start;
+        for (a,b) in &ranges {
+            if *b<=covered {continue;}
+            if *a>covered {return false;}
+            covered=covered.max(*b);if covered>=end {return true;}
+        }
+        false
+    })
+}
+
 fn fault_contains(fault: &MappedSpan, node: &MappedSpan) -> bool {
     fault.origins.iter().any(|affected| {
         node.origins.iter().any(|origin| {
@@ -1045,6 +1079,21 @@ fn fault_contains(fault: &MappedSpan, node: &MappedSpan) -> bool {
 mod tests {
     use super::*;
     use crate::host::HostConfig;
+
+    #[test]
+    fn source_macro_coverage_does_not_mask_an_ancestor_with_only_one_affected_fragment() {
+        let source=MappedSource::identity("abcdefghijkl");
+        let span=|a,b|mapped_span_to_wit(source.map_range(ParserTextRange::new(a,b)).unwrap());
+        let affected=span(4,8);let child=span(4,8);
+        let mut ancestor=span(0,12);ancestor.origins=vec![span(0,4).origins[0].clone(),child.origins[0].clone(),span(8,12).origins[0].clone()];
+        assert!(!macro_dependency_covers_node(&affected,&ancestor));
+        assert!(macro_dependency_covers_node(&affected,&child));
+        let mut contiguous=affected.clone();contiguous.origins=vec![span(4,6).origins[0].clone(),span(6,8).origins[0].clone()];
+        assert!(macro_dependency_covers_node(&contiguous,&child),"adjacent fragments cover the original child");
+        contiguous.origins=vec![span(4,5).origins[0].clone(),span(7,8).origins[0].clone()];
+        assert!(!macro_dependency_covers_node(&contiguous,&child),"a gap is not full coverage");
+        assert!(macro_dependency_covers_node(&span(0,12),&ancestor),"whole-document fallback still masks all origins");
+    }
 
     fn native_test_host() -> ParserHost {
         let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))

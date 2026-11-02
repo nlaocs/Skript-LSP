@@ -1,4 +1,4 @@
-package nlaocs:skript-parser-addon@0.49.0;
+package nlaocs:skript-parser-addon@0.50.0;
 
 interface types {
     /// Stable location of one top-level SSG JSON object in an exact retained source.
@@ -1884,6 +1884,19 @@ interface types {
     }
 
 
+    /// These names have declarations, but no evaluated value. IDs are opaque,
+    /// current-call observations and confer no type/runtime authority.
+    record macro-binding { id: u64, name: string }
+    record macro-binding-page {
+        complete: bool,
+        bindings: list<macro-binding>,
+        next: option<u64>,
+    }
+    variant macro-unavailability {
+        binding(u64),
+        incomplete-namespace(string),
+    }
+
     record tree-macro-input {
         context: invocation-context,
         tree: tree-reference,
@@ -1894,6 +1907,9 @@ interface types {
     record tree-macro-output {
         decision: hook-decision,
         edit: option<tree-edit>,
+        /// No edit/semantic effects may accompany an unavailable result. The
+        /// host owns the affected target span and rolls back the whole target.
+        unavailable: list<macro-unavailability>,
         effects: hook-effects,
     }
     record ast-macro-input {

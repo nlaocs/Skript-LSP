@@ -1,5 +1,12 @@
 # Parser WASM ABI
 
+ABI **32 / WIT 0.50** adds readonly, source-bound macro declarations and lazy
+unavailable-binding queries on an invocation-scoped Tree lease. A typed Tree
+macro result reports unevaluated dependencies without pretending they are known
+values. Host, Core and all addons must be rebuilt together; ABI31 / WIT0.49
+Components are incompatible. Capture schemas and the 20M per-call fuel budget
+are unchanged. See [macro dependencies](docs/macro-dependencies.md).
+
 ABI **31 / WIT 0.49** adds the `semantic-transfer` guest export and optional
 `parser.semantic-transfer` v1 capability for current, complete public type bounds.
 Read results, source writeback/poststate, binding effects and destination storage
@@ -85,7 +92,7 @@ without linking the native host.
 
 ## WIT Contract
 
-The WIT package is `nlaocs:skript-parser-addon@0.49.0`. Its
+The WIT package is `nlaocs:skript-parser-addon@0.50.0`. Its
 `parser-addon` world imports host services and exports guest implementations.
 This WIT package version is separate from the Rust crate and component
 versions: both workspace crates currently declare `0.1.0`, and CoreLibrary
@@ -160,7 +167,7 @@ multiple targets for each registered semantic handler, including dynamic
   subscription manifest changed it to 0.41.0; explicit header-local Structure
   handler promises changed it to 0.42.0; invocation-scoped immutable Tree access
 changed it to 0.43.0. Bounded source preparation changed it to 0.48.0;
-the semantic-transfer export changed it to 0.49.0. The manifest's current `abi` value is 31.0 and
+the semantic-transfer export changed it to 0.49.0. Unavailable macro dependencies changed it to 0.50.0. The manifest's current `abi` value is 32.0 and
   is a runtime handshake that requires an exact
   `major.minor` match.
 
@@ -182,7 +189,7 @@ This WIT/ABI change requires rebuilding CoreLibrary and external components.
 Components built for WIT 0.40.0 fail during instantiation with an unresolved
 `@0.40.0` host import, before their manifest can be read. A component using the
 current WIT with an ABI 22.0 manifest is instead rejected by the ABI handshake,
-which reports the required ABI 31.0. Rebuild against the current WIT and SDK;
+which reports the required ABI 32.0. Rebuild against the current WIT and SDK;
 changing only the manifest version is insufficient.
 
 ### WIT 0.41: omission provenance and explicit reuse contracts

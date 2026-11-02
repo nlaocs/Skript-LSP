@@ -135,7 +135,7 @@ mod guest {
 fn wit_package_resolves_with_the_expected_world_and_exports() {
     assert_eq!(
         parser_wasm::ABI_VERSION,
-        parser_wasm::AbiVersion::new(31, 0)
+        parser_wasm::AbiVersion::new(32, 0)
     );
 
     let wit = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit");
@@ -152,7 +152,7 @@ fn wit_package_resolves_with_the_expected_world_and_exports() {
             .as_ref()
             .map(ToString::to_string)
             .as_deref(),
-        Some("0.49.0")
+        Some("0.50.0")
     );
 
     let world = package
@@ -511,7 +511,7 @@ fn guest_bindings_expose_typed_tree_edits() {
         ReplaceNodeEdit, RetainedChildren, RetainedChildrenPlacement, TreeEdit, TreeMacroOutput,
     };
 
-    let output = TreeMacroOutput {
+    let output = TreeMacroOutput { unavailable: Vec::new(),
         decision: HookDecision::ContinueProcessing,
         edit: Some(TreeEdit::ReplaceNode(ReplaceNodeEdit {
             replacement: GeneratedRawTree {
@@ -613,7 +613,14 @@ fn immutable_tree_queries_are_an_explicit_bounded_import_contract() {
     let mut resolve = wit_parser::Resolve::default();
     let (package, _) = resolve.push_dir(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("wit")).unwrap();
     let actual = surface_names(&resolve, package, "tree-data", None);
-    compare_names(&actual, &["children", "details", "diagnostics", "info", "node", "roots", "span"]).unwrap();
+    compare_names(&actual, &["children", "details", "diagnostics", "info", "node", "roots", "span", "unavailable-bindings"]).unwrap();
+    let types=&resolve.interfaces[resolve.packages[package].interfaces["types"]];
+    let wit_parser::TypeDefKind::Record(page)=&resolve.types[types.types["macro-binding-page"]].kind else {panic!("binding page")};
+    assert_eq!(page.fields.iter().map(|f|f.name.as_str()).collect::<Vec<_>>(),["complete","bindings","next"]);
+    let wit_parser::TypeDefKind::Variant(dependency)=&resolve.types[types.types["macro-unavailability"]].kind else {panic!("dependency variant")};
+    assert_eq!(dependency.cases.iter().map(|c|c.name.as_str()).collect::<Vec<_>>(),["binding","incomplete-namespace"]);
+    let wit_parser::TypeDefKind::Record(output)=&resolve.types[types.types["tree-macro-output"]].kind else {panic!("tree output")};
+    assert_eq!(output.fields.iter().map(|f|f.name.as_str()).collect::<Vec<_>>(),["decision","edit","unavailable","effects"]);
 }
 
 #[test]

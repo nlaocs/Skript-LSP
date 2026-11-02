@@ -1,6 +1,13 @@
 # Parser WASM ABI
 
-現在の契約は **ABI 31 / WIT 0.49** です。`semantic-transfer` guest export と、任意の
+ABI **32 / WIT 0.50** adds readonly, source-bound macro declarations and lazy
+unavailable-binding queries on an invocation-scoped Tree lease. A typed Tree
+macro result reports unevaluated dependencies without pretending they are known
+values. Host, Core and all addons must be rebuilt together; ABI31 / WIT0.49
+Components are incompatible. Capture schemas and the 20M per-call fuel budget
+are unchanged. See [macro dependencies](docs/macro-dependencies.md).
+
+以前の **ABI 31 / WIT 0.49** では、次の契約が追加されました。`semantic-transfer` guest export と、任意の
 `parser.semantic-transfer` v1 capability を追加しました。現在の完全な公開型上限について、
 読取結果・元変数への書戻しと事後状態・他のbindingへの作用・コピー先の保存結果を分けます。
 host・Core・全addonを揃えて再buildしてください。ABI 30との混在は拒否します。

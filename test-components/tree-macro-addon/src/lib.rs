@@ -77,6 +77,9 @@ impl addon::Guest for TreeMacroAddon {
                 minor: ABI_VERSION.minor,
             },
             capabilities: vec![
+                CapabilityRequirement {id:parser_wasm::CAPABILITY_MACRO_DECLARATIONS.into(),minimum_version:1,required:true},
+                CapabilityRequirement {id:parser_wasm::CAPABILITY_MACRO_DEPENDENCIES.into(),minimum_version:1,required:true},
+                CapabilityRequirement {id:parser_wasm::CAPABILITY_PROJECT_STABLE_SEMANTICS.into(),minimum_version:2,required:true},
                 CapabilityRequirement {
                     id: CAPABILITY_TREE_MACRO.to_owned(),
                     minimum_version: 1,
@@ -96,7 +99,7 @@ impl addon::Guest for TreeMacroAddon {
                 mode: HookMode::Transform,
                 capability_id: CAPABILITY_TREE_MACRO.to_owned(),
                 selector: empty_selector(),
-            }],
+            },HookSubscription {id:"tree.declarations".into(),target:HookTarget::ParseStage,phase:HookPhase::Document,priority:0,mode:HookMode::Transform,capability_id:parser_wasm::CAPABILITY_MACRO_DECLARATIONS.into(),selector:empty_selector()}],
             registered_syntax_handlers: Vec::new(),
             catalog_annotations: Vec::new(),
             state_namespaces: vec![StateNamespaceDeclaration {
@@ -130,6 +133,48 @@ impl addon::Guest for TreeMacroAddon {
     }
 }
 
+fn macro_declarations(mut input:HookInvocation)->Result<HookOutput,AddonError> {
+    use nlaocs::skript_parser_addon::{tree_data,types::{HookPayload,MetadataEntry,RawNodeKind,TreeReference}};
+    let HookPayload::Parser(ref mut request)=input.payload else{return Err(unsupported("macro carrier"));};
+    let value:serde_json::Value=serde_json::from_str(&request.options[0].value).map_err(|e|addon_error(AddonErrorKind::InvalidPayload,e.to_string()))?;
+    let number=|key:&str|value[key].as_str().and_then(|v|v.parse().ok()).ok_or_else(||addon_error(AddonErrorKind::InvalidPayload,"tree identity"));
+    let tree=TreeReference {epoch_high:number("epochHigh")?,epoch_low:number("epochLow")?,token:number("token")?,generation:number("generation")?};
+    let mut bindings=Vec::new();let mut complete=true;let mut cursor=0;
+    loop {
+        let page=tree_data::roots(tree,cursor,128).map_err(|e|addon_error(AddonErrorKind::Internal,format!("roots: {e:?}")))?;
+        for header in page.nodes {
+            if matches!(header.kind,RawNodeKind::Blank|RawNodeKind::Comment){continue;}
+            let node=tree_data::node(tree,header.id).map_err(|e|addon_error(AddonErrorKind::Internal,format!("node: {e:?}")))?.unwrap();
+            if node.text=="trap-declarations" {panic!("fixture discovery trap");}
+            if node.text=="missing-declarations" {return Ok(HookOutput {decision:HookDecision::ContinueProcessing,replacement:None,effects:empty_effects()});}
+            if node.text=="incomplete-declarations" {complete=false;}
+            if let Some(name)=node.text.strip_prefix("declare-unavailable ") {
+                bindings.push(serde_json::json!({"root":header.id,"namespace":"skript.options","name":name}));
+            }
+        }
+        match page.next {Some(next)=>cursor=next,None=>break}
+    }
+    request.options.push(MetadataEntry {key:"macro.unavailable-bindings.v1".into(),owner_component_id:None,
+        value:serde_json::json!({"version":1,"complete":complete,"bindings":bindings}).to_string()});
+    Ok(HookOutput {decision:HookDecision::ContinueProcessing,replacement:Some(input.payload),effects:empty_effects()})
+}
+
+static SAVED_BINDING_ID:std::sync::Mutex<Option<u64>>=std::sync::Mutex::new(None);
+fn macro_dependency(input:&TreeMacroInput,text:&str)->Result<TreeMacroOutput,AddonError> {
+    use nlaocs::skript_parser_addon::{tree_data,types::MacroUnavailability as U};
+    let reference=if text=="unqueried-binding" {U::Binding(u64::MAX)}else{
+        let page=tree_data::unavailable_bindings(input.tree,"skript.options",0,128)
+            .map_err(|e|addon_error(AddonErrorKind::Internal,format!("bindings: {e:?}")))?;
+        if text=="consume-incomplete"||text=="false-incomplete" {U::IncompleteNamespace("skript.options".into())}
+        else {
+            let id=page.bindings.first().ok_or_else(||addon_error(AddonErrorKind::InvalidPayload,"no fixture binding"))?.id;
+            if text=="remember-binding" {*SAVED_BINDING_ID.lock().unwrap()=Some(id);return Ok(unchanged());}
+            U::Binding(if text=="stale-binding" {SAVED_BINDING_ID.lock().unwrap().unwrap()}else{id})
+        }
+    };
+    Ok(TreeMacroOutput {decision:HookDecision::ContinueProcessing,edit:None,effects:empty_effects(),unavailable:vec![reference]})
+}
+
 static SAVED_TREE_REFERENCE: std::sync::Mutex<Option<nlaocs::skript_parser_addon::types::TreeReference>> = std::sync::Mutex::new(None);
 
 impl tree_macro::Guest for TreeMacroAddon {
@@ -140,6 +185,17 @@ impl tree_macro::Guest for TreeMacroAddon {
         record_invocation(&input, &target.summary.text)?;
 
         match target.summary.text.as_str() {
+            "consume-unavailable"|"consume-incomplete"|"unqueried-binding"|"false-incomplete"|"remember-binding"|"stale-binding"=>macro_dependency(&input,&target.summary.text),
+            "generate-unavailable"=>Ok(changed(replace_single("consume-unavailable"))),
+            "generate-nested-unavailable"=>Ok(changed(TreeEdit::ReplaceNode(ReplaceNodeEdit {
+                replacement:tree(vec![0],vec![
+                    node(0,GeneratedRawNodeKind::Section,"unchanged outer",vec![1]),
+                    node(1,GeneratedRawNodeKind::Section,"unchanged inner",vec![2]),
+                    node(2,GeneratedRawNodeKind::Simple,"consume-unavailable",vec![]),
+                ]),retained_children:None,
+            }))),
+            "generate-quoted-unavailable"=>Ok(changed(replace_single("set {_generated} to \"{@computed}\""))),
+            "generate-declaration"=>Ok(changed(TreeEdit::EditCode(vec![TextEdit {range:TextRange {start:0,end:20},replacement:"declare-unavailable generated".into(),anchor:None}]))),
             "edit-code" => Ok(changed(TreeEdit::EditCode(vec![TextEdit {
                 range: TextRange { start:0,end:9 }, replacement:"code-edited".into(), anchor:None,
             }]))),
@@ -198,7 +254,7 @@ impl tree_macro::Guest for TreeMacroAddon {
                     related: Vec::new(),
                 }],
             }),
-            "reject" => Ok(TreeMacroOutput {
+            "reject" => Ok(TreeMacroOutput { unavailable: Vec::new(),
                 decision: HookDecision::Reject(Rejection {
                     reason: "fixture requested tree rollback".to_owned(),
                     diagnostics: vec![Diagnostic {
@@ -333,7 +389,7 @@ fn replace_single(text: &str) -> TreeEdit {
 }
 
 fn changed(edit: TreeEdit) -> TreeMacroOutput {
-    TreeMacroOutput {
+    TreeMacroOutput { unavailable: Vec::new(),
         decision: HookDecision::ContinueProcessing,
         edit: Some(edit),
         effects: empty_effects(),
@@ -341,7 +397,7 @@ fn changed(edit: TreeEdit) -> TreeMacroOutput {
 }
 
 fn unchanged() -> TreeMacroOutput {
-    TreeMacroOutput {
+    TreeMacroOutput { unavailable: Vec::new(),
         decision: HookDecision::ContinueProcessing,
         edit: None,
         effects: empty_effects(),
@@ -358,8 +414,8 @@ fn empty_effects() -> HookEffects {
 }
 
 impl hooks::Guest for TreeMacroAddon {
-    fn invoke(_input: HookInvocation) -> Result<HookOutput, AddonError> {
-        Err(unsupported("hook"))
+    fn invoke(input: HookInvocation) -> Result<HookOutput, AddonError> {
+        if input.context.subscription_id=="tree.declarations" {macro_declarations(input)}else{Err(unsupported("hook"))}
     }
 }
 
@@ -425,7 +481,8 @@ mod tests {
     fn manifest_declares_tree_phase_and_private_state() {
         let manifest = <TreeMacroAddon as addon::Guest>::manifest();
         assert_eq!(manifest.component_id, COMPONENT_ID);
-        assert_eq!(manifest.subscriptions.len(), 1);
+        assert_eq!(manifest.subscriptions.len(), 2);
+        assert_eq!(manifest.subscriptions[1].capability_id,parser_wasm::CAPABILITY_MACRO_DECLARATIONS);
         assert!(matches!(manifest.subscriptions[0].phase, HookPhase::Tree));
         assert!(matches!(
             manifest.subscriptions[0].mode,

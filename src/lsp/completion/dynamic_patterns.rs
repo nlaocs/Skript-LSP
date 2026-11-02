@@ -345,6 +345,47 @@ mod tests {
 
 
     #[test]
+    #[ignore="requires the explicit computed-option profile and matching current guest Component"]
+    fn current_computed_options_mask_quoted_values_and_expire_old_local_facts() {
+        let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");
+        let candidate=std::env::var("SKRIPT_REFLECT_CANDIDATE_WASM").expect("explicit candidate");
+        let catalog=Arc::new(ssg::load(std::path::Path::new(&snapshot)).unwrap().into_catalog());
+        let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(catalog.clone()),..Default::default()}).unwrap();
+        host.load_addon(&std::fs::read(candidate).unwrap()).unwrap();
+        let uri="file:///computed-editor/value.sk";
+        let blocked="# Unicode \u{65e5}\u{672c}\u{1f600}\noption computed:\n    get:\n        return 123\non load:\n    set {shared_before} to 456\n    set {_before} to 123\n    set {_not_constant} to \"{@computed}\"\n    set {_copy} to {_before}\n    set {_shared_copy} to {shared_before}\n    set {_recovered} to 789\n";
+        let good=blocked.replace("{@computed}","literal").replace("option computed:\n    get:\n        return 123\n","");
+        for (revision,text,unknown) in [(1,blocked.to_owned(),true),(2,good,false),(3,blocked.to_owned(),true)] {
+            let source:Arc<str>=text.into();
+            let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///computed-editor",uri,revision,source.to_string()),Default::default()).unwrap();
+            assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+            assert_eq!(!result.dependency_unavailable.is_empty(),unknown);
+            let semantic=crate::lsp::semantic::Document::from_result_with_host(&result,source.clone(),uri.parse().unwrap(),catalog.clone(),&mut host,None).unwrap();
+            let lines=crate::lsp::positions::LineIndex::new(&source);
+            for name in ["{_before}","{shared_before}"] {
+                let position=lines.position(&source,source.rfind(name).unwrap()+1).unwrap();
+                let (_,ty)=semantic.type_at(position).unwrap_or_else(||panic!("read fact missing: {name}"));
+                // This snapshot has no certified global SET result. Keep that read
+                // Unknown on both paths; the local assignment follows it so the
+                // local baseline is established before the Source barrier.
+                let expected_unknown=unknown||name=="{shared_before}";
+                assert_eq!(matches!(ty,crate::lsp::semantic::InferredType::Unknown),expected_unknown,"{name}: {ty:?}");
+            }
+            let at=lines.position(&source,source.find("{_recovered}").unwrap()+"{_recovered}".len()).unwrap();
+            assert!(semantic.write_type_hints().iter().any(|h|h.position==at&&matches!(&h.label,lsp_types::InlayHintLabel::String(label) if label==": long")),"later fresh assignment recovers normally");
+            if unknown {
+                assert!(!result.ast.nodes.iter().any(|n|n.text=="set {_not_constant} to \"{@computed}\""));
+                assert!(result.raw_tree.nodes.iter().any(|n|n.text=="set {_not_constant} to \"{@computed}\""),"raw Source barrier survives");
+                assert!(!result.declaration_exports.as_ref().is_some_and(|exports|exports.complete()));
+            }
+        }
+        assert!(host.release_document("file:///computed-editor",uri,3).unwrap());
+        let reopened=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///computed-editor",uri,1,blocked.to_owned()),Default::default()).unwrap();
+        assert!(reopened.component_failures.is_empty());assert_eq!(reopened.dependency_unavailable.len(),1);
+    }
+
+
+    #[test]
     #[ignore="requires the explicit handler-entry profile and matching current guest Component"]
     fn current_handler_entry_invalid_delta_keeps_unrelated_core_inlay_type() {
         let snapshot=std::env::var("SKRIPT_REFLECT_SNAPSHOT").expect("explicit snapshot");

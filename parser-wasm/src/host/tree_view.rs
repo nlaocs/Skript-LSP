@@ -47,6 +47,9 @@ pub(super) struct Lease {
     cancellation: Option<DocumentCancellationToken>,
     calls: usize,
     bytes: usize,
+    macro_snapshot: Option<Arc<super::macro_dependencies::Snapshot>>,
+    macro_reads: super::macro_dependencies::Reads,
+    macro_headers_only: bool,
 }
 
 impl Lease {
@@ -64,7 +67,16 @@ impl Lease {
             }
         }
         Ok(Self { reference: Reference { epoch_high: PROCESS_EPOCH.0, epoch_low: PROCESS_EPOCH.1, token, generation }, tree, cancellation,
-            calls: 0, bytes: 0 })
+            calls: 0, bytes: 0, macro_snapshot:None, macro_reads:Default::default(), macro_headers_only:false })
+    }
+
+    pub fn for_macro_headers(mut self)->Self {self.macro_headers_only=true;self}
+    pub fn macro_headers_only(&self)->bool {self.macro_headers_only}
+    pub fn with_macro_snapshot(mut self,snapshot:Arc<super::macro_dependencies::Snapshot>)->Self {self.macro_snapshot=Some(snapshot);self}
+    pub fn macro_snapshot(&self)->Option<Arc<super::macro_dependencies::Snapshot>> {self.macro_snapshot.clone()}
+    pub fn macro_reads(&self)->super::macro_dependencies::Reads {self.macro_reads.clone()}
+    pub fn observe_macro_page(&mut self,namespace:&str,complete:bool,ids:impl Iterator<Item=u64>) {
+        self.macro_reads.namespaces.insert(namespace.into(),complete);self.macro_reads.bindings.extend(ids);
     }
 
     #[cfg(test)]
