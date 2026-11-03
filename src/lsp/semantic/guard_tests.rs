@@ -44,8 +44,9 @@ fn section(f:&mut Fixture,row:usize,condition:u64,body:&[u64])->u64 {
         metadata(OPERANDS,json!({"version":1,"prefix":[0]})),metadata(guards::VALUES,json!({"version":1,"kind":"preserve"})),
     ]);id
 }
-fn inspect(f:&mut Fixture,row:usize)->u64 {
-    let value=read(f,row);let id=f.push(SyntaxKind::Effect,"effect",f.line(row));f.seal(id,&[(0,value)]);
+fn inspect(f:&mut Fixture,row:usize)->u64 {inspect_named(f,row,"{_value}","value")}
+fn inspect_named(f:&mut Fixture,row:usize,spelling:&str,name:&str)->u64 {
+    let value=read_named(f,row,spelling,name);let id=f.push(SyntaxKind::Effect,"effect",f.line(row));f.seal(id,&[(0,value)]);
     f.nodes[id as usize].metadata.extend([metadata(LOCAL_EFFECTS,json!({"version":1,"kind":"preserve"})),metadata(OPERANDS,json!({"version":1,"prefix":[0]})),metadata(crate::lsp::semantic::shared::BINDINGS,json!({"version":1,"local":"preserve","shared":"preserve"}))]);id
 }
 fn finish(f:Fixture,root:u64,reads:&mut Reads)->Document {
@@ -58,6 +59,33 @@ fn observed(d:&Document,row:u32)->&InferredType {d.type_at(Position::new(row,18)
 fn presence(positive:bool)->serde_json::Value {
     json!({"version":1,"subjectCapture":0,"whenTrue":{"presence":if positive {"present"}else{"absent"}},
         "whenFalse":{"presence":if positive {"absent"}else{"present"}}})
+}
+fn boolean_presence(positive:bool)->serde_json::Value {
+    json!({"version":2,"truthDomain":"boolean","subjectCapture":0,
+        "whenTrue":{"presence":if positive {"present"}else{"absent"}},
+        "whenFalse":{"presence":if positive {"absent"}else{"present"}}})
+}
+fn compound_section(f:&mut Fixture,row:usize,conditions:&[u64],mode:&str)->u64 {
+    let id=f.container(row,SyntaxKind::Section,conditions,Some("branch"));
+    f.nodes[id as usize].metadata.retain(|m|m.key!=FLOW);
+    f.nodes[id as usize].metadata.extend([
+        metadata(FLOW,json!({"version":5,"kind":"branch","chain":"start","conditionMode":mode})),
+        metadata(OPERANDS,json!({"version":1,"prefix":[]})),
+        metadata(guards::VALUES,json!({"version":1,"kind":"preserve"})),
+        metadata(LOCAL_EFFECTS,json!({"version":1,"kind":"preserve"})),
+        metadata(crate::lsp::semantic::shared::BINDINGS,json!({"version":1,"local":"preserve","shared":"preserve"})),
+    ]);id
+}
+fn then_section(f:&mut Fixture,row:usize,body:&[u64])->u64 {
+    let id=f.container(row,SyntaxKind::Section,body,Some("branch"));
+    f.nodes[id as usize].metadata.retain(|m|m.key!=FLOW);
+    f.nodes[id as usize].metadata.extend([
+        metadata(FLOW,json!({"version":5,"kind":"branch","chain":"then"})),
+        metadata(OPERANDS,json!({"version":1,"prefix":[]})),
+        metadata(guards::VALUES,json!({"version":1,"kind":"preserve"})),
+        metadata(LOCAL_EFFECTS,json!({"version":1,"kind":"preserve"})),
+        metadata(crate::lsp::semantic::shared::BINDINGS,json!({"version":1,"local":"preserve","shared":"preserve"})),
+    ]);id
 }
 #[test]
 fn current_nullable_local_is_refined_only_inside_the_justified_branch() {
@@ -118,6 +146,114 @@ fn predicate_and_static_operand_evidence_require_current_matching_owners_and_geo
     }
 }
 
+#[test]
+fn compound_all_and_negated_guards_reach_only_the_then_true_path() {
+    let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    if all:\n        {_value} checked\n        {_other} checked\n    then:\n        inspect {_value}\n        inspect {_other}\n    inspect {_value}\n");
+    let value=init(&mut f,1,&["java.lang.String"],true);
+    let other=init_named(&mut f,2,"{_other}","other",&["java.lang.Long"],true);
+    let value_subject=read(&mut f,4);let value_check=condition(&mut f,4,value_subject,boolean_presence(false));
+    let other_subject=read_named(&mut f,5,"{_other}","other");let other_check=condition(&mut f,5,other_subject,boolean_presence(true));
+    let compound=compound_section(&mut f,3,&[value_check,other_check],"all");
+    let inside_value=inspect(&mut f,7);let inside_other=inspect_named(&mut f,8,"{_other}","other");
+    let then=then_section(&mut f,6,&[inside_value,inside_other]);
+    let after=inspect(&mut f,9);let root=f.container(0,SyntaxKind::Structure,&[value,other,compound,then,after],None);
+    let d=finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()});
+    assert!(matches!(observed(&d,7),InferredType::Values {classes,maybe_unset:true,..}
+        if *classes==BTreeSet::new()),"is not set must stay absent in the all-true path: {:?}",observed(&d,7));
+    assert!(matches!(observed(&d,8),InferredType::Values {classes,maybe_unset:false,..}
+        if *classes==BTreeSet::from(["java.lang.Long".to_owned()])));
+    assert!(matches!(observed(&d,9),InferredType::Values {classes,maybe_unset:true,..}
+        if *classes==BTreeSet::from(["java.lang.String".to_owned()])));
+}
+
+#[test]
+fn compound_any_joins_first_true_paths_and_legacy_kleenean_unknown() {
+    for legacy_first in [false,true] {
+        let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    bind {_other} = initial\n    if any:\n        {_value} checked\n        {_other} checked\n    then:\n        inspect {_value}\n        inspect {_other}\n");
+        let value=init(&mut f,1,&["java.lang.String"],true);
+        let other=init_named(&mut f,2,"{_other}","other",&["java.lang.Long"],true);
+        let value_subject=read(&mut f,4);let value_predicate=if legacy_first {presence(true)}else{boolean_presence(true)};
+        let value_check=condition(&mut f,4,value_subject,value_predicate);
+        let other_subject=read_named(&mut f,5,"{_other}","other");let other_check=condition(&mut f,5,other_subject,boolean_presence(true));
+        let compound=compound_section(&mut f,3,&[value_check,other_check],"any");
+        let inside_value=inspect(&mut f,7);let inside_other=inspect_named(&mut f,8,"{_other}","other");
+        let then=then_section(&mut f,6,&[inside_value,inside_other]);
+        let root=f.container(0,SyntaxKind::Structure,&[value,other,compound,then],None);
+        let d=finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()});
+        assert!(matches!(observed(&d,7),InferredType::Values {classes,maybe_unset:true,..}
+            if *classes==BTreeSet::from(["java.lang.String".to_owned()])),
+            "first true or unknown+second true must not claim value presence: legacy={legacy_first}: {:?}",observed(&d,7));
+        assert!(matches!(observed(&d,8),InferredType::Values {classes,maybe_unset:true,..}
+            if *classes==BTreeSet::from(["java.lang.Long".to_owned()])),
+            "first true skips the second predicate: legacy={legacy_first}: {:?}",observed(&d,8));
+    }
+}
+
+#[test]
+fn malformed_compound_body_cannot_partially_refine_then_or_exit_facts() {
+    let mut f=Fixture::new("owner:\n    bind {_value} = initial\n    if all:\n        {_value} checked\n        {_value} checked\n    then:\n        inspect {_value}\n");
+    let initial=init(&mut f,1,&["java.lang.String"],true);
+    let subject=read(&mut f,3);let first=condition(&mut f,3,subject,boolean_presence(true));
+    let subject=read(&mut f,4);let second=condition(&mut f,4,subject,boolean_presence(true));
+    let compound=compound_section(&mut f,2,&[first,second],"all");
+    f.nodes[compound as usize].children.reverse();
+    let inside=inspect(&mut f,6);let then=then_section(&mut f,5,&[inside]);
+    let root=f.container(0,SyntaxKind::Structure,&[initial,compound,then],None);
+    let d=finish(f,root,&mut Reads {mode:"identity",latest:None,calls:Vec::new()});
+    assert!(!matches!(observed(&d,6),InferredType::Values {maybe_unset:false,..}),
+        "reordered child membership must not produce a certified narrowing: {:?}",observed(&d,6));
+}
+#[test]
+fn standard_multiline_conditions_refine_all_and_join_any_through_the_component() {
+    let catalog=Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap().into_catalog());
+    let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(Arc::clone(&catalog)),
+        runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},..Default::default()}).unwrap();
+    for (revision,mode,inside,inside_other) in [
+        (1,"all",": string",": string"),
+        (2,"any",": string?",": string?"),
+    ] {
+        let source:Arc<str>=Arc::from(format!(
+            "# Unicode 🦀\nfunction compound(value: text, other: text):\n    if {mode}:\n        {{_value}} is set\n        {{_other}} is set\n    # Comment and blank nodes are trivia before then.\n\n    then:\n        set {{_inside}} to {{_value}}\n        set {{_inside_other}} to {{_other}}\n    set {{_outside}} to {{_value}}\n"));
+        let uri:Uri=format!("file:///guards/compound-{mode}.sk").parse().unwrap();
+        let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),revision,source.as_ref()),Default::default()).unwrap();
+        assert!(result.component_failures.is_empty(),"{mode}: {:?}",result.component_failures);
+        assert!(result.syntax.diagnostics.is_empty(),"{mode}: {:?}",result.syntax.diagnostics);
+        let compound_nodes=result.ast.nodes.iter().filter(|node|node.kind==SyntaxKind::Section).map(|node|
+            (node.text.clone(),node.summary.as_ref().map(|summary|(summary.kind.as_str(),summary.definition_id.as_deref(),summary.registration_id.as_deref(),summary.element_class.as_deref(),summary.pattern_index)),node.metadata.iter().map(|metadata|(metadata.key.clone(),metadata.value.clone(),metadata.owner_component_id.clone())).collect::<Vec<_>>())).collect::<Vec<_>>();
+        let start=result.ast.nodes.iter().find(|node|node.kind==SyntaxKind::Section
+            &&unique_metadata(node,FLOW).is_some_and(|value|value.contains("\"conditionMode\""))).unwrap_or_else(||panic!("compound flow section: {compound_nodes:?}"));
+        let flow:serde_json::Value=serde_json::from_str(unique_metadata(start,FLOW).unwrap()).unwrap();
+        assert_eq!(flow["version"],5);assert_eq!(flow["conditionMode"],mode);assert_eq!(flow["chain"],"start");
+        assert!(result.ast.nodes.iter().any(|node|node.kind==SyntaxKind::Section
+            &&unique_metadata(node,FLOW).is_some_and(|value|value.contains("\"chain\":\"then\""))),"then flow missing");
+        let document=Document::from_result_with_host(&result,Arc::clone(&source),uri,Arc::clone(&catalog),&mut host,None).unwrap();
+        let hints=document.write_type_hints();
+        let expect=|line:u32,label:&str|assert!(hints.iter().any(|hint|hint.position.line==line
+            &&matches!(&hint.label,lsp_types::InlayHintLabel::String(actual)if actual==label)),
+            "{mode} line {line} expected {label}: {hints:?}");
+        let line_of=|snippet:&str|source.lines().position(|line|line.contains(snippet)).unwrap() as u32;
+        expect(line_of("set {_inside} to"),inside);
+        expect(line_of("set {_inside_other} to"),inside_other);
+        expect(line_of("set {_outside} to"),": string?");
+    }
+}
+#[test]
+fn component_does_not_pair_multiline_then_across_a_nontrivia_sibling() {
+    let catalog=Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap().into_catalog());
+    let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(Arc::clone(&catalog)),
+        runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},..Default::default()}).unwrap();
+    let source:Arc<str>=Arc::from("function compound(value: text, other: text):\n    if all:\n        {_value} is set\n        {_other} is set\n    set {_barrier} to 1\n    then:\n        set {_inside} to {_value}\n");
+    let uri:Uri="file:///guards/compound-gap.sk".parse().unwrap();
+    let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),1,source.as_ref()),Default::default()).unwrap();
+    assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+    let flows=result.ast.nodes.iter().filter(|node|node.kind==SyntaxKind::Section)
+        .filter_map(|node|unique_metadata(node,FLOW).and_then(|value|serde_json::from_str::<serde_json::Value>(value).ok()))
+        .collect::<Vec<_>>();
+    assert!(!flows.iter().any(|flow|flow["version"]==5
+        &&(flow.get("conditionMode").is_some()||flow["chain"]=="then")),"{flows:?}");
+}
 #[test]
 fn standard_presence_guard_runs_through_the_actual_component_and_current_transfer_session() {
     for complete in [false,true] {
@@ -461,7 +597,7 @@ mod else_flow {
                 let at=d.lines.position(&d.source,at).unwrap();
                 assert!(matches!(d.type_at(at).unwrap().1,InferredType::Unknown),"deleted else must not initialize the bypass");
             }
-            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":4"))).count(),if has_else {2}else{1});
+            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":5"))).count(),if has_else {2}else{1});
         }
     }
 }
@@ -621,7 +757,7 @@ mod elseif_flow {
             assert!(hints.iter().any(|h|h.position.line==4+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s==": string")),"{hints:?}");
             if has_else {assert!(hints.iter().any(|h|h.position.line==6+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s==": string")),"{hints:?}");assert!(hints.iter().any(|h|h.position.line==7+delta&&matches!(&h.label,lsp_types::InlayHintLabel::String(s)if s.contains("long")&&s.contains("string")&&!s.contains('?'))),"{hints:?}");}
             else {let at=d.source.rfind("{_result}").unwrap()+3;assert!(matches!(d.type_at(d.lines.position(&d.source,at).unwrap()).unwrap().1,InferredType::Unknown),"missing else must retain uninitialized false exit");}
-            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":4"))).count(),if has_else {3}else{2});
+            assert_eq!(result.ast.nodes.iter().filter(|n|unique_metadata(n,FLOW).is_some_and(|j|j.contains("\"version\":5"))).count(),if has_else {3}else{2});
             let start=d.source.rfind("{_value}").unwrap();let edit=TextRange::new(start,start+"{_value}".len());let position=d.lines.position(&d.source,start+3).unwrap();
             let (_,fields)=d.hover_fields(position).unwrap();assert!(fields.iter().any(|(key,value)|*key=="Current type"&&value=="string"),"{fields:?}");
             let (ty,_,_)=d.completion_input(&d.source,edit,"value").expect("current adopted operand completion boundary");assert!(matches!(ty,InferredType::Values {maybe_unset:false,classes,..}if *classes==BTreeSet::from(["java.lang.String".into()])));

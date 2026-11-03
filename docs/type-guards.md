@@ -1,6 +1,6 @@
 # Fixed-name simple type guards
 
-Status: bounded local candidate; the if/else extension is in else-flow.md.
+Status: bounded local implementation candidate. Conditional flow v5 composes the standard multiline all/any form with its adjacent then body.
 The original simple-guard checkpoint used source 8cd5883; final
 capability-test correction 5d2f09d3 / reflect 9e8bda96.
 The separate test-repair checkpoint remains 2b05a876 / reflect 30a9b250.
@@ -19,14 +19,24 @@ includes the wrapper, rather than falsely treating the unwrapped type as stored.
 Both written instanceof forms are false for unset input. Negative class exclusion
 is deliberately not implemented; only justified presence and positive bounds.
 
-Core's audited simple runtime if/else publishes control-flow v3 with native
-condition capture/truth and start/else roles. Current authenticated adjacent
-siblings can pass the false input into else and join only the two branch exits;
-old v1/v2 and unpaired branches keep their conservative bypass join.
-See else-flow.md for the bounded candidate and validation status. Elseif,
-standalone condition success fallthrough, compound predicates, list and
-interpolated subjects are not refined.
+Core's audited standard runtime conditionals publish control-flow v5. Simple
+if/elseif retains its native condition capture; multiline if all / if any carries
+ordered Condition children and a declared combination mode. Only an immediately
+adjacent, same-owner/version then section consumes the composite true path. The
+composite false and Kleenean unknown paths join on exit. Else/elseif continues
+from that remaining path, with a fresh guard epoch. Parse-if and malformed or
+unpaired contracts stay conservative.
 
+Condition guard v2 may declare truthDomain=boolean. The standard Core
+is set / is not set contracts use it. Legacy guard v1 has no result-domain
+claim, so compound composition retains an unknown outcome; it can never turn
+an untyped predicate into a Boolean fact. Existing is not set true/false
+constraints are honored, while generic negative Java-type exclusion remains
+unsupported. Addon conditions can participate only through their own
+authenticated guard metadata and explicit Boolean result-domain contract.
+The current implementation does not add a free-form unary not syntax.
+See else-flow.md for earlier sibling-chain behavior and its validation record.
+List and interpolated subjects are not refined.
 ## Checked value and lifetime
 
 Equal type sets do not prove value identity. An authenticated semantic-transfer

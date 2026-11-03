@@ -16,9 +16,13 @@ struct Constraint {
     #[serde(default="keep")] presence:Presence,
     #[serde(default)] upper_bounds:Vec<String>,
 }
+#[derive(Clone,Copy,Deserialize,PartialEq,Eq)]
+#[serde(rename_all="kebab-case")]
+enum TruthDomain {Boolean,Kleenean}
 #[derive(Clone,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
 struct Predicate {version:u32,subject_capture:u64,when_true:Constraint,when_false:Constraint,
+    #[serde(default)] truth_domain:Option<TruthDomain>,
     #[serde(default)] evidence:Vec<Requirement>}
 #[derive(Clone,Deserialize)]
 #[serde(rename_all="camelCase",deny_unknown_fields)]
@@ -35,7 +39,7 @@ impl Predicate {
             && c.upper_bounds.iter().all(|s|!s.is_empty()&&s.len()<=1024&&!s.chars().any(char::is_control))
             && c.upper_bounds.iter().collect::<BTreeSet<_>>().len()==c.upper_bounds.len()
             && (!matches!(c.presence,Presence::Absent)||c.upper_bounds.is_empty());
-        (value.version==1&&valid(&value.when_true)&&valid(&value.when_false)
+        (matches!((value.version,value.truth_domain),(1,None)|(2,Some(_)))&&valid(&value.when_true)&&valid(&value.when_false)
             &&value.evidence.len()<=8&&value.evidence.iter().all(|e|!e.token.is_empty()&&e.token.len()<=1024&&!e.token.chars().any(char::is_control))
             &&value.evidence.iter().map(|e|e.capture).collect::<BTreeSet<_>>().len()==value.evidence.len()).then_some(value)
     }
@@ -61,6 +65,10 @@ impl State {
         if let Some(next)=self.epoch.checked_add(1){self.epoch=next;}else{self.disabled=true;}
     }
     pub fn reset(&mut self,id:u64){self.reads.remove(&id);self.checked.remove(&id);}
+    pub(super) fn boolean_result(&self,id:u64)->bool {
+        self.checked.get(&id).filter(|checked|checked.epoch==self.epoch)
+            .is_some_and(|checked|checked.predicate.truth_domain==Some(TruthDomain::Boolean))
+    }
     pub fn read(&mut self,id:u64,identity:Identity,ty:InferredType) {
         if self.disabled||transfer::bound(&ty).is_none(){return;}
         if self.reads.len()>=LIMIT{self.reads.clear();self.checked.clear();self.changed();}

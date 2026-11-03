@@ -20,7 +20,7 @@ pub(super) fn resolve(mut payload: ConditionPayload) -> Option<HookOutput> {
             && let Some(capture)=super::child_capture_index(&payload,0)
             && payload.candidate.pattern_index<=1 {
             let negated=payload.candidate.pattern_index==1;
-            annotate(&mut payload,"skript.semantic.type-guard",&serde_json::json!({"version":1,"subjectCapture":capture,
+            annotate(&mut payload,"skript.semantic.type-guard",&serde_json::json!({"version":2,"truthDomain":"boolean","subjectCapture":capture,
                 "whenTrue":{"presence":if negated {"absent"}else{"present"}},
                 "whenFalse":{"presence":if negated {"present"}else{"absent"}}}).to_string());
             payload.candidate.metadata.push(crate::public_data::preserve_binding_values());

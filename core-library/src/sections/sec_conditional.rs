@@ -180,9 +180,9 @@ pub(super) fn resolve(
         }
     }
 
-    // Runtime walk only tests the single header Condition and selects a branch.
-    // Parse-time/multiline condition collections are deliberately not certified.
-    let standard_runtime=!semantics.parse_if && !semantics.multiline
+    // Bind flow roles only to Skript's standard SecConditional registration.
+    // Parse-if changes the event context and remains outside this contract.
+    let standard_runtime=!semantics.parse_if
         && crate::catalog::standard_section_source(&payload.candidate,
             "ch.njol.skript.sections.SecConditional");
     if standard_runtime {
@@ -265,7 +265,9 @@ pub(super) fn resolve(
         });
     }
 
-    let (flow,chained)=conditional_flow(semantics,standard_runtime,payload.candidate.regex_captures.len());
+    let previous_multiline=valid_multiline_predecessor(&payload.preceding_siblings);
+    let (flow,chained)=conditional_flow(semantics,standard_runtime,
+        payload.candidate.regex_captures.len(),previous_multiline);
     let guarded_condition=chained&&matches!(semantics.kind,ConditionalKind::If|ConditionalKind::ElseIf)
         &&payload.candidate.parsed_captures.iter().any(|c|c.capture_index==condition_binding().capture_index
             &&c.summary.as_ref().is_some_and(|s|s.metadata.iter().any(|m|m.key=="skript.semantic.type-guard")));
@@ -300,6 +302,29 @@ pub(super) fn resolve(
     continue_with_section_context(&context, payload, metadata, updates)
 }
 
+// A `then:` may consume only a current Core-owned standard multiline branch.
+// The sibling proof is routing metadata, never a copied type or guard fact.
+fn valid_multiline_predecessor(siblings:&[SectionSibling])->bool {
+    let Some(previous)=siblings.last() else{return false;};
+    if previous.element_class.as_deref()!=Some("ch.njol.skript.sections.SecConditional") {return false;}
+    let owned=|key:&str| {
+        let mut entries=previous.metadata.iter().filter(|m|m.key==key);
+        let entry=entries.next()?;
+        (entries.next().is_none()&&entry.owner_component_id.as_deref()==Some(crate::COMPONENT_ID))
+            .then_some(entry.value.as_str())
+    };
+    if owned("semantic-mode")!=Some("conditional")
+        || owned("conditional-multiline")!=Some("true")
+        || owned("conditional-parse-if")!=Some("false")
+        || !matches!(owned("conditional-kind"),Some("if"|"else-if")) {return false;}
+    let Some(flow)=owned("skript.semantic.control-flow").filter(|s|s.len()<=1024)
+        .and_then(|s|serde_json::from_str::<serde_json::Value>(s).ok())else{return false;};
+    flow["version"]==5 && flow["kind"]=="branch"
+        && matches!(flow["chain"].as_str(),Some("start"|"next"))
+        && matches!(flow["conditionMode"].as_str(),Some("all"|"any"))
+        && flow.get("conditionCapture").is_none() && flow.get("bodyWhen").is_none()
+}
+
 // Routing only: ask for a fresh claim on this continuation when its predecessor
 // requested one. Never copy, adopt or interpret the preceding draft as proof.
 fn previous_refinement_link(metadata:&[MetadataEntry])->bool {
@@ -312,26 +337,35 @@ fn previous_refinement_link(metadata:&[MetadataEntry])->bool {
     let Some(flow)=owned("skript.semantic.control-flow").filter(|m|m.value.len()<=1024)
         .and_then(|m|serde_json::from_str::<serde_json::Value>(&m.value).ok())else{return false;};
     matches!((flow["version"].as_u64(),flow["chain"].as_str()),
-        (Some(3),Some("start"))|(Some(4),Some("start"|"next")))
+        (Some(3),Some("start"))|(Some(4|5),Some("start"|"next")))
         &&flow["kind"].as_str()==Some("branch")
         &&owned("parser.semantic.intrinsic-facts.v1").is_some()
 }
 // Audited against Skript 2.15.4 SecConditional patterns/init/walk. The
-// existing source check binds this role to the current registered syntax.
-fn conditional_flow(semantics:ConditionalSemantics,standard:bool,captures:usize)->(String,bool) {
-    let role=if standard&&!semantics.parse_if&&!semantics.multiline {
+// source check binds these roles to the current registered syntax. Compound
+// sections carry ordered Condition children; their adjacent `then:` is a body,
+// never another condition or an else branch.
+fn conditional_flow(semantics:ConditionalSemantics,standard:bool,captures:usize,previous_multiline:bool)->(String,bool) {
+    let role=if standard&&!semantics.parse_if {
         match semantics.kind {
-            ConditionalKind::If if semantics.expected_conditions==1&&captures==1=>Some("start"),
-            ConditionalKind::ElseIf if semantics.expected_conditions==1&&captures==1=>Some("next"),
-            ConditionalKind::Else if semantics.expected_conditions==0&&captures==0=>Some("else"),
+            ConditionalKind::If if semantics.multiline&&captures==0=>Some("start"),
+            ConditionalKind::ElseIf if semantics.multiline&&captures==0=>Some("next"),
+            ConditionalKind::If if !semantics.multiline&&semantics.expected_conditions==1&&captures==1=>Some("start"),
+            ConditionalKind::ElseIf if !semantics.multiline&&semantics.expected_conditions==1&&captures==1=>Some("next"),
+            ConditionalKind::Else if !semantics.multiline&&semantics.expected_conditions==0&&captures==0=>Some("else"),
+            ConditionalKind::Then if !semantics.multiline&&semantics.expected_conditions==0&&captures==0&&previous_multiline=>Some("then"),
             _=>None,
         }
     }else{None};
     if let Some(role)=role {
-        let mut flow=serde_json::json!({"version":4,"kind":"branch","chain":role});
-        if role!="else" {
-            flow["conditionCapture"]=serde_json::json!(condition_binding().capture_index);
-            flow["bodyWhen"]=serde_json::json!(true);
+        let mut flow=serde_json::json!({"version":5,"kind":"branch","chain":role});
+        if matches!(role,"start"|"next") {
+            if semantics.multiline {
+                flow["conditionMode"]=serde_json::json!(if semantics.if_any {"any"}else{"all"});
+            } else {
+                flow["conditionCapture"]=serde_json::json!(condition_binding().capture_index);
+                flow["bodyWhen"]=serde_json::json!(true);
+            }
         }
         (flow.to_string(),true)
     }else{(r#"{"version":1,"kind":"branch"}"#.to_owned(),false)}
@@ -1112,6 +1146,18 @@ mod tests {
 #[cfg(test)]
 mod flow_chain_tests {
     use super::*;
+    fn sibling(kind:&str,multiline:bool)->SectionSibling {
+        use crate::nlaocs::skript_parser_addon::types::{MappedSpan,TextRange};
+        SectionSibling {raw_node_id:1,definition_id:"section:skript:conditional".to_owned(),
+            registration_id:format!("section:skript:conditional:{kind}"),
+            element_class:Some("ch.njol.skript.sections.SecConditional".to_owned()),pattern_index:0,
+            source:kind.to_owned(),span:MappedSpan {virtual_range:TextRange {start:0,end:1},origins:Vec::new()},
+            handler:None,metadata:vec![
+                MetadataEntry {key:"semantic-mode".to_owned(),value:"conditional".to_owned(),owner_component_id:None},
+                MetadataEntry {key:"conditional-kind".to_owned(),value:kind.to_owned(),owner_component_id:None},
+                MetadataEntry {key:"conditional-multiline".to_owned(),value:multiline.to_string(),owner_component_id:None},
+            ]}
+    }
     #[test]
     fn prior_intrinsic_draft_is_only_current_owned_link_routing_not_imported_proof() {
         for bad in ["valid","valid-current","valid-next","old-next","missing-draft","foreign","duplicate-flow","duplicate-draft","old","else","missing-owner"] {
@@ -1133,30 +1179,101 @@ mod flow_chain_tests {
         }
     }
     #[test]
-    fn only_current_simple_runtime_conditionals_publish_a_chain_role() {
+    fn only_current_runtime_conditionals_publish_a_chain_role() {
         for (kind,count,captures,parse,multiline,source,role) in [
             (ConditionalKind::If,1,1,false,false,true,Some("start")),
             (ConditionalKind::Else,0,0,false,false,true,Some("else")),
             (ConditionalKind::ElseIf,1,1,false,false,true,Some("next")),
             (ConditionalKind::ElseIf,1,1,true,false,true,None),
-            (ConditionalKind::ElseIf,2,0,false,true,true,None),
             (ConditionalKind::ElseIf,1,0,false,false,true,None),
             (ConditionalKind::ElseIf,1,1,false,false,false,None),
             (ConditionalKind::Then,0,0,false,false,true,None),
             (ConditionalKind::If,1,1,true,false,true,None),
-            (ConditionalKind::If,2,0,false,true,true,None),
             (ConditionalKind::If,1,0,false,false,true,None),
             (ConditionalKind::Else,0,1,false,false,true,None),
-            (ConditionalKind::If,1,1,false,false,false,None),
         ] {
             let semantics=ConditionalSemantics {kind,parse_if:parse,if_any:false,multiline,expected_conditions:count,implicit:false};
-            let (json,chained)=conditional_flow(semantics,source,captures);
+            let (json,chained)=conditional_flow(semantics,source,captures,false);
             let value:serde_json::Value=serde_json::from_str(&json).unwrap();
             assert_eq!(chained,role.is_some());
             assert_eq!(value["chain"].as_str(),role);
             if role==Some("else") {assert!(value.get("conditionCapture").is_none());assert!(value.get("bodyWhen").is_none());}
             if matches!(role,Some("start"|"next")) {assert_eq!(value["conditionCapture"],0);assert_eq!(value["bodyWhen"],true);}
-            assert_eq!(value["version"],if role.is_some(){4}else{1});
+            assert_eq!(value["version"],if role.is_some(){5}else{1});
         }
+    }
+
+    #[test]
+    fn multiline_runtime_roles_keep_all_any_and_then_distinct() {
+        for (kind,if_any,role,mode) in [
+            (ConditionalKind::If,false,"start","all"),
+            (ConditionalKind::If,true,"start","any"),
+            (ConditionalKind::ElseIf,false,"next","all"),
+            (ConditionalKind::ElseIf,true,"next","any"),
+        ] {
+            let semantics=ConditionalSemantics {kind,parse_if:false,if_any,multiline:true,
+                expected_conditions:0,implicit:false};
+            let (json,chained)=conditional_flow(semantics,true,0,false);
+            let value:serde_json::Value=serde_json::from_str(&json).unwrap();
+            assert!(chained);
+            assert_eq!(value["version"],5);
+            assert_eq!(value["chain"],role);
+            assert_eq!(value["conditionMode"],mode);
+            assert!(value.get("conditionCapture").is_none());
+            assert!(value.get("bodyWhen").is_none());
+        }
+        let then=ConditionalSemantics {kind:ConditionalKind::Then,parse_if:false,if_any:false,
+            multiline:false,expected_conditions:0,implicit:false};
+        let (json,chained)=conditional_flow(then,true,0,true);
+        let value:serde_json::Value=serde_json::from_str(&json).unwrap();
+        assert!(chained);
+        assert_eq!(value["version"],5);
+        assert_eq!(value["chain"],"then");
+        assert!(value.get("conditionMode").is_none());
+        assert!(!conditional_flow(then,true,0,false).1);
+        let parse_if=ConditionalSemantics {kind:ConditionalKind::If,parse_if:true,if_any:false,
+            multiline:true,expected_conditions:0,implicit:false};
+        assert!(!conditional_flow(parse_if,true,0,false).1);
+        assert!(!conditional_flow(ConditionalSemantics {parse_if:false,..parse_if},false,0,false).1);
+    }
+
+    fn owned_multiline_sibling(kind:&str,mode:&str)->SectionSibling {
+        let mut sibling=sibling(kind,true);
+        for metadata in &mut sibling.metadata {
+            metadata.owner_component_id=Some(crate::COMPONENT_ID.to_owned());
+        }
+        sibling.metadata.push(MetadataEntry {key:"conditional-parse-if".to_owned(),value:"false".to_owned(),
+            owner_component_id:Some(crate::COMPONENT_ID.to_owned())});
+        sibling.metadata.push(MetadataEntry {key:"skript.semantic.control-flow".to_owned(),
+            value:serde_json::json!({"version":5,"kind":"branch","chain":if kind=="if" {"start"}else{"next"},
+                "conditionMode":mode}).to_string(),
+            owner_component_id:Some(crate::COMPONENT_ID.to_owned())});
+        sibling
+    }
+
+    #[test]
+    fn then_requires_the_exact_current_core_owned_multiline_predecessor() {
+        for (kind,mode) in [("if","all"),("if","any"),("else-if","all"),("else-if","any")] {
+            let previous=owned_multiline_sibling(kind,mode);
+            assert!(valid_multiline_predecessor(std::slice::from_ref(&previous)),"{kind}/{mode}");
+        }
+        for bad in ["foreign-class","parse-if","foreign-flow","duplicate-flow","old-flow","wrong-role","wrong-mode"] {
+            let mut previous=owned_multiline_sibling("if","all");
+            match bad {
+                "foreign-class"=>previous.element_class=Some("third.party.Section".to_owned()),
+                "parse-if"=>previous.metadata.iter_mut().find(|m|m.key=="conditional-parse-if").unwrap().value="true".to_owned(),
+                "foreign-flow"=>previous.metadata.iter_mut().find(|m|m.key=="skript.semantic.control-flow").unwrap().owner_component_id=Some("third.party".to_owned()),
+                "duplicate-flow"=>previous.metadata.push(previous.metadata.iter().find(|m|m.key=="skript.semantic.control-flow").unwrap().clone()),
+                "old-flow"=>previous.metadata.iter_mut().find(|m|m.key=="skript.semantic.control-flow").unwrap().value=serde_json::json!({"version":4,"kind":"branch","chain":"start","conditionCapture":0,"bodyWhen":true}).to_string(),
+                "wrong-role"=>previous.metadata.iter_mut().find(|m|m.key=="conditional-kind").unwrap().value="else".to_owned(),
+                "wrong-mode"=>previous.metadata.iter_mut().find(|m|m.key=="skript.semantic.control-flow").unwrap().value=serde_json::json!({"version":5,"kind":"branch","chain":"start","conditionMode":"unknown"}).to_string(),
+                _=>unreachable!(),
+            }
+            assert!(!valid_multiline_predecessor(std::slice::from_ref(&previous)),"{bad}");
+        }
+        let previous=owned_multiline_sibling("if","all");
+        let mut intervening=sibling("then",false);
+        intervening.element_class=None;
+        assert!(!valid_multiline_predecessor(&[previous,intervening]));
     }
 }

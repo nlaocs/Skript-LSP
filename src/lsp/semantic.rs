@@ -1184,6 +1184,9 @@ struct VariableRead {
 #[derive(Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 enum MissingVariableValue { Empty }
+#[derive(Clone,Copy,Deserialize,PartialEq,Eq)]
+#[serde(rename_all="kebab-case")]
+enum ConditionMode { All, Any }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Flow {
@@ -1191,23 +1194,33 @@ struct Flow {
     kind: String,
     #[serde(default,rename="conditionCapture")] condition_capture:Option<u64>,
     #[serde(default,rename="bodyWhen")] body_when:Option<bool>,
+    #[serde(default,rename="conditionMode")] condition_mode:Option<ConditionMode>,
     #[serde(default)] chain:Option<BranchRole>,
 }
 #[derive(Clone,Copy,Deserialize,PartialEq,Eq)]
 #[serde(rename_all="kebab-case")]
-enum BranchRole { Start, Next, Else }
+enum BranchRole { Start, Next, Else, Then }
 impl Flow {
     fn read(node:&AstNode)->Option<Self> {
         let flow:Self=serde_json::from_str(unique_metadata(node,FLOW)?).ok()?;
         match flow.version {
-            1|2 if flow.chain.is_none()=>Some(flow),
-            3|4 if node.kind==SyntaxKind::Section && flow.kind=="branch"
+            1|2 if flow.chain.is_none()&&flow.condition_mode.is_none()=>Some(flow),
+            3|4 if node.kind==SyntaxKind::Section && flow.kind=="branch"&&flow.condition_mode.is_none()
                 && match flow.chain {
                     Some(BranchRole::Start)=>flow.condition_capture.is_some()&&flow.body_when.is_some(),
                     Some(BranchRole::Next)=>flow.version==4&&flow.condition_capture.is_some()&&flow.body_when.is_some(),
                     Some(BranchRole::Else)=>flow.condition_capture.is_none()&&flow.body_when.is_none(),
-                    None=>false,
+                    Some(BranchRole::Then)|None=>false,
                 }=>Some(flow),
+            5 if node.kind==SyntaxKind::Section&&flow.kind=="branch"=>match flow.chain {
+                Some(BranchRole::Start|BranchRole::Next)=>match flow.condition_mode {
+                    Some(_)=>flow.condition_capture.is_none()&&flow.body_when.is_none(),
+                    None=>flow.condition_capture.is_some()&&flow.body_when.is_some(),
+                }.then_some(flow),
+                Some(BranchRole::Else|BranchRole::Then)=>
+                    (flow.condition_capture.is_none()&&flow.body_when.is_none()&&flow.condition_mode.is_none()).then_some(flow),
+                None=>None,
+            },
             _=>None,
         }
     }
@@ -1215,20 +1228,56 @@ impl Flow {
         Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Else))
             && body_nodes(node).is_ok_and(|body|node.children.iter().all(|id|body.contains(id)))
     }
+    fn then_clause(node:&AstNode)->bool {
+        Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Then))
+            &&body_nodes(node).is_ok_and(|body|body==node.children)
+    }
     fn condition(&self,node:&AstNode,nodes:&HashMap<u64,&AstNode>)->Option<(u64,bool)> {
-        if !matches!(self.version,2|3|4){return None;}
+        if !matches!(self.version,2|3|4|5)||self.condition_mode.is_some(){return None;}
         let body=body_nodes(node).ok()?;
         let id=capture_node(node,self.condition_capture?,nodes)?;
         let operands=node.children.iter().copied().filter(|id|!body.contains(id)).collect::<Vec<_>>();
         (operands==[id]&&nodes.get(&id)?.kind==SyntaxKind::Condition).then_some((id,self.body_when?))
     }
+    fn compound_mode(&self,node:&AstNode,nodes:&HashMap<u64,&AstNode>)->Option<ConditionMode> {
+        if self.version!=5||node.kind!=SyntaxKind::Section||!matches!(self.chain,Some(BranchRole::Start|BranchRole::Next)){return None;}
+        let mode=self.condition_mode?;
+        let body=body_nodes(node).ok()?;
+        (body.len()>=2&&body.len()<=64&&body==node.children
+            &&body.iter().all(|id|nodes.get(id).is_some_and(|child|child.kind==SyntaxKind::Condition)))
+            .then_some(mode)
+    }
     fn continuation(node:&AstNode,nodes:&HashMap<u64,&AstNode>)->bool {
         Self::read(node).is_some_and(|flow|flow.chain==Some(BranchRole::Next)
-            &&flow.condition(node,nodes).is_some())
+            &&(flow.condition(node,nodes).is_some()||flow.compound_mode(node,nodes).is_some()))
     }
 }
 #[derive(Clone,Copy,PartialEq,Eq)]
-enum BranchMode { Independent, Capture, Continuation, Alternative }
+enum BranchMode { Independent, Capture, Continuation, Alternative, Then }
+#[derive(Clone)]
+struct BranchPaths { taken:Facts, bypass:Facts }
+const PATH_TRUE:usize=0;
+const PATH_FALSE:usize=1;
+const PATH_UNKNOWN:usize=2;
+fn merge_path(paths:&mut [Option<Facts>;3],outcome:usize,facts:Facts) {
+    if let Some(current)=paths[outcome].take() {
+        paths[outcome]=Some(join_facts(&current,&facts));
+    } else {paths[outcome]=Some(facts);}
+}
+fn joined_paths(paths:&[Option<Facts>;3])->Option<Facts> {
+    paths.iter().flatten().cloned().reduce(|left,right|join_facts(&left,&right))
+}
+fn combined_outcome(mode:ConditionMode,left:usize,right:usize)->usize {
+    match mode {
+        ConditionMode::All=>if left==PATH_FALSE||right==PATH_FALSE {PATH_FALSE}
+            else if left==PATH_TRUE&&right==PATH_TRUE {PATH_TRUE}else{PATH_UNKNOWN},
+        ConditionMode::Any=>if left==PATH_TRUE||right==PATH_TRUE {PATH_TRUE}
+            else if left==PATH_FALSE&&right==PATH_FALSE {PATH_FALSE}else{PATH_UNKNOWN},
+    }
+}
+fn short_circuits(mode:ConditionMode,outcome:usize)->bool {
+    matches!((mode,outcome),(ConditionMode::All,PATH_FALSE)|(ConditionMode::Any,PATH_TRUE))
+}
 struct BranchExit { owner:String, version:u32, taken:Facts, bypass:Facts }
 
 struct Engine<'a,'r> {
@@ -1617,34 +1666,59 @@ impl Engine<'_,'_> {
         }
         let flow=Flow::read(node);
         // Empty current branches still carry an edge and editing inputs.
-        if !body.is_empty() || flow.as_ref().is_some_and(|f|matches!(f.version,3|4)) {
+        if !body.is_empty() || flow.as_ref().is_some_and(|f|matches!(f.version,3|4|5)) {
             if node.kind == SyntaxKind::Structure {
-                self.body(node, &body, scope, facts)?;
+                self.body(node,&body,scope,facts,None)?;
             } else if branch_mode==BranchMode::Alternative && Flow::alternative(node) {
-                self.body(node,&body,scope,facts)?;
+                self.body(node,&body,scope,facts,None)?;
+            } else if branch_mode==BranchMode::Then
+                && flow.as_ref().is_some_and(|f|f.chain==Some(BranchRole::Then)) {
+                // The parent body has already selected the composite-true path.
+                self.body(node,&body,scope,facts,None)?;
             } else if flow.as_ref().is_some_and(|flow|flow.kind=="branch") {
-                let mut branch=facts.clone();
-                let mut bypass=facts.clone();
-                let condition=flow.as_ref().and_then(|f|f.condition(node,&self.nodes));
-                if let Some((condition,truth))=condition {
-                    // Materialize both paths now. Never rewind the guard epoch
-                    // after evaluating the taken body.
-                    self.guard_edge(condition,truth,&mut branch);
-                    self.guard_edge(condition,!truth,&mut bypass);
-                }
-                self.body(node,&body,scope,&mut branch)?;
-                *facts=join_facts(&bypass,&branch);
-                if let Some(flow)=flow.as_ref().filter(|f|condition.is_some()&&match f.chain {
-                    Some(BranchRole::Start)=>branch_mode==BranchMode::Capture,
-                    Some(BranchRole::Next)=>branch_mode==BranchMode::Continuation,
-                    _=>false,
-                }) && let Some(owner)=metadata_owner(node,FLOW) {
-                    *branch_exit=Some(BranchExit {owner:owner.to_owned(),version:flow.version,taken:branch,bypass});
+                if let Some(mode)=flow.as_ref().and_then(|f|f.compound_mode(node,&self.nodes)) {
+                    if let Some(paths)=self.body(node,&body,scope,facts,Some(mode))? {
+                        *facts=join_facts(&paths.bypass,&paths.taken);
+                        if let Some(flow)=flow.as_ref().filter(|f|match f.chain {
+                            Some(BranchRole::Start)=>branch_mode==BranchMode::Capture,
+                            Some(BranchRole::Next)=>branch_mode==BranchMode::Continuation,
+                            _=>false,
+                        }) && let Some(owner)=metadata_owner(node,FLOW) {
+                            *branch_exit=Some(BranchExit {owner:owner.to_owned(),version:flow.version,
+                                taken:paths.taken,bypass:paths.bypass});
+                        }
+                    } else {
+                        invalidate(facts,range,Invalidation::ControlFlow);
+                    }
+                } else if flow.as_ref().is_some_and(|f|f.condition_mode.is_some()) {
+                    // A malformed/oversized compound body cannot partially narrow.
+                    let mut nested=Facts::new();
+                    self.body(node,&body,scope,&mut nested,None)?;
+                    invalidate(facts,range,Invalidation::ControlFlow);
+                } else {
+                    let mut branch=facts.clone();
+                    let mut bypass=facts.clone();
+                    let condition=flow.as_ref().and_then(|f|f.condition(node,&self.nodes));
+                    if let Some((condition,truth))=condition {
+                        // Materialize both paths now. Never rewind the guard epoch
+                        // after evaluating the taken body.
+                        self.guard_edge(condition,truth,&mut branch);
+                        self.guard_edge(condition,!truth,&mut bypass);
+                    }
+                    self.body(node,&body,scope,&mut branch,None)?;
+                    *facts=join_facts(&bypass,&branch);
+                    if let Some(flow)=flow.as_ref().filter(|f|condition.is_some()&&match f.chain {
+                        Some(BranchRole::Start)=>branch_mode==BranchMode::Capture,
+                        Some(BranchRole::Next)=>branch_mode==BranchMode::Continuation,
+                        _=>false,
+                    }) && let Some(owner)=metadata_owner(node,FLOW) {
+                        *branch_exit=Some(BranchExit {owner:owner.to_owned(),version:flow.version,taken:branch,bypass});
+                    }
                 }
             } else {
                 // Loops may re-enter; other extension control flow is opaque.
                 let mut nested=Facts::new();
-                self.body(node,&body,scope,&mut nested)?;
+                self.body(node,&body,scope,&mut nested,None)?;
                 invalidate(facts,range,Invalidation::ControlFlow);
             }
         }
@@ -1694,7 +1768,8 @@ impl Engine<'_,'_> {
         ids: &[u64],
         scope: u64,
         facts: &mut Facts,
-    ) -> Result<(), String> {
+        condition_mode:Option<ConditionMode>,
+    ) -> Result<Option<BranchPaths>, String> {
         let ordered = ids
             .iter()
             .map(|id| {
@@ -1754,6 +1829,15 @@ impl Engine<'_,'_> {
                         && self.mapped_source.is_some_and(|source|source.virtual_source().get(span.virtual_range.start..span.virtual_range.end)==Some(input.line_input())))).count()==1)
         }).cloned().collect::<Vec<_>>()}else{Vec::new()};
         editing.sort_by_key(|input|input.line_span().virtual_range.start);
+        let composed_mode=condition_mode.filter(|_|!opaque&&barriers.is_empty()&&editing.is_empty()
+            &&ids.len()>=2&&ids.len()<=64&&ids==owner.children
+            &&ids.iter().all(|id|self.nodes.get(id).is_some_and(|node|node.kind==SyntaxKind::Condition)));
+        let composition_blocked=condition_mode.is_some()&&composed_mode.is_none();
+        let mut truth_paths=composed_mode.map(|mode|{
+            let mut paths:[Option<Facts>;3]=[None,None,None];
+            paths[if mode==ConditionMode::All {PATH_TRUE}else{PATH_FALSE}]=Some(facts.clone());
+            paths
+        });
         let mut editing=editing.into_iter().peekable();
         let mut barrier = 0;
         let mut branch_exit:Option<BranchExit>=None;
@@ -1783,36 +1867,85 @@ impl Engine<'_,'_> {
                 barrier += 1;
             }
             let node=self.nodes[&id];
-            let flow=Flow::read(node);
-            let alternative=Flow::alternative(node);
-            let continuation=Flow::continuation(node,&self.nodes);
-            let previous=branch_exit.take().filter(|previous|!opaque
-                && metadata_owner(node,FLOW)==Some(previous.owner.as_str())
-                && flow.as_ref().is_some_and(|flow|flow.version==previous.version)
-                && (alternative||continuation));
-            if let Some(previous)=previous {
-                *facts=previous.bypass;
-                // This is another path, not another use of the taken body's
-                // checked/read links. Advance; never restore an old epoch.
-                self.guards.changed();
-                if alternative {
-                    self.node_with_flow(id,scope,facts,BranchMode::Alternative)?;
-                    *facts=join_facts(&previous.taken,facts);
-                } else {
-                    let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Continuation)?;
-                    if let Some(mut next)=next {
-                        next.taken=join_facts(&previous.taken,&next.taken);
-                        // Keep a conservative exit at every continuation, even
-                        // when editing leaves no final alternative.
-                        *facts=join_facts(&next.taken,&next.bypass);
-                        branch_exit=Some(next);
-                    } else {
-                        *facts=join_facts(&previous.taken,facts);
+            if let Some(mode)=composed_mode {
+                branch_exit=None;
+                let paths=truth_paths.as_ref().expect("compound path state");
+                let active=if mode==ConditionMode::All {[PATH_TRUE,PATH_UNKNOWN]}else{[PATH_FALSE,PATH_UNKNOWN]};
+                let mut input=None;
+                for index in active {
+                    if let Some(path)=paths[index].as_ref(){
+                        if let Some(current)=input.take(){input=Some(join_facts(&current,path));}
+                        else{input=Some(path.clone());}
                     }
                 }
+                // Parse and analyze every source line once. If no path reaches
+                // this condition, use Unknown inputs only for its editor facts.
+                let mut evaluated=input.unwrap_or_default();
+                self.node_with_flow(id,scope,&mut evaluated,BranchMode::Independent)?;
+                let boolean=self.guards.boolean_result(id);
+                let mut on_true=evaluated.clone();
+                let mut on_false=evaluated.clone();
+                self.guard_edge(id,true,&mut on_true);
+                self.guard_edge(id,false,&mut on_false);
+                let outcomes=[on_true,on_false,evaluated];
+                let mut next:[Option<Facts>;3]=[None,None,None];
+                let outcome_count=if boolean {2}else{3};
+                for prefix in 0..3 {
+                    let Some(path)=paths[prefix].as_ref() else{continue;};
+                    if short_circuits(mode,prefix) {
+                        merge_path(&mut next,prefix,path.clone());
+                        continue;
+                    }
+                    for condition_outcome in 0..outcome_count {
+                        let result=combined_outcome(mode,prefix,condition_outcome);
+                        // A joined evaluation input can only widen path facts;
+                        // it cannot import an edge from a skipped condition.
+                        merge_path(&mut next,result,outcomes[condition_outcome].clone());
+                    }
+                }
+                truth_paths=Some(next);
+                *facts=joined_paths(truth_paths.as_ref().unwrap()).unwrap_or_default();
             } else {
-                let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Capture)?;
-                branch_exit=next;
+                let flow=Flow::read(node);
+                let alternative=Flow::alternative(node);
+                let continuation=Flow::continuation(node,&self.nodes);
+                let then_clause=Flow::then_clause(node);
+                let previous=branch_exit.take().filter(|previous|!opaque
+                    && metadata_owner(node,FLOW)==Some(previous.owner.as_str())
+                    && flow.as_ref().is_some_and(|flow|flow.version==previous.version)
+                    && (alternative||continuation||then_clause));
+                if let Some(previous)=previous {
+                    // This is another path, not another use of the taken body's
+                    // checked/read links. Advance; never restore an old epoch.
+                    if !then_clause { self.guards.changed(); }
+                    if alternative {
+                        *facts=previous.bypass;
+                        self.node_with_flow(id,scope,facts,BranchMode::Alternative)?;
+                        *facts=join_facts(&previous.taken,facts);
+                    } else if then_clause {
+                        *facts=previous.taken;
+                        self.node_with_flow(id,scope,facts,BranchMode::Then)?;
+                        let next=BranchExit {owner:previous.owner,version:previous.version,
+                            taken:facts.clone(),bypass:previous.bypass};
+                        *facts=join_facts(&next.bypass,&next.taken);
+                        branch_exit=Some(next);
+                    } else {
+                        *facts=previous.bypass;
+                        let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Continuation)?;
+                        if let Some(mut next)=next {
+                            next.taken=join_facts(&previous.taken,&next.taken);
+                            // Keep a conservative exit at every continuation, even
+                            // when editing leaves no final alternative.
+                            *facts=join_facts(&next.taken,&next.bypass);
+                            branch_exit=Some(next);
+                        } else {
+                            *facts=join_facts(&previous.taken,facts);
+                        }
+                    }
+                } else {
+                    let (_,next)=self.node_with_flow(id,scope,facts,BranchMode::Capture)?;
+                    branch_exit=next;
+                }
             }
         }
         for input in editing {
@@ -1824,7 +1957,16 @@ impl Engine<'_,'_> {
             invalidate(facts, self.exact(owner), Invalidation::Source);
             self.evaluation_context = None;
         }
-        Ok(())
+        let composed=truth_paths.map(|paths| {
+            let taken=paths[PATH_TRUE].clone().unwrap_or_default();
+            let bypass=match (&paths[PATH_FALSE],&paths[PATH_UNKNOWN]) {
+                (Some(left),Some(right))=>join_facts(left,right),
+                (Some(path),None)|(None,Some(path))=>path.clone(),
+                (None,None)=>Facts::new(),
+            };
+            BranchPaths {taken,bypass}
+        });
+        if composition_blocked { Ok(None) } else { Ok(composed) }
     }
     fn change(
         &mut self,
