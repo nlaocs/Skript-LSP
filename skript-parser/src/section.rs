@@ -11,7 +11,7 @@ use crate::{
     SectionChildrenDecision, SectionChildrenRequest, SectionExitDecision, SectionRawNodeSummary,
     SectionSiblingSummary, TextRange,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use syntaxes::{
     Catalog, ClassName, DynamicSyntaxSnapshot, Multiplicity, PossibleReturnTypesState, Syntax,
     SyntaxCandidateSource, SyntaxKind,
@@ -283,19 +283,19 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
     session.retain_viable_patterns(range, &mut candidates)?;
     let matched = session.match_candidates_at_depth(range, &candidates, depth)?;
     let mut failure = matched.primary_failure().cloned();
-    let ranked = matched
+    let mut ranked = matched
         .selected
         .into_iter()
         .chain(matched.alternatives)
-        .collect::<Vec<_>>();
+        .collect::<VecDeque<_>>();
     let initial_context = session.context().clone();
     let raw_children = raw_child_summaries(session, tree, node)?;
     let mut diagnostics = Vec::new();
-    let candidate_count = ranked.len();
-    for (candidate_index, matched) in ranked.into_iter().enumerate() {
-        let unique_preparation = candidate_index + 1 == candidate_count;
+    while let Some(matched) = ranked.pop_front() {
+        let unique_preparation = ranked.is_empty();
         session.check_cancelled()?;
         session.replace_context(initial_context.clone());
+        let retry_identity = matched.clone();
         let local = matched.matched.span.local_range;
         let span = session.map_range(TextRange::new(
             range.start + local.start,
@@ -310,6 +310,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         let preparation_registration = matched.registration_id.clone();
         let preparation_pattern = matched.pattern_index;
         let mut prepared = false;
+        let mut retry_later_pattern = false;
         session
             .begin_semantic_candidate()
             .map_err(|message| session.environment_error(message))?;
@@ -320,6 +321,7 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             let Some(mut candidate) =
                 section_candidate(session, node.id, matched, range.start, depth)?
             else {
+                retry_later_pattern = true;
                 return Ok(None);
             };
             let parent_context = session.context().clone();
@@ -449,6 +451,19 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
             Some(Err(rejected)) => {
                 failure = crate::choose_failure_trace(failure, Some(rejected));
             }
+            None if retry_later_pattern => {
+                let (mut later_patterns, retry_failure) = later_section_pattern_matches(
+                    session,
+                    range,
+                    &candidates,
+                    &retry_identity,
+                    depth,
+                )?;
+                failure = crate::choose_failure_trace(failure, retry_failure);
+                while let Some(candidate) = later_patterns.pop() {
+                    ranked.push_front(candidate);
+                }
+            }
             None => {}
         }
     }
@@ -481,6 +496,64 @@ fn parse_section_with_session<E: ExpressionParseEnvironment>(
         }),
         diagnostics,
     })
+}
+
+fn later_section_pattern_matches<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    range: TextRange,
+    candidates: &[PatternCandidate<'_>],
+    rejected: &CandidateMatch,
+    depth: usize,
+) -> Result<(Vec<CandidateMatch>, Option<FailureTrace>), SectionParseError> {
+    let Some(mut registration) = candidates
+        .iter()
+        .find(|candidate| {
+            candidate.kind == rejected.kind
+                && candidate.definition_id == rejected.definition_id
+                && candidate.registration_id == rejected.registration_id
+                && candidate
+                    .patterns
+                    .iter()
+                    .any(|pattern| pattern.pattern_index == rejected.pattern_index)
+        })
+        .cloned()
+    else {
+        return Ok((Vec::new(), None));
+    };
+    let Some(rejected_position) = registration
+        .patterns
+        .iter()
+        .position(|pattern| pattern.pattern_index == rejected.pattern_index)
+    else {
+        return Ok((Vec::new(), None));
+    };
+    let later_patterns = registration.patterns.split_off(rejected_position + 1);
+    if later_patterns.is_empty() {
+        return Ok((Vec::new(), None));
+    }
+
+    // A required capture can reject a structurally matching pattern during the
+    // Section equivalent of Skript's init(). Continue with later patterns from
+    // the same registration before lower-ranked registrations, just as the
+    // upstream parser does when init() returns false. Match one pattern per
+    // retry so earlier nonmatching patterns are not repeatedly charged and
+    // the retry count cannot exceed this registration's remaining patterns.
+    let mut failure = None;
+    for pattern in later_patterns {
+        let mut next = registration.clone();
+        next.patterns = vec![pattern];
+        let matches = session.match_candidates_at_depth(range, &[next], depth)?;
+        failure = crate::choose_failure_trace(failure, matches.primary_failure().cloned());
+        let ranked = matches
+            .selected
+            .into_iter()
+            .chain(matches.alternatives)
+            .collect::<Vec<_>>();
+        if !ranked.is_empty() {
+            return Ok((ranked, failure));
+        }
+    }
+    Ok((Vec::new(), failure))
 }
 
 fn section_semantic_rejection(

@@ -255,6 +255,50 @@ fn component_does_not_pair_multiline_then_across_a_nontrivia_sibling() {
         &&(flow.get("conditionMode").is_some()||flow["chain"]=="then")),"{flows:?}");
 }
 #[test]
+fn saved_component_retries_later_section_patterns_after_required_capture_rejects() {
+    let catalog=Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("parser-wasm/tests/data/type-parser-versions/skript-2.15.4-storage-domain")).unwrap().into_catalog());
+    let mut host=crate::new_parser_host(parser_wasm::HostConfig {syntax_catalog:Some(Arc::clone(&catalog)),
+        runtime_profile:parser_wasm::RuntimeProfile {skript_version:Some("2.15.4".into()),..Default::default()},..Default::default()}).unwrap();
+    for (revision, mode) in [(1,"all"),(2,"any")] {
+        let source:Arc<str>=Arc::from(format!("function compound(value: text, other: text):\n    if all:\n        {{_value}} is set\n        {{_other}} is set\n    then:\n        set {{_first}} to {{_value}}\n    else if {mode}:\n        {{_value}} is set\n        {{_other}} is set\n    then:\n        set {{_second}} to {{_value}}\n"));
+        let uri:Uri=format!("file:///guards/compound-elseif-{mode}.sk").parse().unwrap();
+        let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),revision,source.as_ref()),Default::default()).unwrap();
+        assert!(result.component_failures.is_empty(),"{mode}: {:?}",result.component_failures);
+        assert!(!result.syntax.diagnostics.iter().any(|diagnostic|
+            diagnostic.kind==skript_parser::StructureDiagnosticKind::Unclaimed),
+            "registered standard multiline else-if {mode} must remain claimed: {:?}",result.syntax.diagnostics);
+        let flows=result.ast.nodes.iter().filter(|node|node.kind==SyntaxKind::Section)
+            .filter_map(|node|unique_metadata(node,FLOW).and_then(|value|serde_json::from_str::<serde_json::Value>(value).ok()))
+            .collect::<Vec<_>>();
+        assert!(flows.iter().any(|flow|flow["version"]==5&&flow["chain"]=="next"
+            &&flow["conditionMode"]==mode),"else-if {mode} flow missing: {flows:?}");
+        assert!(flows.iter().any(|flow|flow["version"]==5&&flow["chain"]=="then"),
+            "multiline else-if {mode} then flow missing: {flows:?}");
+    }
+
+    let source:Arc<str>=Arc::from("function ordinary(value: text):\n    if {_value} is set:\n        set {_first} to {_value}\n    else if {_value} is set:\n        set {_second} to {_value}\n");
+    let uri:Uri="file:///guards/compound-elseif-expression.sk".parse().unwrap();
+    let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),3,source.as_ref()),Default::default()).unwrap();
+    assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+    assert!(!result.syntax.diagnostics.iter().any(|diagnostic|
+        diagnostic.kind==skript_parser::StructureDiagnosticKind::Unclaimed),
+        "ordinary else-if condition must remain claimed: {:?}",result.syntax.diagnostics);
+    let flows=result.ast.nodes.iter().filter(|node|node.kind==SyntaxKind::Section)
+        .filter_map(|node|unique_metadata(node,FLOW).and_then(|value|serde_json::from_str::<serde_json::Value>(value).ok()))
+        .collect::<Vec<_>>();
+    assert!(flows.iter().any(|flow|flow["version"]==5&&flow["chain"]=="next"
+        &&flow["conditionCapture"]==0),"ordinary else-if condition flow missing: {flows:?}");
+
+    let source:Arc<str>=Arc::from("function invalid(value: text):\n    if {_value} is set:\n        set {_first} to {_value}\n    else if not a registered condition:\n        set {_second} to {_value}\n");
+    let uri:Uri="file:///guards/compound-elseif-invalid.sk".parse().unwrap();
+    let result=host.parse_document(parser_wasm::DocumentParseRequest::new("file:///guards",uri.as_str(),4,source.as_ref()),Default::default()).unwrap();
+    assert!(result.component_failures.is_empty(),"{:?}",result.component_failures);
+    assert!(result.syntax.diagnostics.iter().any(|diagnostic|
+        diagnostic.kind==skript_parser::StructureDiagnosticKind::Unclaimed),
+        "an invalid required condition capture must remain unclaimed: {:?}",result.syntax.diagnostics);
+}
+#[test]
 fn standard_presence_guard_runs_through_the_actual_component_and_current_transfer_session() {
     for complete in [false,true] {
     let catalog=if complete {Arc::new(ssg::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
