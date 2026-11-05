@@ -1,6 +1,7 @@
 use super::*;
 const PROJECT: &str = "file:///project";
 const OWNER: &str = "example.declarations";
+const FOREIGN_OWNER: &str = "example.source-types";
 const HOOK: &str = "declarations";
 const TEXT: &str = "expression fixture:\n    get:\n        return\n";
 
@@ -9,6 +10,11 @@ fn provider() -> ProviderStamp {
     // separately through the public native document/Component pipeline.
     ProviderStamp { epoch: Arc::new(AtomicBool::new(true)), catalog: None, source: None,
         owners: vec![(OWNER.into(), "binary".into(), 1, false, false)] }
+}
+fn mixed_provider() -> ProviderStamp {
+    let mut stamp=provider();
+    stamp.owners.push((FOREIGN_OWNER.into(), "foreign-binary".into(), 1, false, false));
+    stamp
 }
 fn source(document: &str) -> DeclarationSource {
     DeclarationSource::new(format!("file:///project/{document}.sk"), document, 1, 2, TEXT)
@@ -23,11 +29,18 @@ fn setup(authority: &mut SourceAuthority, provider: ProviderStamp, current: Decl
     sources: Vec<DeclarationSource>, exports: Vec<DeclarationExports>, complete: bool)
     -> (Arc<Mutex<Arena>>, tree_view::Lease, Invocation, u64)
 {
+    setup_with_options(authority,provider,current,sources,exports,complete,OWNER,HOOK,false,false)
+}
+fn setup_with_options(authority: &mut SourceAuthority, provider: ProviderStamp, current: DeclarationSource,
+    sources: Vec<DeclarationSource>, exports: Vec<DeclarationExports>, complete: bool,
+    owner:&str,hook:&str,conflicts_enabled:bool,public_source_types_enabled:bool)
+    -> (Arc<Mutex<Arena>>, tree_view::Lease, Invocation, u64)
+{
     let request = DocumentParseRequest::new(PROJECT, current.document_id.clone(), 7, Arc::<str>::from(TEXT));
     let inputs = DeclarationInputs::new(current, sources, complete).with_epoch(10).with_exports(exports);
     let view = authority.prepare(&request, &inputs).unwrap();
     let arena = Arc::new(Mutex::new(Arena::new(PROJECT.into(), view, provider, &inputs,
-        BTreeSet::from([(OWNER.into(), HOOK.into())]))));
+        BTreeSet::from([(owner.into(), hook.into())]))));
     let mapped = MappedSource::identity(TEXT);
     let tree = Arc::new(skript_parser::parse_raw_tree(&mapped, skript_parser::RawTreeOptions::for_skript_version(2, 15)));
     let root = tree.roots[0].get();
@@ -36,7 +49,8 @@ fn setup(authority: &mut SourceAuthority, provider: ProviderStamp, current: Decl
         input: String::new(), expected_types: vec![], options: vec![],
         span: mapped_span_to_wit(mapped.map_range(ParserTextRange::new(0, TEXT.len())).unwrap()) });
     declaration_prepass::bind_tree_reference(&mut payload, lease.reference()).unwrap();
-    let invocation = Invocation::prepare(Arc::clone(&arena), authority, OWNER, HOOK, lease.reference(), &mut payload).unwrap();
+    let invocation = Invocation::prepare_with_conflicts(Arc::clone(&arena),authority,owner,hook,lease.reference(),
+        conflicts_enabled,public_source_types_enabled,&mut payload).unwrap();
     (arena, lease, invocation, root)
 }
 fn export_entry(invocation: &Invocation, root: u64, local: bool, callable: bool) -> WitMetadataEntry {
@@ -48,10 +62,13 @@ fn export_entry(invocation: &Invocation, root: u64, local: bool, callable: bool)
         "visibility":if local {"document"} else {"project"},"callable":callable}).to_string() }
 }
 fn finish(arena: &Arc<Mutex<Arena>>, entries: Vec<(&str, NativeSyntaxBinding)>) -> DeclarationExports {
+    finish_for(arena,OWNER,HOOK,entries)
+}
+fn finish_for(arena: &Arc<Mutex<Arena>>,owner:&str,hook:&str,entries:Vec<(&str,NativeSyntaxBinding)>)->DeclarationExports {
     let frame = lock(arena).unwrap();
     frame.finish(NativeSyntaxBindings { definitions: entries.into_iter().map(|(id, binding)|
-        (DynamicSyntaxId::new(OWNER, id), binding)).collect(),
-        completeness: BTreeMap::from([((OWNER.into(), HOOK.into()), true)]) }, &frame.provider, true).unwrap()
+        (DynamicSyntaxId::new(owner, id), binding)).collect(),
+        completeness: BTreeMap::from([((owner.into(), hook.into()), true)]) }, &frame.provider, true).unwrap()
 }
 fn publish(authority: &mut SourceAuthority, provider: ProviderStamp, a: DeclarationSource,
     sources: Vec<DeclarationSource>, input: DynamicSyntaxInput) -> DeclarationExports
@@ -60,6 +77,92 @@ fn publish(authority: &mut SourceAuthority, provider: ProviderStamp, a: Declarat
     let binding = invocation.bind(&input, &export_entry(&invocation, root, false, false), &mut lease).unwrap();
     assert!(!binding.callable);
     finish(&arena, vec![(&input.local_id, binding)])
+}
+
+fn source_type_input(local_id:&str,alias:&str,binary_name:&str,marked:bool,large_value:usize)->DynamicSyntaxInput {
+    let mut metadata=BTreeMap::new();
+    if marked {
+        metadata.insert(PUBLIC_TYPE_MARKER.into(),json!({"version":1,"metadataKeys":["source.fact"]}).to_string());
+        metadata.insert("source.fact".into(),"x".repeat(large_value.max(1)));
+        metadata.insert("private.debug".into(),"must not cross owners".into());
+    }
+    DynamicSyntaxInput {local_id:local_id.into(),kind:CatalogSyntaxKind::Type,patterns:vec![alias.into()],priority:0,
+        before:vec![],after:vec![],return_type:Some(binary_name.into()),return_multiplicity:None,
+        structure_node_type:None,structure_body_mode:None,entry_validator:None,handler:"fixture.type".into(),metadata}
+}
+fn source_type_entry(invocation:&Invocation,root:u64,alias:&str)->WitMetadataEntry {
+    let tree=invocation.tree;
+    WitMetadataEntry {key:EXPORT.into(),owner_component_id:None,value:json!({"version":1,
+        "tree":{"version":1,"epochHigh":tree.epoch_high.to_string(),"epochLow":tree.epoch_low.to_string(),
+            "token":tree.token.to_string(),"generation":tree.generation.to_string()},
+        "root":root.to_string(),"namespace":"script-java.type","key":alias,
+        "visibility":"project","callable":false}).to_string()}
+}
+fn publish_source_types(authority:&mut SourceAuthority,provider:ProviderStamp,source_doc:DeclarationSource,sources:Vec<DeclarationSource>,
+    definitions:Vec<DynamicSyntaxInput>)->DeclarationExports {
+    let (arena,mut lease,invocation,root)=setup_with_options(authority,provider,source_doc,sources,vec![],true,
+        FOREIGN_OWNER,"source-types",false,false);
+    let mut entries=Vec::new();
+    for definition in definitions {
+        let entry=source_type_entry(&invocation,root,&definition.patterns[0]);
+        let binding=invocation.bind(&definition,&entry,&mut lease).unwrap();
+        entries.push((definition.local_id,binding));
+    }
+    finish_for(&arena,FOREIGN_OWNER,"source-types",entries.iter().map(|(id,binding)|(id.as_str(),binding.clone())).collect())
+}
+
+#[test]
+fn explicit_public_source_types_are_owner_stamped_bounded_and_opt_in() {
+    let mut authority=SourceAuthority::default();let provider=mixed_provider();let a=source("type-provider");let b=source("consumer");
+    let published=publish_source_types(&mut authority,provider.clone(),a.clone(),vec![a.clone(),b.clone()],vec![
+        source_type_input("public-widget","Widget","demo.Widget",true,0),
+        source_type_input("private-widget","PrivateWidget","demo.PrivateWidget",false,0),
+    ]);
+    let (_,_,legacy,_)=setup_with_options(&mut authority,provider.clone(),b.clone(),vec![a.clone(),b.clone()],
+        vec![published.clone()],true,OWNER,HOOK,false,false);
+    assert!(!legacy.original.options.iter().any(|option|option.key==PUBLIC_SOURCE_TYPES),
+        "a consumer that does not request the contract receives no cross-owner view");
+
+    let (_,_,consumer,_)=setup_with_options(&mut authority,provider,b.clone(),vec![a,b],vec![published],true,
+        OWNER,HOOK,false,true);
+    let option=consumer.original.options.iter().find(|option|option.key==PUBLIC_SOURCE_TYPES).unwrap();
+    assert!(option.owner_component_id.is_none());
+    let view:Value=serde_json::from_str(&option.value).unwrap();
+    assert_eq!(view["version"],1);
+    assert_eq!(view["project"],true,"project mode must be explicit");
+    assert_eq!(view["complete"],true,"the exported source set must be current and complete");
+    let types=view["types"].as_array().unwrap();assert_eq!(types.len(),1,"unmarked Type declarations stay private");
+    let widget=&types[0];assert_eq!(widget["ownerComponentId"],FOREIGN_OWNER);
+    assert_eq!(widget["source"]["uri"],"file:///project/type-provider.sk");
+    assert_eq!(widget["origin"]["namespace"],"script-java.type");
+    assert_eq!(widget["origin"]["key"],"Widget");assert_eq!(widget["returnType"],"demo.Widget");
+    assert_eq!(widget["metadata"]["source.fact"],"x");
+    assert!(widget["metadata"].get("private.debug").is_none());
+    assert!(widget.get("handler").is_none(),"the cross-owner view cannot carry executable handler identity");
+}
+
+#[test]
+fn malformed_or_oversized_public_source_type_views_clear_partial_entries() {
+    for definitions in [
+        vec![source_type_input("valid","Valid","demo.Valid",true,0), {
+            let mut invalid=source_type_input("invalid","Invalid","demo.Invalid",true,0);
+            invalid.metadata.remove("source.fact");invalid
+        }],
+        (0..=MAX_PUBLIC_SOURCE_TYPES).map(|index|source_type_input(&format!("count-{index}"),&format!("Count{index}"),
+            &format!("demo.Count{index}"),true,0)).collect(),
+        (0..6).map(|index|source_type_input(&format!("wide-{index}"),&format!("Wide{index}"),
+            &format!("demo.Wide{index}"),true,12*1024)).collect(),
+    ] {
+        let mut authority=SourceAuthority::default();let provider=mixed_provider();let a=source("provider");let b=source("consumer");
+        let published=publish_source_types(&mut authority,provider.clone(),a.clone(),vec![a.clone(),b.clone()],definitions);
+        let (_,_,consumer,_)=setup_with_options(&mut authority,provider,b.clone(),vec![a,b],vec![published],true,
+            OWNER,HOOK,false,true);
+        let option=consumer.original.options.iter().find(|option|option.key==PUBLIC_SOURCE_TYPES).unwrap();
+        let view:Value=serde_json::from_str(&option.value).unwrap();
+        assert_eq!(view["complete"],false,"invalid or over-budget metadata is not a partial success");
+        assert_eq!(view["types"],json!([]));
+        assert!(option.value.len()<=MAX_OPTION_BYTES);
+    }
 }
 
 #[test]
@@ -248,7 +351,7 @@ fn editing_locations_keep_native_headers_and_expire_with_consumer_or_source_view
 
 fn with_conflicts(arena:&Arc<Mutex<Arena>>,authority:&SourceAuthority,lease:&tree_view::Lease,prior:&Invocation)->Invocation {
     let mut request=prior.original.clone();request.options.truncate(1);let mut payload=HookPayload::Parser(request);
-    Invocation::prepare_with_conflicts(Arc::clone(arena),authority,OWNER,HOOK,lease.reference(),true,&mut payload).unwrap()
+    Invocation::prepare_with_conflicts(Arc::clone(arena),authority,OWNER,HOOK,lease.reference(),true,false,&mut payload).unwrap()
 }
 fn conflict_entry(invocation:&Invocation,root:u64,key:&str)->WitMetadataEntry {
     let mut entry=export_entry(invocation,root,true,false);let mut value:Value=serde_json::from_str(&entry.value).unwrap();

@@ -13108,7 +13108,9 @@ impl ParserHost {
                         if let (Some(frame), Some(view)) = (&self.project_declarations, &declaration_view) {
                             Some(project_declarations::Invocation::prepare_with_conflicts(Arc::clone(frame), &self.project_sources,
                                 &component_id, &subscription_id, view.reference(),
-                                component_promises(&self.components[candidate.component_index].manifest.capabilities,crate::CAPABILITY_PROJECT_CONFLICTS), &mut invocation.payload)
+                                component_promises(&self.components[candidate.component_index].manifest.capabilities,crate::CAPABILITY_PROJECT_CONFLICTS),
+                                component_promises(&self.components[candidate.component_index].manifest.capabilities,crate::CAPABILITY_PROJECT_PUBLIC_SOURCE_TYPES),
+                                &mut invocation.payload)
                                 .map_err(|message| StateError::InvalidInput { message })?)
                         } else { None }
                     } else { None };
@@ -14173,6 +14175,7 @@ fn configured_host_capabilities(
         capabilities.push(Capability::new(crate::CAPABILITY_DOCUMENT_DECLARATIONS, 1));
         capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_DECLARATIONS, 1));
         capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_CONFLICTS, 1));
+        capabilities.push(Capability::new(crate::CAPABILITY_PROJECT_PUBLIC_SOURCE_TYPES, 1));
     }
     capabilities
 }
@@ -14453,6 +14456,12 @@ fn validate_manifest(
             || !manifest.subscriptions.iter().any(|route| route.capability_id == crate::CAPABILITY_DOCUMENT_DECLARATIONS) {
             return Err(HostError::InvalidManifest { message: "project declarations require the v1 capability and a document declaration route".into() });
         }
+    }
+    let public_type_claims=manifest.capabilities.iter().filter(|claim|claim.id==crate::CAPABILITY_PROJECT_PUBLIC_SOURCE_TYPES).collect::<Vec<_>>();
+    if !public_type_claims.is_empty() && (public_type_claims.len()!=1 || public_type_claims[0].minimum_version!=1
+        || !manifest.capabilities.iter().any(|claim|claim.id==crate::CAPABILITY_PROJECT_DECLARATIONS&&claim.required&&claim.minimum_version==1)
+        || !manifest.subscriptions.iter().any(|route|route.capability_id==crate::CAPABILITY_DOCUMENT_DECLARATIONS)) {
+        return Err(HostError::InvalidManifest {message:"public source-type view requires the v1 project-declaration route".into()});
     }
     let mut subscription_ids = BTreeSet::new();
     for subscription in &manifest.subscriptions {
@@ -18422,6 +18431,8 @@ mod tests {
                 .iter()
                 .any(|capability| capability.id == CAPABILITY_DYNAMIC_SYNTAX)
         );
+        assert!(normalized_only.iter().any(|capability|capability.id==crate::CAPABILITY_PROJECT_PUBLIC_SOURCE_TYPES),
+            "the cross-owner type view is available only with the configured declaration pipeline");
         assert!(
             normalized_only
                 .iter()

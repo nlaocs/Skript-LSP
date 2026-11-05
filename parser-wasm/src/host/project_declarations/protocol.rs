@@ -9,6 +9,9 @@ use syntaxes::{NativeSyntaxBinding, NativeSyntaxBindings};
 pub(in crate::host) const CAPABILITY: &str = "parser.project-declarations";
 pub(in crate::host) const OPTION: &str = "native.project-declarations.v1";
 pub(in crate::host) const CONFLICTS: &str = "native.project-conflicts.v1";
+pub(in crate::host) const PUBLIC_SOURCE_TYPES: &str = "native.project-public-source-types.v1";
+pub(in crate::host) const PUBLIC_TYPE_MARKER: &str = "parser.project-public-type.v1";
+const MAX_PUBLIC_SOURCE_TYPES: usize = 64;
 pub(in crate::host) const EXPORT: &str = "parser.project-export.v1";
 pub(in crate::host) const IMPORT: &str = "parser.project-import.v1";
 pub(in crate::host) const STATUS: &str = "parser.project-completeness.v1";
@@ -33,6 +36,50 @@ fn number(value: &str) -> Result<u64, String> {
     value.parse().map_err(|_| "invalid opaque project identity".into())
 }
 
+/// Only provider-selected metadata on a project-scoped Type declaration is
+/// eligible for the cross-owner source-type projection. The host supplies all
+/// origin and owner fields; guest metadata cannot assert those identities.
+fn public_source_type(binding: &Binding) -> Result<Option<Value>, String> {
+    let Some(marker) = binding.input.metadata.get(PUBLIC_TYPE_MARKER) else { return Ok(None); };
+    if binding.origin.local || binding.input.kind != CatalogSyntaxKind::Type
+        || binding.input.patterns.len() != 1 || binding.input.patterns[0].is_empty()
+        || binding.input.patterns[0].len() > 1024
+        || binding.input.patterns[0].chars().any(char::is_control)
+        || binding.input.return_type.as_deref().is_none_or(|ty| ty.is_empty() || ty.len() > 1024 || ty.chars().any(char::is_control))
+        || binding.input.return_multiplicity.is_some()
+        || binding.origin.namespace.is_empty() || binding.origin.namespace.len() > 128
+        || binding.origin.namespace.chars().any(char::is_control)
+        || binding.origin.key != binding.input.patterns[0]
+        || marker.len() > 2048
+    { return Err("invalid public source-type declaration".into()); }
+    let export: PublicTypeExport = serde_json::from_str(marker).map_err(|_| "invalid public source-type metadata selection")?;
+    if export.version != 1 || export.metadata_keys.is_empty() || export.metadata_keys.len() > 16 {
+        return Err("unsupported public source-type metadata selection".into());
+    }
+    let mut keys = BTreeSet::new();
+    let mut metadata = serde_json::Map::new();
+    for key in export.metadata_keys {
+        if key.is_empty() || key.len() > 128 || key.chars().any(char::is_control)
+            || key == PUBLIC_TYPE_MARKER || !keys.insert(key.clone()) {
+            return Err("invalid or duplicate public source-type metadata key".into());
+        }
+        let value = binding.input.metadata.get(&key).ok_or("selected public source-type metadata is missing")?;
+        if value.len() > 16 * 1024 { return Err("public source-type metadata value limit".into()); }
+        metadata.insert(key, Value::String(value.clone()));
+    }
+    let source = &binding.origin.source.stamp;
+    Ok(Some(json!({
+        "ownerComponentId": binding.owner,
+        "source": {"uri": source.uri, "documentId": source.document_id, "generation": source.generation,
+            "sourceEpoch": source.source_epoch, "digest": source.digest},
+        "origin": {"namespace": binding.origin.namespace, "key": binding.origin.key},
+        "localId": binding.input.local_id,
+        "pattern": binding.input.patterns[0],
+        "returnType": binding.input.return_type,
+        "metadata": metadata,
+    })))
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Tree { version: u32, epoch_high: String, epoch_low: String, token: String, generation: String }
@@ -53,6 +100,9 @@ struct ImportDraft { version: u32, reference: String }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Complete { version: u32, complete: bool }
+#[derive(Deserialize)]
+#[serde(rename_all="camelCase",deny_unknown_fields)]
+struct PublicTypeExport { version: u32, metadata_keys: Vec<String> }
 
 #[derive(Clone, Debug)]
 pub(in crate::host) struct Origin {
@@ -237,10 +287,11 @@ impl Invocation {
     #[cfg(test)]
     pub(in crate::host) fn prepare(arena: Arc<Mutex<Arena>>, authority: &SourceAuthority,
         owner: &str, hook: &str, tree: tree_view::Reference, payload: &mut HookPayload) -> Result<Self,String>
-    {Self::prepare_with_conflicts(arena,authority,owner,hook,tree,false,payload)}
+    {Self::prepare_with_conflicts(arena,authority,owner,hook,tree,false,false,payload)}
 
     pub(in crate::host) fn prepare_with_conflicts(arena: Arc<Mutex<Arena>>, authority: &SourceAuthority,
-        owner: &str, hook: &str, tree: tree_view::Reference, conflicts_enabled:bool, payload: &mut HookPayload) -> Result<Self, String>
+        owner: &str, hook: &str, tree: tree_view::Reference, conflicts_enabled:bool,
+        public_source_types_enabled:bool, payload: &mut HookPayload) -> Result<Self, String>
     {
         let HookPayload::Parser(request) = payload else {return Err("invalid project declaration carrier".into());};
         if request.parser_id!=declaration_prepass::PARSER_ID || request.options.len()!=1 {return Err("invalid project declaration input options".into());}
@@ -254,6 +305,9 @@ impl Invocation {
             if !records.get(document).is_some_and(DeclarationExports::complete) {complete=false;}
         }
         let mut imports=BTreeMap::new();let mut descriptors=Vec::new();let mut conflicts=Vec::new();
+        let mut public_types=Vec::new();
+        let mut public_types_complete=public_source_types_enabled&&frame.project_mode&&frame.view.complete;
+        let mut public_type_bytes=128usize;
         let mut descriptor_bytes=if conflicts_enabled {256usize}else{128usize};let mut body_bindings=Vec::new();
         if complete {
             'records: for record in records.values() {
@@ -279,6 +333,21 @@ impl Invocation {
                     body_bindings.push(format!("{}|{}|{}",binding.semantic_key(),binding.origin.source.lifetime,frame.provider.semantic_key()));
                     imports.insert(reference,Arc::clone(binding));
                 }
+                if public_source_types_enabled&&public_types_complete {
+                    for binding in record.0.bindings.iter().filter(|binding|binding.owner!=owner) {
+                        if !binding.input.metadata.contains_key(PUBLIC_TYPE_MARKER) {continue;}
+                        body_bindings.push(format!("public-type|{}|{}",binding.semantic_key(),binding.origin.source.lifetime));
+                        let Some(descriptor)=(match public_source_type(binding) {
+                            Ok(value)=>value,
+                            Err(_)=>{public_types_complete=false;None},
+                        }) else {continue;};
+                        if public_types.len()>=MAX_PUBLIC_SOURCE_TYPES {public_types_complete=false;break;}
+                        let bytes=serde_json::to_vec(&descriptor).map_err(|e|e.to_string())?.len();
+                        if public_type_bytes.saturating_add(bytes)>MAX_OPTION_BYTES {public_types_complete=false;break;}
+                        public_type_bytes=public_type_bytes.saturating_add(bytes);
+                        public_types.push(descriptor);
+                    }
+                }
             }
         }
         let encode=|complete:bool,items:&[Value]|serde_json::to_string(&json!({"version":1,"project":frame.project_mode,
@@ -291,13 +360,28 @@ impl Invocation {
             complete=false;imports.clear();descriptors.clear();conflicts.clear();body_bindings.clear();
             value=encode(false,&descriptors)?;conflict_value=if conflicts_enabled {Some(encode_conflicts(false,&conflicts)?)}else{None};
         }
-        frame.import_bytes=frame.import_bytes.max(value.len()+conflict_value.as_ref().map_or(0,String::len));
+        if !complete {public_types_complete=false;}
+        if !public_types_complete {public_types.clear();}
+        let encode_public_types=|complete:bool,types:&[Value]|serde_json::to_string(&json!({"version":1,"project":frame.project_mode,
+            "complete":complete,"types":types})).map_err(|e|e.to_string());
+        let mut public_types_value=if public_source_types_enabled {
+            Some(encode_public_types(public_types_complete,&public_types)?)
+        } else {None};
+        let base_bytes=value.len().saturating_add(conflict_value.as_ref().map_or(0,String::len));
+        if public_types_value.as_ref().is_some_and(|shared|base_bytes.saturating_add(shared.len())>MAX_OPTION_BYTES) {
+            public_types_complete=false;public_types.clear();
+            public_types_value=Some(encode_public_types(false,&public_types)?);
+        }
+        let total_bytes=base_bytes.saturating_add(public_types_value.as_ref().map_or(0,String::len));
+        frame.import_bytes=frame.import_bytes.max(total_bytes);
         frame.imports_complete&=complete;
-        let body_key=format!("{:x}",Sha256::digest(format!("{}|{}|{:?}",frame.project_mode,complete,body_bindings).as_bytes()));
+        let body_key=format!("{:x}",Sha256::digest(format!("{}|{}|{}|{:?}",frame.project_mode,complete,
+            public_types_complete,body_bindings).as_bytes()));
         frame.body_inputs.insert((owner.into(),hook.into()),body_key);
         frame.body_key=format!("{:x}",Sha256::digest(format!("{}|{:?}",frame.provider.semantic_key(),frame.body_inputs).as_bytes()));
         request.options.push(WitMetadataEntry {key:OPTION.into(),owner_component_id:None,value});
         if let Some(value)=conflict_value {request.options.push(WitMetadataEntry {key:CONFLICTS.into(),owner_component_id:None,value});}
+        if let Some(value)=public_types_value {request.options.push(WitMetadataEntry {key:PUBLIC_SOURCE_TYPES.into(),owner_component_id:None,value});}
         let original=request.clone();drop(frame);
         Ok(Self {arena,original,owner:owner.into(),hook:hook.into(),tree,imports,conflicts_enabled})
     }

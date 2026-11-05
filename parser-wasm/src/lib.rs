@@ -94,6 +94,9 @@ pub const CAPABILITY_PROJECT_DECLARATIONS: &str = "parser.project-declarations";
 /// Opt-in conflict-only keys from current same-owner project headers, including private ones.
 /// This does not export a private callable or grant an import token.
 pub const CAPABILITY_PROJECT_CONFLICTS: &str = "parser.project-conflicts";
+/// Opt-in read-only view of explicitly shared project source-type declarations.
+/// It carries only provider-selected type metadata and host-authenticated owner/source identity.
+pub const CAPABILITY_PROJECT_PUBLIC_SOURCE_TYPES: &str = "parser.project-public-source-types";
 
 /// Opt-in v1 stability of authenticated ASCII identifier leaves edited together
 /// at Function declaration/call names or static scalar local Variable names.
