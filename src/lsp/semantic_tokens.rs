@@ -13,9 +13,12 @@ use parser_wasm::{
     host::{AstNode, AstTree, MappedSpan, source_geometry},
 };
 use skript_parser::{RawNodeKind, RawTriviaKind, TextRange};
+use syntaxes::{DynamicSyntaxSnapshot, SyntaxCandidateSource};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use syntax_pattern_parser::syntax::{PatternElement, SpannedPatternElement};
 use syntaxes::Catalog;
+
+mod source_roles;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Role {
@@ -29,10 +32,16 @@ enum Role {
     Function,
     Variable,
     InterpolationDelimiter,
+    Class,
+    Type,
+    Method,
+    Property,
+    Parameter,
+    Keyword,
 }
 
 impl Role {
-    const ALL: [Self; 10] = [
+    const ALL: [Self; 16] = [
         Self::Event,
         Self::Condition,
         Self::Effect,
@@ -43,6 +52,12 @@ impl Role {
         Self::Function,
         Self::Variable,
         Self::InterpolationDelimiter,
+        Self::Class,
+        Self::Type,
+        Self::Method,
+        Self::Property,
+        Self::Parameter,
+        Self::Keyword,
     ];
 
     fn name(self) -> &'static str {
@@ -57,6 +72,12 @@ impl Role {
             Self::Function => "function",
             Self::Variable => "variable",
             Self::InterpolationDelimiter => "skriptInterpolationDelimiter",
+            Self::Class => "class",
+            Self::Type => "type",
+            Self::Method => "method",
+            Self::Property => "property",
+            Self::Parameter => "parameter",
+            Self::Keyword => "keyword",
         }
     }
 }
@@ -112,6 +133,8 @@ impl Document {
         result: &DocumentParseResult,
         source: &str,
         catalog: &Catalog,
+        document_id: &str,
+        document_revision: u64,
     ) -> Result<Self, String> {
         if source != result.source.original() {
             return Err("semantic token source does not match the parsed revision".into());
@@ -145,21 +168,44 @@ impl Document {
                 }
             }
         }
+        let dynamic = current_dynamic_snapshot(
+            result.dynamic_syntax.as_ref(),
+            document_id,
+            document_revision,
+        );
         let fixed = result
             .ast
             .nodes
             .iter()
-            .filter(|node| fixed_parts_are_known(node, catalog))
+            .filter(|node| {
+                fixed_parts_are_known(
+                    node,
+                    catalog,
+                    dynamic,
+                )
+            })
             .map(|node| node.id)
             .collect();
-        Self::from_ast(&result.ast, source, blocked, fixed)
+        let roles = source_roles::collect(&result.ast, source, dynamic);
+        Self::from_ast_with_roles(&result.ast, source, blocked, fixed, roles)
     }
 
+    #[cfg(test)]
     fn from_ast(
+        ast: &AstTree,
+        source: &str,
+        blocked: Vec<TextRange>,
+        fixed: HashSet<u64>,
+    ) -> Result<Self, String> {
+        Self::from_ast_with_roles(ast, source, blocked, fixed, HashMap::new())
+    }
+
+    fn from_ast_with_roles(
         ast: &AstTree,
         source: &str,
         mut blocked: Vec<TextRange>,
         fixed: HashSet<u64>,
+        roles: HashMap<u64, Vec<(TextRange, Role)>>,
     ) -> Result<Self, String> {
         let lines = LineIndex::new(source);
         let mut nodes = BTreeMap::new();
@@ -237,6 +283,13 @@ impl Document {
             if invalid_geometry.contains(id) {
                 continue;
             }
+            if let Some(declarations) = roles.get(id) {
+                for (range, role) in declarations {
+                    for fragment in subtract(*range, &blocked) {
+                        push_piece(source, fragment, *role, *id, &mut pieces);
+                    }
+                }
+            }
             let Some(role) = classify(node) else {
                 continue;
             };
@@ -263,6 +316,9 @@ impl Document {
                 continue;
             }
             let mut captures = Vec::new();
+            if let Some(declarations) = roles.get(id) {
+                captures.extend(declarations.iter().map(|(range, _)| *range));
+            }
             for child in &node.children {
                 captures.extend(origins(
                     &nodes.get(child).ok_or("missing semantic token child")?.span,
@@ -527,34 +583,78 @@ fn classify(node: &AstNode) -> Option<Role> {
 
 /// Match the adopted registration and trust native capture spans only while
 /// their owner-protected source/identity seal still matches the final AST.
-fn fixed_parts_are_known(node: &AstNode, catalog: &Catalog) -> bool {
-    let Some((registration, definition, index)) = registered_pattern_identity(node) else {
+fn fixed_parts_are_known(
+    node: &AstNode,
+    catalog: &Catalog,
+    dynamic: Option<&DynamicSyntaxSnapshot>,
+) -> bool {
+    let Some((registration, definition_id, index)) = registered_pattern_identity(node) else {
         return false;
     };
     let mut matching = catalog
         .syntax_by_registration_id(registration)
         .into_iter()
         .filter(|syntax| {
-            syntax.definition_id().as_str() == definition
+            syntax.definition_id().as_str() == definition_id
                 && super::hover::same_kind(syntax.kind(), node.kind)
         });
-    let Some(syntax) = matching.next() else {
+    if let Some(syntax) = matching.next() {
+        if matching.next().is_some() {
+            return false;
+        }
+        let Some(pattern) = usize::try_from(index)
+            .ok()
+            .and_then(|index| syntax.common()?.patterns.get(index))
+        else {
+            return false;
+        };
+        return pattern_parts_are_known(node, &pattern.parsed.elements);
+    }
+    let Some(dynamic) = dynamic else {
         return false;
     };
-    if matching.next().is_some() {
+    let Some((id, definition)) = dynamic.definitions.iter().find(|(id, definition)| {
+        id.qualified() == registration
+            && definition.id == **id
+            && definition.id.qualified() == definition_id
+            && super::hover::same_kind(definition.kind, node.kind)
+    }) else {
+        return false;
+    };
+    let mut candidates = dynamic.candidates.iter().filter(|candidate| {
+        candidate.source == SyntaxCandidateSource::Dynamic(id.clone())
+            && super::hover::same_kind(candidate.kind, node.kind)
+    });
+    if candidates.next().is_none() || candidates.next().is_some() {
         return false;
     }
     let Some(pattern) = usize::try_from(index)
         .ok()
-        .and_then(|index| syntax.common()?.patterns.get(index))
+        .and_then(|index| definition.patterns.get(index))
     else {
         return false;
     };
+    pattern_parts_are_known(node, &pattern.parsed.elements)
+}
+
+fn current_dynamic_snapshot<'a>(
+    snapshot: &'a DynamicSyntaxSnapshot,
+    document_id: &str,
+    document_revision: u64,
+) -> Option<&'a DynamicSyntaxSnapshot> {
+    (snapshot.document_id == document_id && snapshot.document_revision == document_revision)
+        .then_some(snapshot)
+}
+
+fn pattern_parts_are_known(
+    node: &AstNode,
+    elements: &[SpannedPatternElement],
+) -> bool {
     if source_geometry::has_pattern_capture_geometry(node) {
         return complete_capture_geometry(node);
     }
     // Older or addon-created nodes without a native proof stay conservative.
-    slots_are_projected(&pattern.parsed.elements, node.kind == SyntaxKind::Event)
+    slots_are_projected(elements, node.kind == SyntaxKind::Event)
 }
 
 fn complete_capture_geometry(node: &AstNode) -> bool {
@@ -714,7 +814,7 @@ mod tests {
         FunctionCall, ParseSummary, SourceOrigin, TextRange as WitRange,
     };
 
-    fn node(
+    pub(super) fn node(
         id: u64,
         kind: SyntaxKind,
         semantic: &str,
@@ -805,6 +905,114 @@ mod tests {
         }
     }
 
+    pub(super) fn dynamic_structure_snapshot(
+        id: &syntaxes::DynamicSyntaxId,
+        document_id: &str,
+        document_revision: u64,
+        kind: syntaxes::SyntaxKind,
+        pattern: &str,
+    ) -> DynamicSyntaxSnapshot {
+        let catalog = crate::lsp::test_support::runtime_catalog();
+        let definition = syntaxes::DynamicSyntaxDefinition {
+            id: id.clone(),
+            kind,
+            patterns: vec![syntaxes::DynamicPattern {
+                source: pattern.into(),
+                parsed: syntax_pattern_parser::syntax::parse(pattern, catalog.plural_rules())
+                    .unwrap(),
+            }],
+            priority: 0,
+            before: vec![],
+            after: vec![],
+            return_type: None,
+            return_multiplicity: None,
+            structure_node_type: None,
+            structure_body_mode: None,
+            entry_validator: None,
+            handler: "test.dynamic-structure".into(),
+            metadata: Default::default(),
+            component_load_order: 0,
+            declaration_order: 0,
+        };
+        DynamicSyntaxSnapshot {
+            document_id: document_id.into(),
+            document_revision,
+            registry_revision: 1,
+            definitions: [(id.clone(), definition)].into_iter().collect(),
+            overrides: Default::default(),
+            candidates: vec![syntaxes::RankedSyntaxCandidate {
+                source: SyntaxCandidateSource::Dynamic(id.clone()),
+                kind,
+                overrides: vec![],
+            }],
+        }
+    }
+
+    #[test]
+    fn dynamic_structure_tokens_require_exact_current_registration() {
+        let source = "public class Widget";
+        let document_id = "lsp-document:current-document";
+        let id = syntaxes::DynamicSyntaxId::new("test.hippo", "class-header");
+        let mut node = node(
+            42,
+            SyntaxKind::Structure,
+            "structure",
+            source,
+            0,
+            source.len(),
+        );
+        node.syntax_id = id.qualified();
+        let summary = node.summary.as_mut().unwrap();
+        summary.definition_id = Some(id.qualified());
+        summary.registration_id = Some(id.qualified());
+        summary.pattern_index = Some(0);
+
+        let snapshot = dynamic_structure_snapshot(
+            &id,
+            document_id,
+            7,
+            syntaxes::SyntaxKind::Structure,
+            source,
+        );
+        assert!(fixed_parts_are_known(
+            &node,
+            &crate::lsp::test_support::runtime_catalog(),
+            current_dynamic_snapshot(&snapshot, document_id, 7),
+        ));
+        assert!(!fixed_parts_are_known(
+            &node,
+            &crate::lsp::test_support::runtime_catalog(),
+            current_dynamic_snapshot(&snapshot, document_id, 8),
+        ));
+        assert!(!fixed_parts_are_known(
+            &node,
+            &crate::lsp::test_support::runtime_catalog(),
+            current_dynamic_snapshot(&snapshot, "lsp-document:other", 7),
+        ));
+
+        let mut wrong_kind = dynamic_structure_snapshot(
+            &id,
+            document_id,
+            7,
+            syntaxes::SyntaxKind::Expression,
+            source,
+        );
+        wrong_kind.candidates[0].kind = syntaxes::SyntaxKind::Expression;
+        assert!(!fixed_parts_are_known(
+            &node,
+            &crate::lsp::test_support::runtime_catalog(),
+            Some(&wrong_kind),
+        ));
+
+        let mut duplicate = snapshot;
+        duplicate.candidates.push(duplicate.candidates[0].clone());
+        assert!(!fixed_parts_are_known(
+            &node,
+            &crate::lsp::test_support::runtime_catalog(),
+            Some(&duplicate),
+        ));
+    }
+
     #[test]
     fn negotiation_requires_full_relative_and_filters_custom_and_standard_types() {
         let capabilities = |types: Vec<&str>, full: bool, formats: Vec<&str>| {
@@ -824,7 +1032,7 @@ mod tests {
         assert!(Legend::negotiate(Some(&capabilities(vec!["function"], true, vec![]))).is_none());
         assert!(
             Legend::negotiate(Some(&capabilities(
-                vec!["keyword", "unknown"],
+                vec!["unsupported", "unknown"],
                 true,
                 vec!["relative"]
             )))

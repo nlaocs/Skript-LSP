@@ -1366,11 +1366,14 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
             diagnostics: Vec::new(),
             entries_valid: true,
         }),
-        StructureBodyMode::Raw => Ok(ParsedStructureBody {
-            body: StructureBody::Raw(node.children.clone()),
-            diagnostics: Vec::new(),
-            entries_valid: true,
-        }),
+        StructureBodyMode::Raw => {
+            observe_raw_structure_body(session, tree, node)?;
+            Ok(ParsedStructureBody {
+                body: StructureBody::Raw(node.children.clone()),
+                diagnostics: Vec::new(),
+                entries_valid: true,
+            })
+        }
         StructureBodyMode::Trigger => {
             let (body, diagnostics) = crate::section::parse_section_body(
                 session,
@@ -1391,6 +1394,7 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
         }
         StructureBodyMode::Entries => {
             let Some(validator) = validator else {
+                observe_raw_structure_body(session, tree, node)?;
                 return Ok(ParsedStructureBody {
                     body: StructureBody::Raw(node.children.clone()),
                     diagnostics: Vec::new(),
@@ -1414,6 +1418,35 @@ fn parse_structure_body<E: ExpressionParseEnvironment>(
             })
         }
     }
+}
+
+/// Raw bodies remain unparsed, but editor-only providers may still inspect
+/// their source lines. This is observational: it does not claim or normalize
+/// the syntax, and the host remains responsible for provider ownership,
+/// revisions, and query budgets.
+fn observe_raw_structure_body<E: ExpressionParseEnvironment>(
+    session: &mut ExpressionSession<'_, E>,
+    tree: &RawTree,
+    node: &RawNode,
+) -> Result<(), StructureParseError> {
+    let mut pending = node.children.iter().rev().copied().collect::<Vec<_>>();
+    while let Some(id) = pending.pop() {
+        session
+            .check_cancelled()
+            .map_err(StructureParseError::from)?;
+        let Some(child) = tree.get(id) else {
+            continue;
+        };
+        if child.kind == RawNodeKind::Simple {
+            if let Some(span) = &child.code_span {
+                session
+                    .observe_editor_line(span.virtual_range)
+                    .map_err(StructureParseError::from)?;
+            }
+        }
+        pending.extend(child.children.iter().rev().copied());
+    }
+    Ok(())
 }
 
 fn parse_validator_entries<E: ExpressionParseEnvironment>(

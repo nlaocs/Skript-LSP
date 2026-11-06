@@ -41,11 +41,58 @@ mod tests {
         let mut d=Document::test_fixture(Arc::from(source));let code=source.find("    ").unwrap()+4;let line=&source[code..source.trim_end().len()];
         d.editor_queries.push(parser_wasm::host::EditorCompletionBatch {inputs:Vec::new(),owner:"test.member".into(),attempt:1,input:line.into(),span:MappedSpan {virtual_range:WireRange {start:code as u64,end:(code+line.len())as u64},origins:vec![SourceOrigin {kind:OriginKind::Exact,original_range:WireRange {start:code as u64,end:(code+line.len())as u64},expansion:None}]},output:parser_wasm::host::EditorCompletionOutput {typed_inputs:Vec::new(),version:1,complete:true,exclusive:true,inferred:false,proposals:vec![parser_wasm::host::EditorCompletionProposal {id:"getName".into(),label:"getName()".into(),filter_text:"getName".into(),insert_text:"getName()".into(),snippet:None,start,end,detail:"owned declaration".into(),documentation:String::new()}]}});d
     }
+    fn raw_document(source:&str,absolute_start:usize,absolute_end:usize)->Document{
+        let mut d=Document::test_fixture(Arc::from(source));
+        let line_start=source[..absolute_start].rfind('\n').map_or(0,|index|index+1);
+        let line_end=source[absolute_start..].find('\n').map_or(source.len(),|index|absolute_start+index);
+        let line=&source[line_start..line_end];
+        let indentation=line.len()-line.trim_start_matches(' ').len();
+        let code=line_start+indentation;
+        let input=&source[code..line_end];
+        d.editor_queries.push(parser_wasm::host::EditorCompletionBatch {inputs:Vec::new(),owner:"test.member".into(),attempt:1,input:input.into(),span:MappedSpan {virtual_range:WireRange {start:code as u64,end:line_end as u64},origins:vec![SourceOrigin {kind:OriginKind::Exact,original_range:WireRange {start:code as u64,end:line_end as u64},expansion:None}]},output:parser_wasm::host::EditorCompletionOutput {typed_inputs:Vec::new(),version:1,complete:true,exclusive:true,inferred:false,proposals:vec![parser_wasm::host::EditorCompletionProposal {id:"label".into(),label:"label()".into(),filter_text:"label".into(),insert_text:"label()".into(),snippet:None,start:absolute_start-code,end:absolute_end-code,detail:"owned declaration".into(),documentation:String::new()}]}});
+        let row=d.lines.position(source,absolute_start).unwrap().line;
+        d.context.get_mut(&row).unwrap().scope=Scope::Raw;
+        d
+    }
     #[test]fn query_edits_are_current_utf16_and_do_not_replace_receiver(){
         let source="on join:\n    set {_é} to player.getN\n";let code=source.find("set").unwrap();let start=source.find("getN").unwrap();let d=document(source,start-code,start+4-code);
         let list=d.at(d.lines.position(source,start+4).unwrap(),false).unwrap();assert_eq!(list.items.len(),1);
         let Some(CompletionTextEdit::Edit(edit))=&list.items[0].text_edit else{panic!()};assert_eq!(edit.new_text,"getName()");assert_eq!(edit.range.start,d.lines.position(source,start).unwrap());
         let mut changed=d;changed.source=Arc::from(source.replace("player.getN","console.getN"));assert!(!changed.at(changed.lines.position(&changed.source,start+4).unwrap(),false).unwrap().items.iter().any(|i|i.label=="getName()"));
+    }
+    #[test]fn raw_section_uses_only_current_provider_query_candidates(){
+        let source="public class Widget:\n    public static java.lang.String use():\n        return Widget.la\n";
+        let start=source.find("Widget.la").unwrap()+"Widget.".len();
+        let end=start+2;
+        let mut d=raw_document(source,start,end);
+        let list=d.at(d.lines.position(source,end).unwrap(),false).unwrap();
+        assert_eq!(list.items.iter().map(|item|item.label.as_str()).collect::<Vec<_>>(),["label()"]);
+        let Some(CompletionTextEdit::Edit(edit))=&list.items[0].text_edit else{panic!()};
+        assert_eq!(edit.new_text,"label()");
+        assert_eq!(edit.range.start,d.lines.position(source,start).unwrap());
+
+        // The same Raw scope never gains ordinary Skript syntax candidates.
+        d.editor_queries.clear();
+        assert!(d.at(d.lines.position(source,end).unwrap(),false).unwrap().items.is_empty());
+    }
+    #[test]fn raw_section_query_respects_strings_comments_and_stale_input(){
+        for (line, cursor_suffix, blocked) in [
+            ("        return \"Widget.la\"", "Widget.la\"", true),
+            ("        # Widget.la", "Widget.la", true),
+            ("        return Widget.la", "Widget.la", false),
+        ] {
+            let source=format!("public class Widget:\n{line}\n");
+            let start=source.find(cursor_suffix).unwrap();
+            let end=start+cursor_suffix.trim_end_matches('"').len();
+            let mut d=raw_document(&source,start,end);
+            if blocked {
+                assert!(d.at(d.lines.position(&source,end).unwrap(),false).unwrap().items.is_empty());
+            } else {
+                let stale="return Widget.other";
+                d.editor_queries[0].input=stale.into();
+                assert!(d.at(d.lines.position(&source,end).unwrap(),false).unwrap().items.is_empty());
+            }
+        }
     }
     #[test]fn several_providers_share_the_same_hard_menu_limit(){
         let source="on join:\n    player.\n";let mut d=document(source,7,7);

@@ -721,6 +721,106 @@ fn only_raw_tree_roots_are_structures_not_nested_nodes() {
     );
 }
 
+#[derive(Default)]
+struct RawBodyEditorQueries {
+    enabled: bool,
+    observed: Vec<(String, TextRange, u64)>,
+}
+
+impl PatternMatchEnvironment for RawBodyEditorQueries {
+    fn resolve_type(
+        &mut self,
+        _: TypeExpressionRequest<'_>,
+    ) -> Result<TypeExpressionOutcome, String> {
+        Ok(TypeExpressionOutcome::default())
+    }
+
+    fn dispatch_hook(&mut self, _: PatternHookEvent<'_>) -> Result<PatternHookControl, String> {
+        Ok(PatternHookControl::Continue)
+    }
+}
+
+impl ExpressionParseEnvironment for RawBodyEditorQueries {
+    fn editor_queries_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn observe_editor_line(
+        &mut self,
+        input: &str,
+        span: &skript_parser::MappedSpan,
+        _: &ExpressionParseContext,
+        owner: u64,
+    ) -> Result<(), String> {
+        self.observed.push((input.to_owned(), span.virtual_range, owner));
+        Ok(())
+    }
+
+    fn state_revision(&self) -> Result<u64, String> {
+        Ok(0)
+    }
+
+    fn parse_expression_leaf(
+        &mut self,
+        _: ExpressionLeafRequest<'_>,
+    ) -> Result<ExpressionLeafParse, String> {
+        Ok(ExpressionLeafParse::default())
+    }
+}
+
+#[test]
+fn raw_structure_bodies_observe_simple_lines_without_parsing_or_observing_trivia() {
+    let catalog = catalog(vec![structure(0, "root", NodeType::Section, None)]);
+    let text = "root:\n    Widget.la\n    # declaration comment\n\n    method():\n        return Widget.label()\n";
+    let source = MappedSource::identity(text);
+    let tree = parse_raw_tree(&source, RawTreeOptions::for_skript_version(2, 15));
+    let mut environment = RawBodyEditorQueries {
+        enabled: true,
+        observed: Vec::new(),
+    };
+    let document = parse_structures(
+        &catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut environment,
+        StructureParserConfig::default(),
+    )
+    .expect("raw body must remain parseable");
+
+    assert!(matches!(&selected(&document).body, StructureBody::Raw(_)));
+    assert_eq!(
+        environment
+            .observed
+            .iter()
+            .map(|(input, _, _)| input.as_str())
+            .collect::<Vec<_>>(),
+        ["Widget.la", "return Widget.label()"]
+    );
+    let owner = environment.observed[0].2;
+    for (input, range, observed_owner) in &environment.observed {
+        assert_eq!(range.slice(text), Some(input.as_str()));
+        assert_eq!(*observed_owner, owner, "queries must stay attached to one preparation owner");
+        assert_ne!(owner, 0, "queries must stay attached to a preparation owner");
+    }
+
+    let mut disabled = RawBodyEditorQueries::default();
+    parse_structures(
+        &catalog,
+        StructureParseRequest {
+            source: &source,
+            tree: &tree,
+            context: ExpressionParseContext::default(),
+        },
+        &mut disabled,
+        StructureParserConfig::default(),
+    )
+    .expect("disabled editor observation must not affect raw parsing");
+    assert!(disabled.observed.is_empty());
+}
+
 #[test]
 fn dynamic_structure_candidate_defaults_to_both_and_retains_handler_metadata() {
     let catalog = catalog(Vec::new());

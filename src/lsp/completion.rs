@@ -764,7 +764,7 @@ impl Document {
         }
         let query_line = self.structure_query_line(line, offset);
         let line = &query_line;
-        if matches!(line.scope, Scope::Pending | Scope::Raw) {
+        if matches!(line.scope, Scope::Pending) {
             return Ok(empty());
         }
         if let Scope::Entries(index) = line.scope {
@@ -777,6 +777,14 @@ impl Document {
             return Ok(empty());
         }
         let editing=self.editing_query_at(line,offset,snippets)?;
+        // Raw sections are deliberately not parsed as Skript statements. A
+        // provider may still offer an exact, current-source editing query
+        // (for example Java members inside an addon's class body). Keep that
+        // narrow channel available without falling through to native syntax
+        // completion for arbitrary raw text.
+        if matches!(line.scope, Scope::Raw) {
+            return Ok(editing.map(|(result, _)| result).unwrap_or_else(empty));
+        }
         if let Some((result,true))=editing.as_ref(){return Ok(result.clone());}
         let finite_captures_current = self
             .index

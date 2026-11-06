@@ -428,6 +428,11 @@ impl Analyzer for ParserAnalyzer {
                         &result,
                         &job.source,
                         &self.catalog,
+                        &document_key(job.uri.as_str()),
+                        // The provider snapshot revision is the parser's document
+                        // generation. LSP textDocument.version is a separate counter
+                        // and cannot authenticate this snapshot.
+                        result.dynamic_syntax.document_revision,
                     ) {
                         Ok(snapshot) => semantic_tokens = Some(snapshot),
                         Err(error) => semantic_error = Some(error),

@@ -1716,6 +1716,97 @@ fn custom_project_host() -> (ParserHost, Arc<Catalog>) {
     host.load_addon(&fs::read(candidate).unwrap()).unwrap();
     (host,catalog)
 }
+
+#[test]
+#[ignore = "requires explicit Hippo/Reflect components and a matching saved SSG snapshot"]
+fn hippo_dynamic_structure_semantic_token_profile() {
+    let snapshot_path = std::env::var("SKRIPT_HIPPO_SNAPSHOT").expect("explicit SSG snapshot required");
+    let reflect_path = std::env::var("SKRIPT_REFLECT_COMPONENT").expect("explicit Reflect component required");
+    let hippo_path = std::env::var("SKRIPT_HIPPO_COMPONENT").expect("explicit Hippo component required");
+    let project_path = std::env::var("SKRIPT_HIPPO_PROJECT").expect("explicit tryout project required");
+    let catalog = Arc::new(ssg::load(Path::new(&snapshot_path)).unwrap().into_catalog());
+    let mut host = crate::new_parser_host(parser_wasm::HostConfig {
+        syntax_catalog: Some(Arc::clone(&catalog)),
+        ..Default::default()
+    }).unwrap();
+    host.load_addon(&fs::read(reflect_path).unwrap()).unwrap();
+    host.load_addon(&fs::read(hippo_path).unwrap()).unwrap();
+
+    let root = tempfile::tempdir().unwrap();
+    // Project parsing gives this open document a native parser generation above
+    // its LSP version, reproducing the two independent revision counters.
+    fs::write(root.path().join("0-prerequisite.sk"), "on load:\n").unwrap();
+    let path = root.path().join("api.sk");
+    let text = fs::read_to_string(Path::new(&project_path).join("api.sk")).unwrap();
+    fs::write(&path, &text).unwrap();
+    let source = view(&path, &text, 1, 1);
+    let snapshot = ProjectSnapshot { epoch: 1, root: root.path().into(), open: vec![source.clone()] };
+    let mut index = ProjectIndex::new();
+    let analysis = analyze(&mut index, &mut host, &catalog, &snapshot);
+    assert_ne!(analysis.result.dynamic_syntax.document_revision, source.generation);
+
+    let selected_class = analysis.result.syntax.roots.iter().find_map(|root| {
+        let skript_parser::StructureDocumentNode::Structure(matches) = root else {
+            return None;
+        };
+        let candidate = matches.selected.as_ref()?;
+        candidate.matched.pattern.contains("public class").then_some(candidate)
+    });
+    assert!(selected_class.is_some(), "Hippo class header must be a selected native structure");
+    assert!(analysis.result.ast.nodes.iter().any(|node| {
+        node.kind == parser_wasm::bindings::nlaocs::skript_parser_addon::types::SyntaxKind::Structure
+            && node.text.contains("public class")
+    }), "selected class header must be represented in the AST");
+
+    let token_caps: lsp_types::SemanticTokensClientCapabilities = serde_json::from_value(serde_json::json!({
+        "requests":{"full":true},"tokenTypes":["skriptStructure"],"tokenModifiers":[],"formats":["relative"]
+    })).unwrap();
+    let legend = super::super::semantic_tokens::Legend::negotiate(Some(&token_caps)).unwrap();
+    let document_id = super::document_key(source.uri.as_str());
+    assert_eq!(document_id, analysis.result.dynamic_syntax.document_id);
+    let token_document = super::super::semantic_tokens::Document::from_result(
+        &analysis.result,
+        &text,
+        &catalog,
+        &document_id,
+        analysis.result.dynamic_syntax.document_revision,
+    ).unwrap();
+    let encoded = token_document.full(&legend).data;
+    let rows: Vec<_> = text.lines().collect();
+    let class_line = rows.iter().position(|line| line.starts_with("public class Widget")).unwrap();
+    let mut line = 0u32;
+    let mut character = 0u32;
+    let mut class_parts = Vec::new();
+    for token in &encoded {
+        let delta_line = token.delta_line;
+        line += delta_line;
+        character = if delta_line == 0 {
+            character + token.delta_start
+        } else {
+            token.delta_start
+        };
+        if line as usize == class_line {
+            let start = character as usize;
+            let end = start + token.length as usize;
+            if let Some(part) = rows[class_line].get(start..end) {
+                class_parts.push(part.to_owned());
+            }
+        }
+    }
+    assert!(class_parts.iter().any(|part| part == "public"));
+    assert!(class_parts.iter().any(|part| part == "class"));
+
+    let stale_document = super::super::semantic_tokens::Document::from_result(
+        &analysis.result,
+        &text,
+        &catalog,
+        &document_id,
+        source.generation,
+    ).unwrap();
+    let stale_tokens = stale_document.full(&legend).data;
+    assert_eq!(stale_tokens.len(), encoded.len() - class_parts.len());
+}
+
 fn analyze(index:&mut ProjectIndex,host:&mut ParserHost,catalog:&Arc<Catalog>,snapshot:&ProjectSnapshot)->ProjectAnalysis {
     index.analyze(host,Arc::clone(catalog),"file:///custom-project",snapshot,&snapshot.open[0].uri,
         Default::default(),&mut |_|{}).unwrap()
